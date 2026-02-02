@@ -1,0 +1,11 @@
+[
+  {
+    "id": "prod_airtel_talkmore_1000",
+    "name": "Airtel TalkMore 1000",
+    "base_cost": 900,
+    "selling_price": 1000,
+    "margin_percent": 10,
+    "category": "voice",
+    "updated_at": "2026-01-26T18:52:48.028Z"
+  }
+]

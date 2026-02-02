@@ -1,0 +1,1068 @@
+[
+  {
+    "id": "job_1769445895644_h06oicjs1",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 190
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:44:55.644Z",
+    "updated_at": "2026-01-26T16:44:55.665Z",
+    "completed_at": "2026-01-26T16:44:55.750Z"
+  },
+  {
+    "id": "job_1769446266638_bwi8ro7hi",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 188
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:51:06.638Z",
+    "updated_at": "2026-01-26T16:51:06.649Z",
+    "completed_at": "2026-01-26T16:51:06.664Z"
+  },
+  {
+    "id": "job_1769446326657_qckc74vig",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:52:06.658Z",
+    "updated_at": "2026-01-26T16:52:06.667Z",
+    "completed_at": "2026-01-26T16:52:06.678Z"
+  },
+  {
+    "id": "job_1769446386672_zqvo8tz4x",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 187
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:53:06.681Z",
+    "updated_at": "2026-01-26T16:53:06.718Z",
+    "completed_at": "2026-01-26T16:53:06.998Z"
+  },
+  {
+    "id": "job_1769446446675_exknonamm",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 189
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:54:06.679Z",
+    "updated_at": "2026-01-26T16:54:06.684Z",
+    "completed_at": "2026-01-26T16:54:06.693Z"
+  },
+  {
+    "id": "job_1769446506687_mhjsp0htj",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 186
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:55:06.690Z",
+    "updated_at": "2026-01-26T16:55:06.726Z",
+    "completed_at": "2026-01-26T16:55:06.732Z"
+  },
+  {
+    "id": "job_1769446566697_4v1v1a4bo",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 189
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:56:06.698Z",
+    "updated_at": "2026-01-26T16:56:06.734Z",
+    "completed_at": "2026-01-26T16:56:06.747Z"
+  },
+  {
+    "id": "job_1769446626715_21q15miml",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 187
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:57:06.715Z",
+    "updated_at": "2026-01-26T16:57:06.780Z",
+    "completed_at": "2026-01-26T16:57:06.802Z"
+  },
+  {
+    "id": "job_1769446686717_e804ry6eo",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 189
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:58:06.717Z",
+    "updated_at": "2026-01-26T16:58:06.736Z",
+    "completed_at": "2026-01-26T16:58:06.744Z"
+  },
+  {
+    "id": "job_1769446746735_mqb249lj2",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 188
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T16:59:06.742Z",
+    "updated_at": "2026-01-26T16:59:06.797Z",
+    "completed_at": "2026-01-26T16:59:06.842Z"
+  },
+  {
+    "id": "job_1769446806746_c2u3lt71g",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:00:06.755Z",
+    "updated_at": "2026-01-26T17:00:06.808Z",
+    "completed_at": "2026-01-26T17:00:06.859Z"
+  },
+  {
+    "id": "job_1769446866738_vrow6v4wp",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 187
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:01:06.738Z",
+    "updated_at": "2026-01-26T17:01:06.756Z",
+    "completed_at": "2026-01-26T17:01:06.763Z"
+  },
+  {
+    "id": "job_1769446926744_uvqqku35n",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 188
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:02:06.744Z",
+    "updated_at": "2026-01-26T17:02:06.760Z",
+    "completed_at": "2026-01-26T17:02:06.770Z"
+  },
+  {
+    "id": "job_1769446986756_gqdw8ek6m",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 184
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:03:06.756Z",
+    "updated_at": "2026-01-26T17:03:06.758Z",
+    "completed_at": "2026-01-26T17:03:06.773Z"
+  },
+  {
+    "id": "job_1769447046765_x46u9q5dy",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 187
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:04:06.765Z",
+    "updated_at": "2026-01-26T17:04:06.773Z",
+    "completed_at": "2026-01-26T17:04:06.788Z"
+  },
+  {
+    "id": "job_1769447106922_a6kt9y88z",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:05:07.017Z",
+    "updated_at": "2026-01-26T17:05:07.103Z",
+    "completed_at": "2026-01-26T17:05:07.136Z"
+  },
+  {
+    "id": "job_1769447166786_tpnzad5v5",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 187
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:06:06.787Z",
+    "updated_at": "2026-01-26T17:06:06.809Z",
+    "completed_at": "2026-01-26T17:06:06.825Z"
+  },
+  {
+    "id": "job_1769447226790_w9dm3hwyl",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:07:06.790Z",
+    "updated_at": "2026-01-26T17:07:06.801Z",
+    "completed_at": "2026-01-26T17:07:06.806Z"
+  },
+  {
+    "id": "job_1769447286800_hzyu64kzx",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 183
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:08:06.804Z",
+    "updated_at": "2026-01-26T17:08:06.835Z",
+    "completed_at": "2026-01-26T17:08:06.856Z"
+  },
+  {
+    "id": "job_1769447346802_3htyysy6c",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 181
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:09:06.803Z",
+    "updated_at": "2026-01-26T17:09:06.823Z",
+    "completed_at": "2026-01-26T17:09:06.836Z"
+  },
+  {
+    "id": "job_1769447406810_5xwfsrukn",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 183
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:10:06.810Z",
+    "updated_at": "2026-01-26T17:10:06.832Z",
+    "completed_at": "2026-01-26T17:10:06.838Z"
+  },
+  {
+    "id": "job_1769447466822_bycwmz5gc",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 181
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:11:06.822Z",
+    "updated_at": "2026-01-26T17:11:06.837Z",
+    "completed_at": "2026-01-26T17:11:06.867Z"
+  },
+  {
+    "id": "job_1769447526837_b3t874byt",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 183
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:12:06.839Z",
+    "updated_at": "2026-01-26T17:12:06.922Z",
+    "completed_at": "2026-01-26T17:12:06.935Z"
+  },
+  {
+    "id": "job_1769447586859_5x9w6lp8b",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 181
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:13:06.864Z",
+    "updated_at": "2026-01-26T17:13:06.947Z",
+    "completed_at": "2026-01-26T17:13:06.965Z"
+  },
+  {
+    "id": "job_1769447646855_zhuyu6bsp",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 182
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:14:06.856Z",
+    "updated_at": "2026-01-26T17:14:06.872Z",
+    "completed_at": "2026-01-26T17:14:06.877Z"
+  },
+  {
+    "id": "job_1769447706869_vhllrjzfk",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 183
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:15:06.869Z",
+    "updated_at": "2026-01-26T17:15:06.873Z",
+    "completed_at": "2026-01-26T17:15:06.929Z"
+  },
+  {
+    "id": "job_1769447766878_zv71uap5x",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:16:06.878Z",
+    "updated_at": "2026-01-26T17:16:06.907Z",
+    "completed_at": "2026-01-26T17:16:06.917Z"
+  },
+  {
+    "id": "job_1769447886891_0ka7oy9id",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 187
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:18:06.900Z",
+    "updated_at": "2026-01-26T17:18:06.998Z",
+    "completed_at": "2026-01-26T17:18:07.032Z"
+  },
+  {
+    "id": "job_1769448006907_n32phblr6",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 189
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:20:06.909Z",
+    "updated_at": "2026-01-26T17:20:06.961Z",
+    "completed_at": "2026-01-26T17:20:06.973Z"
+  },
+  {
+    "id": "job_1769448067003_byqvfa0ge",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 188
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:21:07.015Z",
+    "updated_at": "2026-01-26T17:21:07.220Z",
+    "completed_at": "2026-01-26T17:21:08.378Z"
+  },
+  {
+    "id": "job_1769448126937_61r8qfvq5",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:22:06.944Z",
+    "updated_at": "2026-01-26T17:22:07.030Z",
+    "completed_at": "2026-01-26T17:22:07.073Z"
+  },
+  {
+    "id": "job_1769448241025_76qza67f2",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 186
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:24:01.025Z",
+    "updated_at": "2026-01-26T17:24:01.031Z",
+    "completed_at": "2026-01-26T17:24:01.044Z"
+  },
+  {
+    "id": "job_1769448326525_rbp62aehx",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 188
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:25:26.526Z",
+    "updated_at": "2026-01-26T17:25:26.532Z",
+    "completed_at": "2026-01-26T17:25:26.541Z"
+  },
+  {
+    "id": "job_1769448386528_60mbshahl",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 190
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:26:26.529Z",
+    "updated_at": "2026-01-26T17:26:26.539Z",
+    "completed_at": "2026-01-26T17:26:26.549Z"
+  },
+  {
+    "id": "job_1769448446543_yqrpo4pgd",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 189
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:27:26.547Z",
+    "updated_at": "2026-01-26T17:27:26.571Z",
+    "completed_at": "2026-01-26T17:27:26.590Z"
+  },
+  {
+    "id": "job_1769448506556_vqa02lg4o",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 187
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:28:26.556Z",
+    "updated_at": "2026-01-26T17:28:26.564Z",
+    "completed_at": "2026-01-26T17:28:26.568Z"
+  },
+  {
+    "id": "job_1769448566926_jczjc9vtq",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 189
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:29:26.954Z",
+    "updated_at": "2026-01-26T17:29:27.058Z",
+    "completed_at": "2026-01-26T17:29:27.080Z"
+  },
+  {
+    "id": "job_1769448626686_1cqw5ydnx",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 192
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:30:26.701Z",
+    "updated_at": "2026-01-26T17:30:26.880Z",
+    "completed_at": "2026-01-26T17:30:26.930Z"
+  },
+  {
+    "id": "job_1769448746674_3y5pf72dp",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 190
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:32:26.675Z",
+    "updated_at": "2026-01-26T17:32:26.746Z",
+    "completed_at": "2026-01-26T17:32:26.772Z"
+  },
+  {
+    "id": "job_1769448806681_bz8nhoccy",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 186
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:33:26.682Z",
+    "updated_at": "2026-01-26T17:33:26.702Z",
+    "completed_at": "2026-01-26T17:33:26.721Z"
+  },
+  {
+    "id": "job_1769448866686_9w8vint8q",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:34:26.686Z",
+    "updated_at": "2026-01-26T17:34:26.692Z",
+    "completed_at": "2026-01-26T17:34:26.700Z"
+  },
+  {
+    "id": "job_1769448926709_cxdbhnope",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 188
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:35:26.711Z",
+    "updated_at": "2026-01-26T17:35:26.726Z",
+    "completed_at": "2026-01-26T17:35:26.736Z"
+  },
+  {
+    "id": "job_1769448986720_y522ooe5n",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 189
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:36:26.722Z",
+    "updated_at": "2026-01-26T17:36:26.752Z",
+    "completed_at": "2026-01-26T17:36:26.760Z"
+  },
+  {
+    "id": "job_1769449046727_vrgqs86u6",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 190
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:37:26.729Z",
+    "updated_at": "2026-01-26T17:37:26.734Z",
+    "completed_at": "2026-01-26T17:37:26.740Z"
+  },
+  {
+    "id": "job_1769449106739_4ia4exdid",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 192
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:38:26.747Z",
+    "updated_at": "2026-01-26T17:38:26.786Z",
+    "completed_at": "2026-01-26T17:38:26.811Z"
+  },
+  {
+    "id": "job_1769449166741_1br8wv26a",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 191
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:39:26.741Z",
+    "updated_at": "2026-01-26T17:39:26.748Z",
+    "completed_at": "2026-01-26T17:39:26.758Z"
+  },
+  {
+    "id": "job_1769449286755_pgt4p4ypx",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 188
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:41:26.760Z",
+    "updated_at": "2026-01-26T17:41:26.794Z",
+    "completed_at": "2026-01-26T17:41:26.820Z"
+  },
+  {
+    "id": "job_1769449346774_l0yd0df4t",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:42:26.774Z",
+    "updated_at": "2026-01-26T17:42:26.791Z",
+    "completed_at": "2026-01-26T17:42:26.817Z"
+  },
+  {
+    "id": "job_1769449406784_xoooe3m5x",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 182
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:43:26.784Z",
+    "updated_at": "2026-01-26T17:43:26.800Z",
+    "completed_at": "2026-01-26T17:43:26.824Z"
+  },
+  {
+    "id": "job_1769449466797_kuhuorwg4",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 179
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:44:26.798Z",
+    "updated_at": "2026-01-26T17:44:26.812Z",
+    "completed_at": "2026-01-26T17:44:26.822Z"
+  },
+  {
+    "id": "job_1769449526798_lxi0p3gc8",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 178
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:45:26.798Z",
+    "updated_at": "2026-01-26T17:45:26.806Z",
+    "completed_at": "2026-01-26T17:45:26.812Z"
+  },
+  {
+    "id": "job_1769449586805_582jg1vlb",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 176
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:46:26.808Z",
+    "updated_at": "2026-01-26T17:46:26.830Z",
+    "completed_at": "2026-01-26T17:46:26.867Z"
+  },
+  {
+    "id": "job_1769449646819_jvmlol6io",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 174
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:47:26.819Z",
+    "updated_at": "2026-01-26T17:47:26.824Z",
+    "completed_at": "2026-01-26T17:47:26.834Z"
+  },
+  {
+    "id": "job_1769449706828_n8h8ole6m",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 173
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:48:26.835Z",
+    "updated_at": "2026-01-26T17:48:26.915Z",
+    "completed_at": "2026-01-26T17:48:26.941Z"
+  },
+  {
+    "id": "job_1769449826869_0iv7rb6s0",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 172
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:50:26.886Z",
+    "updated_at": "2026-01-26T17:50:26.968Z",
+    "completed_at": "2026-01-26T17:50:27.035Z"
+  },
+  {
+    "id": "job_1769449946902_yuwsfegc2",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 173
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:52:26.902Z",
+    "updated_at": "2026-01-26T17:52:26.937Z",
+    "completed_at": "2026-01-26T17:52:26.968Z"
+  },
+  {
+    "id": "job_1769450006867_qyaheil09",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 174
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:53:26.867Z",
+    "updated_at": "2026-01-26T17:53:26.876Z",
+    "completed_at": "2026-01-26T17:53:26.893Z"
+  },
+  {
+    "id": "job_1769450126881_h8ht3ycez",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 173
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:55:26.884Z",
+    "updated_at": "2026-01-26T17:55:26.916Z",
+    "completed_at": "2026-01-26T17:55:26.953Z"
+  },
+  {
+    "id": "job_1769450186890_t5s2pr1wn",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 174
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T17:56:26.891Z",
+    "updated_at": "2026-01-26T17:56:26.898Z",
+    "completed_at": "2026-01-26T17:56:26.913Z"
+  },
+  {
+    "id": "job_1769453568533_10fm1du22",
+    "type": "SEND_SMS",
+    "data": {
+      "phone": "08012345678",
+      "message": "Your Voice Bundle TalkMore 1000 was successful. Ref: VOICE-1769453568499"
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T18:52:48.533Z",
+    "updated_at": "2026-01-26T18:52:48.540Z",
+    "completed_at": "2026-01-26T18:52:49.074Z"
+  },
+  {
+    "id": "job_1769453917052_c9ssstchs",
+    "type": "SEND_SMS",
+    "data": {
+      "phone": "08012345678",
+      "message": "Your Voice Bundle TalkMore 1000 was successful. Ref: VOICE-1769453917013"
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T18:58:37.052Z",
+    "updated_at": "2026-01-26T18:58:37.058Z",
+    "completed_at": "2026-01-26T18:58:37.573Z"
+  },
+  {
+    "id": "job_1769456754862_hjfkru47c",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 891
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:45:54.870Z",
+    "updated_at": "2026-01-26T19:45:54.962Z",
+    "completed_at": "2026-01-26T19:45:54.996Z"
+  },
+  {
+    "id": "job_1769456879102_mnrav5sp0",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 176
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:47:59.106Z",
+    "updated_at": "2026-01-26T19:47:59.138Z",
+    "completed_at": "2026-01-26T19:47:59.160Z"
+  },
+  {
+    "id": "job_1769456941296_7xd1v3sgy",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 178
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:49:01.296Z",
+    "updated_at": "2026-01-26T19:49:01.346Z",
+    "completed_at": "2026-01-26T19:49:01.366Z"
+  },
+  {
+    "id": "job_1769457004903_zhvhs4cc9",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 883
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:50:04.903Z",
+    "updated_at": "2026-01-26T19:50:04.912Z",
+    "completed_at": "2026-01-26T19:50:04.927Z"
+  },
+  {
+    "id": "job_1769457067620_9rxmp6yhb",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 885
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:51:07.620Z",
+    "updated_at": "2026-01-26T19:51:07.630Z",
+    "completed_at": "2026-01-26T19:51:07.639Z"
+  },
+  {
+    "id": "job_1769457129213_v49l80cf0",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 179
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:52:09.213Z",
+    "updated_at": "2026-01-26T19:52:09.217Z",
+    "completed_at": "2026-01-26T19:52:09.224Z"
+  },
+  {
+    "id": "job_1769457191110_9st16aq91",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 901
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:53:11.115Z",
+    "updated_at": "2026-01-26T19:53:11.203Z",
+    "completed_at": "2026-01-26T19:53:11.245Z"
+  },
+  {
+    "id": "job_1769457255376_aj4jyk4we",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 886
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:54:15.377Z",
+    "updated_at": "2026-01-26T19:54:15.396Z",
+    "completed_at": "2026-01-26T19:54:15.404Z"
+  },
+  {
+    "id": "job_1769457317416_1f6nfp92x",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 901
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:55:17.416Z",
+    "updated_at": "2026-01-26T19:55:17.422Z",
+    "completed_at": "2026-01-26T19:55:17.430Z"
+  },
+  {
+    "id": "job_1769457378625_odc49k0e9",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 894
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:56:18.625Z",
+    "updated_at": "2026-01-26T19:56:18.640Z",
+    "completed_at": "2026-01-26T19:56:18.648Z"
+  },
+  {
+    "id": "job_1769457440147_06tcxmjlv",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 892
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:57:20.147Z",
+    "updated_at": "2026-01-26T19:57:20.155Z",
+    "completed_at": "2026-01-26T19:57:20.166Z"
+  },
+  {
+    "id": "job_1769457501851_xcz3yf3bp",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 882
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:58:21.851Z",
+    "updated_at": "2026-01-26T19:58:21.856Z",
+    "completed_at": "2026-01-26T19:58:21.863Z"
+  },
+  {
+    "id": "job_1769457563166_46eb07ilx",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 181
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T19:59:23.166Z",
+    "updated_at": "2026-01-26T19:59:23.175Z",
+    "completed_at": "2026-01-26T19:59:23.187Z"
+  },
+  {
+    "id": "job_1769457624792_67b1y8u8x",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 867
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T20:00:24.792Z",
+    "updated_at": "2026-01-26T20:00:24.806Z",
+    "completed_at": "2026-01-26T20:00:24.819Z"
+  },
+  {
+    "id": "job_1769457686095_11yu15a7u",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 858
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T20:01:26.095Z",
+    "updated_at": "2026-01-26T20:01:26.104Z",
+    "completed_at": "2026-01-26T20:01:26.556Z"
+  },
+  {
+    "id": "job_1769457808500_l0fyjbclr",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 182
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T20:03:28.504Z",
+    "updated_at": "2026-01-26T20:03:28.528Z",
+    "completed_at": "2026-01-26T20:03:28.578Z"
+  },
+  {
+    "id": "job_1769457933963_qye5i3k2l",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 185
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T20:05:33.964Z",
+    "updated_at": "2026-01-26T20:05:33.988Z",
+    "completed_at": "2026-01-26T20:05:34.000Z"
+  },
+  {
+    "id": "job_1769457995481_clz0jfgum",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_1000",
+      "newCost": 843
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T20:06:35.481Z",
+    "updated_at": "2026-01-26T20:06:35.498Z",
+    "completed_at": "2026-01-26T20:06:35.510Z"
+  },
+  {
+    "id": "job_1769458056777_1p0djyxk0",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 189
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T20:07:36.777Z",
+    "updated_at": "2026-01-26T20:07:36.809Z",
+    "completed_at": "2026-01-26T20:07:36.820Z"
+  },
+  {
+    "id": "job_1769458118360_d60dg5ktx",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 191
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T20:08:38.363Z",
+    "updated_at": "2026-01-26T20:08:38.403Z",
+    "completed_at": "2026-01-26T20:08:38.415Z"
+  },
+  {
+    "id": "job_1769458180697_n0mvcdox4",
+    "type": "SYNC_PRICES",
+    "data": {
+      "productId": "prod_airtel_talkmore_200",
+      "newCost": 188
+    },
+    "status": "completed",
+    "attempts": 0,
+    "created_at": "2026-01-26T20:09:40.697Z",
+    "updated_at": "2026-01-26T20:09:40.726Z",
+    "completed_at": "2026-01-26T20:09:40.740Z"
+  }
+]

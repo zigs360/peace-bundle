@@ -1,0 +1,51 @@
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Home from './pages/Home';
+
+// Admin Imports
+import AdminDashboard from './pages/admin/AdminDashboard';
+import Transactions from './pages/admin/AdminTransactionsPage';
+import Pricing from './pages/Pricing';
+import AdminLayout from './components/Layout';
+
+// User Dashboard Imports
+import DashboardLayout from './pages/dashboard/DashboardLayout';
+import DashboardHome from './pages/dashboard/DashboardHome';
+import WalletPage from './pages/dashboard/WalletPage';
+import BuyDataPage from './pages/dashboard/BuyDataPage';
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+
+        {/* Admin Routes */}
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminDashboard />} />
+          <Route path="transactions" element={<Transactions />} />
+          <Route path="pricing" element={<Pricing />} />
+        </Route>
+
+        {/* User Dashboard Routes */}
+        <Route path="/dashboard" element={<DashboardLayout />}>
+          <Route index element={<DashboardHome />} />
+          <Route path="wallet" element={<WalletPage />} />
+          <Route path="buy-data" element={<BuyDataPage />} />
+          <Route path="airtime" element={<div className="p-6">Airtime Page (Coming Soon)</div>} />
+          <Route path="fund-wallet" element={<div className="p-6">Fund Wallet Page (Coming Soon)</div>} />
+          <Route path="withdraw" element={<div className="p-6">Withdraw Page (Coming Soon)</div>} />
+        </Route>
+
+        {/* Catch all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
