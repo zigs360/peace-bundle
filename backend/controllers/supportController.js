@@ -48,7 +48,7 @@ const getUserTickets = async (req, res) => {
 const getAllTickets = async (req, res) => {
     try {
         const tickets = await SupportTicket.findAll({
-            include: [{ model: User, attributes: ['name', 'email'] }],
+            include: [{ model: User, as: 'User', attributes: ['name', 'email'] }],
             order: [['createdAt', 'DESC']]
         });
         res.json(tickets);
@@ -64,7 +64,7 @@ const getAllTickets = async (req, res) => {
 const getTicketById = async (req, res) => {
     try {
         const ticket = await SupportTicket.findByPk(req.params.id, {
-            include: [{ model: User, attributes: ['name', 'email'] }]
+            include: [{ model: User, as: 'User', attributes: ['name', 'email'] }]
         });
 
         if (!ticket) {

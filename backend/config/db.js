@@ -99,16 +99,16 @@ const connectDB = async () => {
     User.hasMany(Referral, { foreignKey: 'referrerId', as: 'ReferralsMade', onDelete: 'CASCADE' });
     Referral.belongsTo(User, { foreignKey: 'referrerId', as: 'Referrer' });
 
+    // Support Ticket Associations
+    User.hasMany(SupportTicket, { foreignKey: 'userId', as: 'Tickets', onDelete: 'CASCADE' });
+    SupportTicket.belongsTo(User, { foreignKey: 'userId', as: 'User' });
+
     User.hasMany(Referral, { foreignKey: 'referredUserId', as: 'ReferralData', onDelete: 'CASCADE' }); 
     Referral.belongsTo(User, { foreignKey: 'referredUserId', as: 'ReferredUser' });
 
     // ApiKey Associations
     User.hasMany(ApiKey, { foreignKey: 'userId', onDelete: 'CASCADE' });
     ApiKey.belongsTo(User, { foreignKey: 'userId' });
-
-    // SupportTicket Associations
-    User.hasMany(SupportTicket, { foreignKey: 'userId', as: 'Tickets', onDelete: 'CASCADE' });
-    SupportTicket.belongsTo(User, { foreignKey: 'userId', as: 'User' });
 
     User.hasMany(SupportTicket, { foreignKey: 'assignedTo', as: 'AssignedTickets', onDelete: 'SET NULL' });
     SupportTicket.belongsTo(User, { foreignKey: 'assignedTo', as: 'AssignedAdmin' });
@@ -123,7 +123,7 @@ const connectDB = async () => {
        await SystemSetting.bulkCreate([
          { key: 'site_name', value: 'Peace Bundle', type: 'string', group: 'general' },
          { key: 'site_url', value: 'https://peacebundle.com', type: 'string', group: 'general' },
-         { key: 'referral_bonus_percentage', value: '2.5', type: 'integer', group: 'commission' },
+         { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
        ]);
        console.log('Default System Settings Seeded');
     }

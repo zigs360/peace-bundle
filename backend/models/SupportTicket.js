@@ -46,9 +46,11 @@ const SupportTicket = sequelize.define('SupportTicket', {
   timestamps: true,
   tableName: 'support_tickets',
   hooks: {
-    beforeCreate: (ticket) => {
-      // Generate Ticket Number: TKT-RANDOM8
-      ticket.ticket_number = 'TKT-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+    beforeValidate: (ticket) => {
+      if (!ticket.ticket_number) {
+        // Generate Ticket Number: TKT-RANDOM8
+        ticket.ticket_number = 'TKT-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+      }
     }
   },
   scopes: {

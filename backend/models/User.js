@@ -90,7 +90,7 @@ const User = sequelize.define('User', {
 User.afterCreate(async (user) => {
   const Wallet = require('./Wallet');
   try {
-    await Wallet.create({ UserId: user.id });
+    await Wallet.create({ userId: user.id });
   } catch (error) {
     console.error('Failed to create wallet for user:', user.id, error);
   }

@@ -5,7 +5,7 @@ const Commission = require('../models/Commission');
 const Referral = require('../models/Referral');
 const SystemSetting = require('../models/SystemSetting');
 const DataPlan = require('../models/DataPlan');
-const { sendTransactionNotification } = require('../services/notificationService');
+const { sendTransactionNotification, sendSMS } = require('../services/notificationService');
 const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
 const simManagementService = require('../services/simManagementService');
@@ -585,9 +585,21 @@ const sendBulkSMS = async (req, res) => {
             t
         );
 
-        // Send SMS Logic here (Termii or other)
-        
         await t.commit();
+
+        // Send SMS via Termii (Async to avoid blocking response)
+        // We use the sendSMS service which now handles Termii integration
+        // Note: For very large lists, this should be moved to a background job (Queue)
+        
+        // Fire and forget (or await if critical)
+        Promise.allSettled(recipientList.map(recipient => 
+            sendSMS(recipient, message)
+        )).then(results => {
+            console.log(`Bulk SMS Processed: ${results.length} messages`);
+        }).catch(err => {
+            console.error('Bulk SMS Error:', err);
+        });
+        
         res.json({ message: 'SMS sent successfully', cost });
     } catch (error) {
         await t.rollback();
