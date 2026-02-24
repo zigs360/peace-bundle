@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { Wifi, Smartphone, CheckCircle } from 'lucide-react';
+import { SlideUp, FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
 
-const NETWORKS = ['MTN', 'AIRTEL', 'GLO', '9MOBILE'];
+const NETWORKS = ['mtn', 'airtel', 'glo', '9mobile'];
 
 interface DataPlan {
   id: string;
@@ -86,7 +87,7 @@ export default function BuyData() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="flex items-center mb-8">
+      <FadeIn className="flex items-center mb-8">
         <div className="p-3 bg-primary-100 rounded-full mr-4">
           <Wifi className="w-8 h-8 text-primary-600" />
         </div>
@@ -94,9 +95,9 @@ export default function BuyData() {
             <h1 className="text-2xl font-bold text-gray-800">Buy Data Bundle</h1>
             <p className="text-gray-600">Purchase data plans for all networks instantly</p>
         </div>
-      </div>
+      </FadeIn>
 
-      <div className="bg-white p-8 rounded-lg shadow-md border border-gray-100">
+      <SlideUp className="bg-white p-8 rounded-lg shadow-md border border-gray-100">
         {message && (
             <div className={`p-4 mb-6 rounded-md ${
             message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
@@ -107,23 +108,7 @@ export default function BuyData() {
 
         <form onSubmit={handleBuy}>
             <div className="mb-6">
-            <label className="block text-gray-700 font-bold mb-3">Select Network</label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {NETWORKS.map((net) => (
-                <button
-                    key={net}
-                    type="button"
-                    onClick={() => setNetwork(net)}
-                    className={`py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center ${
-                    network === net
-                        ? 'border-primary-500 bg-primary-50 text-primary-700 font-bold'
-                        : 'border-gray-200 hover:border-gray-300 text-gray-600'
-                    }`}
-                >
-                    <span className="text-sm">{net}</span>
-                </button>
-                ))}
-            </div>
+                <SelectProvider value={network} onChange={setNetwork} />
             </div>
 
             <div className="mb-6">
@@ -131,9 +116,9 @@ export default function BuyData() {
             {plansLoading ? (
                 <div className="text-center py-4 text-gray-500">Loading plans...</div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
                     {plans.map((plan) => (
-                        <div 
+                        <StaggerItem 
                             key={plan.id}
                             onClick={() => setSelectedPlanId(plan.id)}
                             className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${
@@ -150,9 +135,9 @@ export default function BuyData() {
                                 <span className="font-bold text-primary-600 mr-2">₦{plan.price}</span>
                                 {selectedPlanId === plan.id && <CheckCircle className="w-4 h-4 text-primary-600" />}
                             </div>
-                        </div>
+                        </StaggerItem>
                     ))}
-                </div>
+                </StaggerContainer>
             )}
             </div>
 
@@ -173,17 +158,19 @@ export default function BuyData() {
             </div>
             </div>
 
-            <button
-            type="submit"
-            disabled={loading || plansLoading || !selectedPlanId}
-            className={`w-full py-3 px-4 bg-primary-600 text-white font-bold rounded-lg hover:bg-primary-700 transition duration-200 ${
-                (loading || plansLoading || !selectedPlanId) ? 'opacity-70 cursor-not-allowed' : ''
-            }`}
-            >
-            {loading ? 'Processing...' : 'Purchase Data Bundle'}
-            </button>
+            <HoverCard>
+              <button
+              type="submit"
+              disabled={loading || plansLoading || !selectedPlanId}
+              className={`w-full py-3 px-4 bg-primary-600 text-white font-bold rounded-lg hover:bg-primary-700 transition duration-200 ${
+                  (loading || plansLoading || !selectedPlanId) ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
+              >
+              {loading ? 'Processing...' : 'Purchase Data Bundle'}
+              </button>
+            </HoverCard>
         </form>
-      </div>
+      </SlideUp>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 const { Sim, SystemSetting, User } = require('../models');
 const ussdParserService = require('./ussdParserService');
+const smeplugService = require('./smeplugService');
 const winston = require('winston');
 const { sequelize } = require('../config/db');
 
@@ -181,44 +182,74 @@ class SimManagementService {
             throw new Error('SIM daily limit reached or inactive');
         }
 
-        // 2. Construct USSD code (Mock logic based on provider/plan)
-        // In reality, this would be a lookup table or template
-        // e.g. *131*...#
-        // We'll simulate a successful USSD response
-        const ussdCode = `*123*${plan.size_mb}*${recipientPhone}#`; 
-        logger.info(`Sending USSD ${ussdCode} via SIM ${sim.phoneNumber}`);
+        let success = false;
+        let response = null;
+        let reference = null;
 
-        // 3. Simulate Network Delay
-        // await new Promise(resolve => setTimeout(resolve, 500));
+        // 2. Determine execution method based on SIM type
+        if (sim.type === 'sim_system' || sim.type === 'device_based') {
+            // Use SMEPlug API for hosted SIMs
+            // Map our plan to SMEPlug plan ID (use smeplug_plan_id or fallback to plan.id)
+            const smeplugPlanId = plan.smeplug_plan_id || plan.id;
+            const networkId = smeplugService.getNetworkId(plan.provider);
 
-        // 4. Mock Success Response
-        const success = true; 
+            logger.info(`Processing transaction via SMEPlug SIM ${sim.phoneNumber} for ${recipientPhone}`);
+
+            const result = await smeplugService.purchaseData({
+                network_id: networkId,
+                plan_id: smeplugPlanId,
+                phone: recipientPhone,
+                mode: 'device_based', // Force device_based mode
+                sim_number: sim.phoneNumber // Specify the SIM to use
+            });
+
+            if (result.success) {
+                success = true;
+                response = result.data;
+                reference = result.data?.reference;
+                
+                // Update local balance estimate if possible
+                // (Optional: depending on API response structure)
+            } else {
+                throw new Error(result.error || 'SMEPlug SIM transaction failed');
+            }
+
+        } else {
+            // Legacy/Mock local USSD execution (for testing or direct hardware integration)
+            // ... existing mock logic ...
+            const ussdCode = `*123*${plan.size_mb}*${recipientPhone}#`; 
+            logger.info(`Sending USSD ${ussdCode} via SIM ${sim.phoneNumber}`);
+            
+            // Mock Success
+            success = true;
+            reference = `SIM-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            response = { message: 'USSD Sent successfully (Mock)' };
+        }
         
         if (success) {
             // Update SIM stats
             await this.incrementDispense(sim);
             
-            // Deduct balance from SIM (mock)
-            // If plan has api_cost, we deduct it from sim balance to keep it in sync
-            // Or assume USSD does it and we rely on periodic balance checks.
-            // For better tracking, let's deduct.
-            const cost = parseFloat(plan.api_cost || 0);
-            if (cost > 0 && sim.airtimeBalance >= cost) {
-                await sim.decrement('airtimeBalance', { by: cost });
+            // Decrement local balance estimate (optional, but good for "automatic deduction" tracking)
+            if (plan.api_cost) {
+                await sim.decrement('airtimeBalance', { by: plan.api_cost });
             }
 
             return {
                 success: true,
-                reference: `SIM-${sim.id.substring(0,8)}-${Date.now()}`,
-                message: 'Data sent successfully via SIM',
-                sim_used: sim.phoneNumber
+                reference: reference,
+                details: response
             };
         } else {
-             throw new Error('Network failed to process request');
+            throw new Error('Transaction failed');
         }
 
     } catch (error) {
-        logger.error(`SIM Transaction failed: ${error.message}`);
+        logger.error(`Transaction processing failed for SIM ${sim.phoneNumber}: ${error.message}`);
+        
+        // Record failure
+        await sim.increment('failedDispenses');
+        
         return {
             success: false,
             error: error.message

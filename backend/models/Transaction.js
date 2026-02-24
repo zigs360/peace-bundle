@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 
 const Transaction = sequelize.define('Transaction', {
   id: {
@@ -145,7 +145,10 @@ const Transaction = sequelize.define('Transaction', {
       },
       {
           fields: ['recipient_phone', 'createdAt'] // Indexing recipient + created_at
-      }
+      },
+      { fields: ['userId'] },
+      { fields: ['reference'] },
+      { fields: ['type'] }
   ]
 });
 

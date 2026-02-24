@@ -57,7 +57,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Basic Route
 app.get('/', (req, res) => {
-  res.send('Peace Bundle API is running');
+  res.send('Peace Bundlle API is running');
 });
 
 // Initialize Event Listeners

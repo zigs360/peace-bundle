@@ -13,8 +13,8 @@ const seedDatabase = async () => {
         // console.log('Database connected...');
         // await sequelize.sync(); // connectDB does this
 
-        // 1. Seed Admin User (Peace Bundle Default)
-        const adminEmail = 'admin@peacebundle.com';
+        // 1. Seed Admin User (Peace Bundlle Default)
+        const adminEmail = 'admin@peacebundlle.com';
         const adminExists = await User.findOne({ where: { email: adminEmail } });
 
         if (!adminExists) {
@@ -61,9 +61,9 @@ const seedDatabase = async () => {
 
         // 2. Seed System Settings
         const defaultSettings = [
-            { key: 'site_name', value: 'Peace Bundle', type: 'string', group: 'general' },
+            { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
             { key: 'currency_symbol', value: 'N', type: 'string', group: 'general' },
-            { key: 'support_email', value: 'support@peacebundle.com', type: 'string', group: 'contact' },
+            { key: 'support_email', value: 'support@peacebundlle.com', type: 'string', group: 'contact' },
             { key: 'support_phone', value: '+2348000000000', type: 'string', group: 'contact' },
             { key: 'paystack_secret_key', value: '', type: 'string', group: 'api' },
             { key: 'monnify_api_key', value: '', type: 'string', group: 'api' },

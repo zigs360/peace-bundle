@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
-import { Lock, User, Wifi, ArrowLeft, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Lock, User, ArrowLeft, Loader2, Eye, EyeOff } from 'lucide-react';
+import { SlideUp } from '../components/animations/MotionComponents';
 
 interface AuthResponse {
   token: string;
@@ -49,15 +50,13 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-md w-full bg-white p-10 rounded-2xl shadow-xl border border-gray-100">
+      <SlideUp className="max-w-md w-full bg-white p-10 rounded-2xl shadow-xl border border-gray-100">
         <div>
           <Link to="/" className="inline-flex items-center text-gray-500 hover:text-primary-600 mb-8 transition-colors text-sm font-medium">
              <ArrowLeft className="w-4 h-4 mr-1" /> Back to Home
           </Link>
           <div className="flex justify-center mb-6">
-             <div className="p-4 bg-primary-50 rounded-2xl">
-                <Wifi className="w-10 h-10 text-primary-600" />
-             </div>
+             <img src="/logo.png" alt="Peace Bundlle" className="h-20 w-auto object-contain" />
           </div>
           <h2 className="text-center text-3xl font-bold text-gray-900 mb-2">
             Welcome Back
@@ -145,7 +144,7 @@ export default function Login() {
                 </Link>
             </p>
         </div>
-      </div>
+      </SlideUp>
     </div>
   );
 }

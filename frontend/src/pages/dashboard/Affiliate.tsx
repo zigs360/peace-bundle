@@ -43,8 +43,7 @@ export default function Affiliate() {
     );
   }
 
-  const referralCode = stats?.referralCode || "LOADING...";
-  const referralLink = stats?.referralLink || "https://peacebundle.com/register";
+  const referralLink = stats?.referralLink || "https://peacebundlle.com/register";
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

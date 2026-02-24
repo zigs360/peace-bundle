@@ -11,7 +11,7 @@ const genericNotificationTemplate = (data) => {
         </td>
     </tr>
     ` : '';
-    const appName = process.env.APP_NAME || 'Peace Bundle';
+    const appName = process.env.APP_NAME || 'Peace Bundlle';
 
     return `
 <!DOCTYPE html>

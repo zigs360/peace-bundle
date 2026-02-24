@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import api from '../../services/api';
 import { Phone, Smartphone, Banknote } from 'lucide-react';
+import { FadeIn, SlideUp, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
 
-const NETWORKS = ['MTN', 'AIRTEL', 'GLO', '9MOBILE'];
+const NETWORKS = ['mtn', 'airtel', 'glo', '9mobile'];
 
 export default function BuyAirtime() {
   const [network, setNetwork] = useState(NETWORKS[0]);
@@ -43,7 +44,7 @@ export default function BuyAirtime() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="flex items-center mb-8">
+      <FadeIn className="flex items-center mb-8">
         <div className="p-3 bg-secondary-100 rounded-full mr-4">
           <Phone className="w-8 h-8 text-secondary" />
         </div>
@@ -51,9 +52,9 @@ export default function BuyAirtime() {
           <h1 className="text-2xl font-bold text-gray-800">Buy Airtime</h1>
           <p className="text-gray-600">Top up airtime for any network instantly</p>
         </div>
-      </div>
+      </FadeIn>
 
-      <div className="bg-white p-8 rounded-lg shadow-md border border-gray-100">
+      <SlideUp className="bg-white p-8 rounded-lg shadow-md border border-gray-100">
         {message && (
           <div className={`p-4 mb-6 rounded-md ${
             message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
@@ -64,23 +65,7 @@ export default function BuyAirtime() {
 
         <form onSubmit={handleBuy}>
           <div className="mb-6">
-            <label className="block text-gray-700 font-bold mb-2">Select Network</label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {NETWORKS.map((net) => (
-                <button
-                  key={net}
-                  type="button"
-                  onClick={() => setNetwork(net)}
-                  className={`py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center ${
-                    network === net
-                      ? 'border-secondary bg-secondary-50 text-secondary-900 font-bold'
-                      : 'border-gray-200 hover:border-gray-300 text-gray-600'
-                  }`}
-                >
-                  <span className="text-sm">{net}</span>
-                </button>
-              ))}
-            </div>
+            <SelectProvider value={network} onChange={setNetwork} />
           </div>
 
           <div className="mb-6">
@@ -118,17 +103,19 @@ export default function BuyAirtime() {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading || !phone || !amount}
-            className={`w-full py-4 px-4 bg-secondary text-primary-900 font-bold rounded-xl shadow-lg hover:shadow-xl hover:bg-secondary-600 transition-all transform hover:-translate-y-0.5 ${
-              (loading || !phone || !amount) ? 'opacity-70 cursor-not-allowed transform-none shadow-none' : ''
-            }`}
-          >
-            {loading ? 'Processing...' : 'Buy Airtime'}
-          </button>
+          <HoverCard>
+            <button
+              type="submit"
+              disabled={loading || !phone || !amount}
+              className={`w-full py-4 px-4 bg-secondary text-primary-900 font-bold rounded-xl shadow-lg hover:shadow-xl hover:bg-secondary-600 transition-all transform hover:-translate-y-0.5 ${
+                (loading || !phone || !amount) ? 'opacity-70 cursor-not-allowed transform-none shadow-none' : ''
+              }`}
+            >
+              {loading ? 'Processing...' : 'Buy Airtime'}
+            </button>
+          </HoverCard>
         </form>
-      </div>
+      </SlideUp>
     </div>
   );
 }

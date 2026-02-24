@@ -1,0 +1,21 @@
+API Audit Report - 2026-02-05T18:32:31.140Z
+
+[2026-02-05T18:32:31.143Z] [INFO] Starting API Audit...
+[2026-02-05T18:32:31.334Z] [INFO] PASS: Health Check (GET /../) - Status: 200 - Time: 183ms
+[2026-02-05T18:32:32.432Z] [INFO] PASS: Admin Login (POST /auth/login) - Status: 200 - Time: 1096ms
+[2026-02-05T18:32:32.433Z] [INFO] Admin Token acquired.
+[2026-02-05T18:32:32.976Z] [INFO] PASS: Register User (POST /auth/register) - Status: 201 - Time: 542ms
+[2026-02-05T18:32:32.977Z] [INFO] User Token acquired.
+[2026-02-05T18:32:33.030Z] [INFO] PASS: Get Data Plans (Public) (GET /plans) - Status: 200 - Time: 52ms
+[2026-02-05T18:32:33.062Z] [INFO] PASS: Get Me (GET /auth/me) - Status: 200 - Time: 31ms
+[2026-02-05T18:32:33.091Z] [INFO] PASS: Get Profile (Alias) (GET /auth/profile) - Status: 200 - Time: 26ms
+[2026-02-05T18:32:33.130Z] [INFO] PASS: Get Dashboard Data (GET /users/data/purchase) - Status: 200 - Time: 37ms
+[2026-02-05T18:32:33.180Z] [INFO] PASS: Get Affiliate Stats (GET /users/affiliate-stats) - Status: 200 - Time: 48ms
+[2026-02-05T18:32:33.204Z] [INFO] PASS: Buy Data (Invalid) (POST /transactions/data) - Status: 400 - Time: 23ms
+[2026-02-05T18:32:33.228Z] [INFO] PASS: Fund Wallet (Invalid) (POST /transactions/fund) - Status: 400 - Time: 22ms
+[2026-02-05T18:32:33.801Z] [INFO] PASS: Get Admin Stats (GET /admin/stats) - Status: 200 - Time: 571ms
+[2026-02-05T18:32:33.847Z] [INFO] PASS: Get All Users (GET /admin/users) - Status: 200 - Time: 46ms
+[2026-02-05T18:32:33.947Z] [INFO] PASS: Get System Settings (GET /admin/settings) - Status: 200 - Time: 99ms
+[2026-02-05T18:32:34.020Z] [INFO] PASS: Get Sims (GET /admin/sims) - Status: 200 - Time: 72ms
+[2026-02-05T18:32:34.094Z] [INFO] PASS: Get Reports (GET /reports/stats) - Status: 200 - Time: 73ms
+[2026-02-05T18:32:34.096Z] [INFO] Audit Completed.

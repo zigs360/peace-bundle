@@ -10,7 +10,7 @@ describe('Auth Endpoints', () => {
   });
 
   afterAll(async () => {
-    await sequelize.close();
+    // await sequelize.close();
   });
 
   afterEach(async () => {
@@ -19,8 +19,8 @@ describe('Auth Endpoints', () => {
   });
 
   const testUser = {
-    name: 'Test User',
-    email: `test${Date.now()}@test.com`,
+    name: 'Al-Amin',
+    email: `al-amin${Date.now()}@test.com`,
     password: 'password123',
     phone: `080${Date.now().toString().slice(-8)}`
   };
@@ -44,8 +44,8 @@ describe('Auth Endpoints', () => {
     // Let's just register a fresh user for this test.
     
     const loginUser = {
-      name: 'Login User',
-      email: `login${Date.now()}@test.com`,
+      name: 'Al-Amin Login',
+      email: `al-amin-login${Date.now()}@test.com`,
       password: 'password123',
       phone: `081${Date.now().toString().slice(-8)}`
     };

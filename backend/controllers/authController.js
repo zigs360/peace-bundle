@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const { sequelize } = require('../config/db'); // For transactions
+const VirtualAccountService = require('../services/virtualAccountService');
 
 // Generate JWT
 const generateToken = (id) => {
@@ -16,10 +17,13 @@ const generateToken = (id) => {
 // @route   POST /api/auth/register
 // @access  Public
 const registerUser = async (req, res) => {
-    const { name, email, phone, password, referralCode } = req.body;
+    const { name, fullName, email, phone, password, referralCode } = req.body;
+    
+    // Support both name and fullName fields from frontend
+    const userName = name || fullName;
 
     // Simple validation
-    if (!name || !email || !phone || !password) {
+    if (!userName || !email || !phone || !password) {
         return res.status(400).json({ message: 'Please include all fields' });
     }
 
@@ -48,7 +52,7 @@ const registerUser = async (req, res) => {
         }
 
         // Generate Referral Code
-        const generatedRefCode = (name.substring(0, 3).toUpperCase() + Math.floor(100 + Math.random() * 900)).replace(/\s/g, '');
+        const generatedRefCode = (userName.substring(0, 3).toUpperCase() + Math.floor(100 + Math.random() * 900)).replace(/\s/g, '');
 
         // Hash password
         const salt = await bcrypt.genSalt(10);
@@ -56,7 +60,7 @@ const registerUser = async (req, res) => {
 
         // Create user
         const user = await User.create({
-            name,
+            name: userName,
             email,
             phone,
             password: hashedPassword,
@@ -83,6 +87,11 @@ const registerUser = async (req, res) => {
         // However, to return the balance in the response, we assume 0.
 
         await t.commit();
+
+        // Attempt to assign virtual account asynchronously (don't block response)
+        VirtualAccountService.assignVirtualAccount(user).catch(err => {
+            console.error(`Background Virtual Account Assignment Failed for User ${user.id}:`, err.message);
+        });
 
         res.status(201).json({
             token: generateToken(user.id),
@@ -158,6 +167,22 @@ const getMe = async (req, res) => {
         });
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Auto-assign virtual account if missing (for existing users)
+        if (!user.virtual_account_number) {
+            try {
+                const accountDetails = await VirtualAccountService.assignVirtualAccount(user);
+                if (accountDetails) {
+                    // Update user object in memory to return latest data
+                    user.virtual_account_number = accountDetails.accountNumber;
+                    user.virtual_account_bank = accountDetails.bankName;
+                    user.virtual_account_name = accountDetails.accountName;
+                }
+            } catch (err) {
+                console.error(`Failed to auto-assign virtual account for user ${user.id}:`, err.message);
+                // Continue without it, don't block profile load
+            }
         }
         
         // Transform response to flat structure expected by frontend

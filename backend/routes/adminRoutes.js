@@ -20,7 +20,10 @@ const {
     approveSim,
     suspendSim,
     getSimAnalytics,
-    getKycRequests
+    getKycRequests,
+    getBulkSMSHistory,
+    sendAdminBulkSMS,
+    generateUserVirtualAccount
 } = require('../controllers/adminController');
 // const { getAllTransactions } = require('../controllers/transactionController'); // Replaced by admin controller version
 const { protect, admin } = require('../middleware/authMiddleware');
@@ -28,6 +31,10 @@ const { protect, admin } = require('../middleware/authMiddleware');
 router.get('/stats', protect, admin, getAdminStats);
 router.get('/transactions', protect, admin, getTransactions);
 router.post('/transactions/:id/refund', protect, admin, refundTransaction);
+
+// Bulk SMS Routes
+router.get('/bulk-sms', protect, admin, getBulkSMSHistory);
+router.post('/bulk-sms', protect, admin, sendAdminBulkSMS);
 
 // User Management Routes
 router.get('/users', protect, admin, getUsers);

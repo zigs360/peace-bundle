@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import { Lock, User, Mail, Phone, Hash, ArrowLeft, Loader2, Wifi, Eye, EyeOff } from 'lucide-react';
+import { Lock, User, Mail, Phone, Hash, ArrowLeft, Loader2, Eye, EyeOff } from 'lucide-react';
+import { SlideUp } from '../components/animations/MotionComponents';
 
 export default function Register() {
   const [formData, setFormData] = useState({
@@ -40,21 +41,19 @@ export default function Register() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-md w-full bg-white p-10 rounded-2xl shadow-xl border border-gray-100">
+      <SlideUp className="max-w-md w-full bg-white p-10 rounded-2xl shadow-xl border border-gray-100">
         <div>
           <Link to="/" className="inline-flex items-center text-gray-500 hover:text-primary-600 mb-8 transition-colors text-sm font-medium">
              <ArrowLeft className="w-4 h-4 mr-1" /> Back to Home
           </Link>
           <div className="flex justify-center mb-6">
-             <div className="p-4 bg-primary-50 rounded-2xl">
-                <Wifi className="w-10 h-10 text-primary-600" />
-             </div>
+             <img src="/logo.png" alt="Peace Bundlle" className="h-20 w-auto object-contain" />
           </div>
           <h2 className="text-center text-3xl font-bold text-gray-900 mb-2">
             Create Account
           </h2>
           <p className="text-center text-gray-500 mb-8">
-            Join Peace Bundle for seamless VTU services
+            Join Peace Bundlle for seamless VTU services
           </p>
         </div>
         
@@ -78,7 +77,7 @@ export default function Register() {
                 className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
                 value={formData.fullName}
                 onChange={handleChange}
-                placeholder="John Doe"
+                placeholder="Al-Amin Aminu"
               />
             </div>
           </div>
@@ -96,7 +95,7 @@ export default function Register() {
                 className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
                 value={formData.email}
                 onChange={handleChange}
-                placeholder="john@example.com"
+                placeholder="al-amin@example.com"
               />
             </div>
           </div>
@@ -182,7 +181,7 @@ export default function Register() {
                 </Link>
             </p>
         </div>
-      </div>
+      </SlideUp>
     </div>
   );
 }

@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../../services/api';
 import { Users, Search, Edit, Wallet, ShieldBan, ShieldCheck, X, FileCheck, CheckCircle, XCircle, Download, FileText } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type User = any;
+import { User } from '../../types';
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -275,6 +273,7 @@ export default function AdminUsersPage() {
                     className="mt-1 block w-full border rounded-md px-3 py-2"
                     value={editFormData.name}
                     onChange={(e) => setEditFormData({...editFormData, name: e.target.value})}
+                    placeholder="Al-Amin Aminu"
                   />
                 </div>
                 <div>

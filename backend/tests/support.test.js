@@ -13,8 +13,8 @@ describe('Support Endpoints', () => {
     await connectDB();
     // Create a test user
     const testUser = {
-      name: 'Support Test User',
-      email: `support${Date.now()}@test.com`,
+      name: 'Al-Amin Support',
+      email: `al-amin-support${Date.now()}@test.com`,
       password: 'password123',
       phone: `090${Date.now().toString().slice(-8)}`
     };
@@ -28,12 +28,7 @@ describe('Support Endpoints', () => {
   });
 
   afterAll(async () => {
-    // Clean up
-    if (userId) {
-        await SupportTicket.destroy({ where: { userId } });
-        await User.destroy({ where: { id: userId } });
-    }
-    await sequelize.close();
+    // await sequelize.close();
   });
 
   it('POST /api/support - should create a new ticket', async () => {

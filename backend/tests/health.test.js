@@ -9,12 +9,12 @@ describe('Health Check', () => {
 
   // Close DB connection after tests to prevent Jest from hanging
   afterAll(async () => {
-    await sequelize.close();
+    // await sequelize.close();
   });
 
   it('GET / should return 200 OK', async () => {
     const res = await request(app).get('/');
     expect(res.statusCode).toEqual(200);
-    expect(res.text).toContain('Peace Bundle API is running');
+    expect(res.text).toContain('Peace Bundlle API is running');
   });
 });

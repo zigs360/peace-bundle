@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../../services/api';
 import { Plus, MessageSquare, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -30,7 +30,7 @@ export default function Support() {
 
   const fetchTickets = async () => {
     try {
-      const res = await axios.get<Ticket[]>('/api/support');
+      const res = await api.get<Ticket[]>('/support');
       setTickets(res.data);
     } catch (error) {
       console.error(error);
@@ -43,7 +43,7 @@ export default function Support() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post('/api/support', formData);
+      await api.post('/support', formData);
       toast.success('Ticket created successfully');
       setShowCreateModal(false);
       setFormData({ subject: '', message: '', priority: 'medium' });
@@ -135,7 +135,7 @@ export default function Support() {
                     <Clock className="w-4 h-4 mr-1" />
                     {new Date(ticket.createdAt).toLocaleDateString()}
                   </span>
-                  {ticket.status === 'resolved' && (
+                  {ticket.status === 'resolved' && ticket.resolved_at && (
                     <span className="flex items-center text-green-600">
                       <CheckCircle className="w-4 h-4 mr-1" />
                       Resolved {new Date(ticket.resolved_at).toLocaleDateString()}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User, Lock, Save, AlertCircle, FileText, Upload } from 'lucide-react';
 import api from '../../services/api';
+import { StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 
 export default function Settings() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -144,9 +145,9 @@ export default function Settings() {
   if (!user) return null;
 
   return (
-    <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+    <StaggerContainer className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
       {/* Profile Section */}
-      <div className="md:col-span-2 space-y-6">
+      <StaggerItem className="md:col-span-2 space-y-6">
         <form onSubmit={handleProfileUpdate} className="bg-white p-6 rounded-lg shadow-md">
             <div className="flex items-center mb-6 border-b pb-4">
                 <User className="w-6 h-6 text-primary-600 mr-3" />
@@ -189,6 +190,7 @@ export default function Settings() {
                             value={formData.fullName}
                             onChange={(e) => setFormData({...formData, fullName: e.target.value})}
                             className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            placeholder="Al-Amin Aminu"
                         />
                     </div>
                     <div>
@@ -254,10 +256,10 @@ export default function Settings() {
                 </div>
             </div>
         </form>
-      </div>
+      </StaggerItem>
 
       {/* KYC Section */}
-      <div className="space-y-6">
+      <StaggerItem className="space-y-6">
         <div className="bg-white p-6 rounded-lg shadow-md">
             <div className="flex items-center mb-6 border-b pb-4">
                 <FileText className="w-6 h-6 text-primary-600 mr-3" />
@@ -327,10 +329,10 @@ export default function Settings() {
                 )}
             </div>
         </div>
-      </div>
+      </StaggerItem>
 
       {/* Password Section */}
-      <div className="space-y-6">
+      <StaggerItem className="space-y-6">
         <form onSubmit={handlePasswordChange} className="bg-white p-6 rounded-lg shadow-md">
             <div className="flex items-center mb-6 border-b pb-4">
                 <Lock className="w-6 h-6 text-primary-600 mr-3" />
@@ -386,7 +388,7 @@ export default function Settings() {
                 </button>
             </div>
         </form>
-      </div>
-    </div>
+      </StaggerItem>
+    </StaggerContainer>
   );
 }

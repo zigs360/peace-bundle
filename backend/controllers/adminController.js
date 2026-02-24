@@ -468,43 +468,44 @@ const refundTransaction = async (req, res) => {
 // @access  Private (Admin)
 const getAdminStats = async (req, res) => {
     try {
-        // Platform statistics
-        const totalUsers = await User.count();
-        const totalResellers = await User.count({ where: { role: 'reseller' } });
-        const totalTransactions = await Transaction.count();
-        const successfulTransactions = await Transaction.count({ where: { status: 'completed' } });
-        
-        // Calculate total revenue from completed transactions
-        const totalRevenue = await Transaction.sum('amount', {
-            where: { status: 'completed' }
-        }) || 0;
-        
-        const pendingTransactions = await Transaction.count({ where: { status: 'pending' } });
-        const totalSims = await Sim.count();
-        const activeSims = await Sim.count({ where: { status: 'active' } });
-
-        // Revenue by provider
-        const revenueByProvider = await Transaction.findAll({
-            attributes: [
-                'provider',
-                [sequelize.fn('SUM', sequelize.col('amount')), 'total']
-            ],
-            where: { status: 'completed', provider: { [Op.not]: null } },
-            group: ['provider']
-        });
-
-        // Recent transactions
-        const recentTransactions = await Transaction.findAll({
-            include: [
-                { model: User, attributes: ['name', 'email'] },
-                // { model: DataPlan, as: 'dataPlan' } // Include if DataPlan association exists
-            ],
-            order: [['createdAt', 'DESC']],
-            limit: 10
-        });
-
-        // Transaction trends (last 30 days)
-        const trends = await getTransactionTrends();
+        const [
+            totalUsers,
+            totalResellers,
+            totalTransactions,
+            successfulTransactions,
+            totalRevenue,
+            pendingTransactions,
+            totalSims,
+            activeSims,
+            revenueByProvider,
+            recentTransactions,
+            trends
+        ] = await Promise.all([
+            User.count(),
+            User.count({ where: { role: 'reseller' } }),
+            Transaction.count(),
+            Transaction.count({ where: { status: 'completed' } }),
+            Transaction.sum('amount', { where: { status: 'completed' } }).then(sum => sum || 0),
+            Transaction.count({ where: { status: 'pending' } }),
+            Sim.count(),
+            Sim.count({ where: { status: 'active' } }),
+            Transaction.findAll({
+                attributes: [
+                    'provider',
+                    [sequelize.fn('SUM', sequelize.col('amount')), 'total']
+                ],
+                where: { status: 'completed', provider: { [Op.not]: null } },
+                group: ['provider']
+            }),
+            Transaction.findAll({
+                include: [
+                    { model: User, attributes: ['name', 'email'] },
+                ],
+                order: [['createdAt', 'DESC']],
+                limit: 10
+            }),
+            getTransactionTrends()
+        ]);
 
         res.json({
             stats: {
@@ -528,41 +529,55 @@ const getAdminStats = async (req, res) => {
 };
 
 const getTransactionTrends = async () => {
+    // Optimized: Use DB aggregation instead of loop
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+    const results = await Transaction.findAll({
+        attributes: [
+            [sequelize.fn('DATE', sequelize.col('createdAt')), 'date'],
+            [sequelize.fn('COUNT', '*'), 'transactions'],
+            [sequelize.fn('SUM', sequelize.col('amount')), 'revenue']
+        ],
+        where: {
+            status: 'completed',
+            createdAt: { [Op.gte]: thirtyDaysAgo }
+        },
+        group: [sequelize.fn('DATE', sequelize.col('createdAt'))],
+        order: [[sequelize.fn('DATE', sequelize.col('createdAt')), 'ASC']],
+        raw: true
+    });
+
+    // Fill in missing days (DB only returns days with data)
     const days = [];
+    const resultMap = {};
+    results.forEach(r => {
+        // Handle different DB date formats (string or Date object)
+        const dateKey = new Date(r.date).toISOString().split('T')[0];
+        resultMap[dateKey] = r;
+    });
+
     for (let i = 29; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        date.setHours(0, 0, 0, 0);
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
         
-        const nextDate = new Date(date);
-        nextDate.setDate(date.getDate() + 1);
-
-        const count = await Transaction.count({
-            where: {
-                status: 'completed',
-                createdAt: {
-                    [Op.gte]: date,
-                    [Op.lt]: nextDate
-                }
-            }
-        });
-
-        const revenue = await Transaction.sum('amount', {
-            where: {
-                status: 'completed',
-                createdAt: {
-                    [Op.gte]: date,
-                    [Op.lt]: nextDate
-                }
-            }
-        }) || 0;
-
-        days.push({
-            date: date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }), // Format: Mmm dd
-            transactions: count,
-            revenue: revenue
-        });
+        if (resultMap[dateStr]) {
+            days.push({
+                date: d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }),
+                transactions: parseInt(resultMap[dateStr].transactions),
+                revenue: parseFloat(resultMap[dateStr].revenue || 0)
+            });
+        } else {
+            days.push({
+                date: d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }),
+                transactions: 0,
+                revenue: 0
+            });
+        }
     }
+
     return days;
 };
 
@@ -700,7 +715,7 @@ const getSystemSettings = async (req, res) => {
             }
             acc[group].push({
                 key: setting.key,
-                value: setting.value,
+                value: (setting.key.includes('secret') || setting.key.includes('password')) ? '********' : setting.value,
                 type: setting.type,
                 description: setting.description
             });
@@ -797,14 +812,14 @@ const approveKyc = async (req, res) => {
         // Send Email Notification
         await sendEmail(
             user.email,
-            'KYC Approved - Peace Bundle',
-            `Hello ${user.name},\n\nYour KYC document has been approved. You are now a verified user.\n\nRegards,\nPeace Bundle Team`,
+            'KYC Approved - Peace Bundlle',
+            `Hello ${user.name},\n\nYour KYC document has been approved. You are now a verified user.\n\nRegards,\nPeace Bundlle Team`,
             `<h3>KYC Approved</h3><p>Hello ${user.name},</p><p>Your KYC document has been approved. You are now a verified user.</p>`
         );
 
         // Send SMS Notification
         if (user.phone) {
-            await sendSMS(user.phone, `Hello ${user.name}, your KYC has been approved. You can now access all features. - Peace Bundle`);
+            await sendSMS(user.phone, `Hello ${user.name}, your KYC has been approved. You can now access all features. - Peace Bundlle`);
         }
 
         res.json({ message: 'User KYC approved', user });
@@ -834,17 +849,117 @@ const rejectKyc = async (req, res) => {
         // Send Email Notification
         await sendEmail(
             user.email,
-            'KYC Rejected - Peace Bundle',
-            `Hello ${user.name},\n\nYour KYC document was rejected.\nReason: ${reason}\n\nPlease re-upload a valid document.\n\nRegards,\nPeace Bundle Team`,
+            'KYC Rejected - Peace Bundlle',
+            `Hello ${user.name},\n\nYour KYC document was rejected.\nReason: ${reason}\n\nPlease re-upload a valid document.\n\nRegards,\nPeace Bundlle Team`,
             `<h3>KYC Rejected</h3><p>Hello ${user.name},</p><p>Your KYC document was rejected.</p><p><strong>Reason:</strong> ${reason}</p><p>Please re-upload a valid document.</p>`
         );
 
         // Send SMS Notification
         if (user.phone) {
-            await sendSMS(user.phone, `Hello ${user.name}, your KYC was rejected. Reason: ${reason}. Please re-upload. - Peace Bundle`);
+            await sendSMS(user.phone, `Hello ${user.name}, your KYC was rejected. Reason: ${reason}. Please re-upload. - Peace Bundlle`);
         }
 
         res.json({ message: 'User KYC rejected', user });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc    Get Bulk SMS History
+// @route   GET /api/admin/bulk-sms
+// @access  Private (Admin)
+const getBulkSMSHistory = async (req, res) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+        const offset = (page - 1) * limit;
+        
+        const where = {
+            source: 'bulk_sms_payment'
+        };
+
+        const { count, rows } = await Transaction.findAndCountAll({
+            where,
+            include: [{ model: User, attributes: ['name', 'email'] }],
+            order: [['createdAt', 'DESC']],
+            limit: parseInt(limit),
+            offset: parseInt(offset)
+        });
+
+        res.json({
+            history: rows,
+            total: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc    Send Bulk SMS (Admin)
+// @route   POST /api/admin/bulk-sms
+// @access  Private (Admin)
+const sendAdminBulkSMS = async (req, res) => {
+    const { senderId, message, recipients, targetGroup } = req.body;
+    
+    try {
+        let recipientList = [];
+
+        if (targetGroup === 'all_users') {
+            const users = await User.findAll({ attributes: ['phoneNumber'] });
+            recipientList = users.map(u => u.phoneNumber).filter(Boolean);
+        } else if (targetGroup === 'resellers') {
+             const users = await User.findAll({ where: { role: 'reseller' }, attributes: ['phoneNumber'] });
+             recipientList = users.map(u => u.phoneNumber).filter(Boolean);
+        } else if (recipients) {
+            recipientList = (Array.isArray(recipients) ? recipients : recipients.split(',')).map(r => r.trim()).filter(r => r.length > 0);
+        }
+
+        if (recipientList.length === 0) {
+            return res.status(400).json({ message: 'No recipients found' });
+        }
+
+        // Fire and forget
+        Promise.allSettled(recipientList.map(recipient => 
+            sendSMS(recipient, message) 
+        ));
+        
+        res.json({ message: `SMS sending initiated to ${recipientList.length} recipients` });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc    Generate Virtual Account for User
+// @route   POST /api/admin/users/:id/virtual-account
+// @access  Private (Admin)
+const generateUserVirtualAccount = async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        
+        if (user.virtual_account_number) {
+            return res.status(400).json({ 
+                message: 'User already has a virtual account',
+                account: {
+                    accountNumber: user.virtual_account_number,
+                    bankName: user.virtual_account_bank,
+                    accountName: user.virtual_account_name
+                }
+            });
+        }
+
+        const account = await VirtualAccountService.assignVirtualAccount(user);
+        
+        if (account) {
+            res.json({ message: 'Virtual account assigned successfully', account });
+        } else {
+            res.status(400).json({ message: 'Failed to assign virtual account. Check provider settings or logs.' });
+        }
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -871,5 +986,8 @@ module.exports = {
     getSimAnalytics,
     getTransactions,
     refundTransaction,
-    getKycRequests
+    getKycRequests,
+    getBulkSMSHistory,
+    sendAdminBulkSMS,
+    generateUserVirtualAccount
 };

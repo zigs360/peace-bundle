@@ -19,19 +19,54 @@ const {
     exportTransactions
 } = require('../controllers/transactionController');
 const { protect, admin } = require('../middleware/authMiddleware');
+const validate = require('../middleware/validationMiddleware');
+const { check } = require('express-validator');
 
 router.get('/', protect, index);
 router.get('/export', protect, exportTransactions);
-router.post('/fund', protect, fundWallet);
-router.post('/data', protect, buyData);
-router.post('/airtime', protect, buyAirtime);
-router.post('/bill', protect, payBill);
-router.post('/withdraw', protect, withdrawFunds);
+router.post('/fund', protect, validate([
+    check('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+    check('reference').notEmpty().withMessage('Reference is required')
+]), fundWallet);
+router.post('/data', protect, validate([
+    check('planId').notEmpty().isInt().withMessage('Valid Plan ID is required'),
+    check('phone').matches(/^0[7-9][0-1]\d{8}$/).withMessage('Valid phone number is required'),
+    check('network').notEmpty().withMessage('Network is required')
+]), buyData);
+router.post('/airtime', protect, validate([
+    check('network').notEmpty().isIn(['mtn', 'airtel', 'glo', '9mobile']).withMessage('Valid Network is required (mtn, airtel, glo, 9mobile)'),
+    check('phone').matches(/^0[7-9][0-1]\d{8}$/).withMessage('Valid phone number is required'),
+    check('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive')
+]), buyAirtime);
+
+router.post('/bill', protect, validate([
+    check('billType').isIn(['cable', 'power']).withMessage('Bill Type must be cable or power'),
+    check('provider').notEmpty().withMessage('Provider is required'),
+    check('smartCardNumber').notEmpty().withMessage('Smart Card/Meter Number is required'),
+    check('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+    check('phone').matches(/^0[7-9][0-1]\d{8}$/).withMessage('Valid phone number is required')
+]), payBill);
+
+router.post('/withdraw', protect, validate([
+    check('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+    check('accountNumber').isNumeric().isLength({ min: 10, max: 10 }).withMessage('Valid 10-digit Account Number is required'),
+    check('bankCode').notEmpty().withMessage('Bank Code is required')
+]), withdrawFunds);
+
+router.post('/transfer', protect, validate([
+    check('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
+    check('recipientEmail').isEmail().withMessage('Valid Recipient Email is required')
+]), transferFunds);
+
+router.post('/bulk-sms', protect, validate([
+    check('senderId').notEmpty().isLength({ max: 11 }).withMessage('Sender ID required (max 11 chars)'),
+    check('message').notEmpty().withMessage('Message content is required'),
+    check('recipients').notEmpty().withMessage('Recipients list is required')
+]), sendBulkSMS);
+
 router.post('/airtime-cash', protect, airtimeToCash);
 router.post('/recharge-card', protect, printRechargeCard);
 router.post('/result-checker', protect, checkResult);
-router.post('/transfer', protect, transferFunds);
-router.post('/bulk-sms', protect, sendBulkSMS);
 router.post('/coupon', protect, redeemCoupon);
 router.get('/all', protect, admin, getAllTransactions); // Admin only
 router.get('/:userId', protect, getTransactions);

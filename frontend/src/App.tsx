@@ -3,6 +3,10 @@ import { Toaster } from 'react-hot-toast';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
+import About from './pages/About';
+import Contact from './pages/Contact';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
 import Layout from './components/Layout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsersPage from './pages/admin/AdminUsersPage';
@@ -12,10 +16,13 @@ import PlansIndex from './pages/admin/Plans/Index';
 import CreatePlan from './pages/admin/Plans/Create';
 import SimsIndex from './pages/admin/Sims/Index';
 import CreateSim from './pages/admin/Sims/Create';
+import BulkSMSIndex from './pages/admin/BulkSMS/Index';
+import CreateBulkSMS from './pages/admin/BulkSMS/Create';
 import Reports from './pages/admin/Reports';
 import AdminSettings from './pages/admin/AdminSettings';
 import AdminSupport from './pages/admin/Support';
 import UserLayout from './components/UserLayout';
+import CookieConsent from './components/common/CookieConsent';
 import UserDashboard from './pages/dashboard/UserDashboard';
 import FundWallet from './pages/dashboard/FundWallet';
 import BuyData from './pages/dashboard/BuyData';
@@ -28,14 +35,20 @@ import Settings from './pages/dashboard/Settings';
 import ApiKeys from './pages/dashboard/ApiKeys';
 import Affiliate from './pages/dashboard/Affiliate';
 import Support from './pages/dashboard/Support';
+import Beneficiaries from './pages/dashboard/Beneficiaries';
 
 function App() {
   return (
     <Router>
+      <CookieConsent />
       <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<Home />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
@@ -53,6 +66,7 @@ function App() {
           <Route path="api-keys" element={<ApiKeys />} />
           <Route path="affiliate" element={<Affiliate />} />
           <Route path="support" element={<Support />} />
+          <Route path="beneficiaries" element={<Beneficiaries />} />
         </Route>
 
         {/* Admin Routes */}
@@ -65,6 +79,8 @@ function App() {
           <Route path="plans/create" element={<CreatePlan />} />
           <Route path="sims" element={<SimsIndex />} />
           <Route path="sims/create" element={<CreateSim />} />
+          <Route path="bulk-sms" element={<BulkSMSIndex />} />
+          <Route path="bulk-sms/create" element={<CreateBulkSMS />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<AdminSettings />} />
           <Route path="support" element={<AdminSupport />} />

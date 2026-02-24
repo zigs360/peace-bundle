@@ -12,8 +12,8 @@ describe('Beneficiary Endpoints', () => {
     await connectDB();
     // Create a test user
     const testUser = {
-      name: 'Beneficiary Test User',
-      email: `beneficiary${Date.now()}@test.com`,
+      name: 'Al-Amin Beneficiary',
+      email: `al-amin-beneficiary${Date.now()}@test.com`,
       password: 'password123',
       phone: `070${Date.now().toString().slice(-8)}`
     };
@@ -27,11 +27,7 @@ describe('Beneficiary Endpoints', () => {
   });
 
   afterAll(async () => {
-    if (userId) {
-        await Beneficiary.destroy({ where: { userId } });
-        await User.destroy({ where: { id: userId } });
-    }
-    await sequelize.close();
+    // await sequelize.close();
   });
 
   it('POST /api/beneficiaries - should create a new beneficiary', async () => {

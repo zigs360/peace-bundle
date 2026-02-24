@@ -90,7 +90,7 @@ const getAffiliateStats = async (req, res) => {
 
     try {
         const user = await User.findByPk(userId, {
-            include: [{ model: Wallet }]
+            include: [{ model: Wallet, as: 'wallet' }]
         });
 
         if (!user) {
@@ -107,7 +107,7 @@ const getAffiliateStats = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
-        const totalEarnings = user.Wallet ? user.Wallet.commission_balance : 0;
+        const totalEarnings = user.wallet ? user.wallet.commission_balance : 0;
         const pendingPayout = 0; // Logic for pending payout can be added later
 
         const recentReferrals = referrals.map(ref => ({
@@ -119,7 +119,7 @@ const getAffiliateStats = async (req, res) => {
 
         res.json({
             referralCode: user.referral_code,
-            referralLink: `https://peacebundle.com/register?ref=${user.referral_code}`,
+            referralLink: `https://peacebundlle.com/register?ref=${user.referral_code}`,
             totalEarnings,
             referredUsersCount: referrals.length,
             pendingPayout,

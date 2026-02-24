@@ -87,7 +87,7 @@ export default function AdminTransactionsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(tx.createdAt || tx.date).toLocaleDateString()} {new Date(tx.createdAt || tx.date).toLocaleTimeString()}
+                    {(tx.createdAt || tx.date) ? new Date((tx.createdAt || tx.date)!).toLocaleString() : 'N/A'}
                   </td>
                 </tr>
               ))

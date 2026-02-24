@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
-import { Search, Filter, MessageSquare, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import api from '../../services/api';
+import { MessageSquare, CheckCircle, Clock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 export default function AdminSupport() {
@@ -17,7 +17,7 @@ export default function AdminSupport() {
 
   const fetchTickets = async () => {
     try {
-      const res = await axios.get('/api/support/admin');
+      const res = await api.get('/support/admin');
       setTickets(res.data);
     } catch (error) {
       console.error(error);
@@ -32,7 +32,7 @@ export default function AdminSupport() {
     if (!selectedTicket) return;
 
     try {
-      await axios.put(`/api/support/${selectedTicket.id}/reply`, {
+      await api.put(`/support/${selectedTicket.id}/reply`, {
         response: replyText,
         status: replyStatus
       });

@@ -13,7 +13,9 @@ export default function SimsIndex() {
     const fetchSims = async () => {
       try {
         const res = await api.get('/sims');
-        setSims(res.data as any[]);
+        // Handle paginated response structure
+        const data = res.data.sims?.data || res.data; 
+        setSims(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -29,6 +31,15 @@ export default function SimsIndex() {
       key: 'provider', 
       header: 'Network',
       render: (value: string) => <span className="uppercase">{value}</span>
+    },
+    { 
+      key: 'type', 
+      header: 'Type',
+      render: (value: string) => (
+        <span className="text-xs font-medium capitalize bg-blue-50 text-blue-700 px-2 py-1 rounded">
+          {value?.replace('_', ' ')}
+        </span>
+      )
     },
     { key: 'phoneNumber', header: 'Phone Number' },
     { 

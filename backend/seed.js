@@ -24,8 +24,8 @@ const seedDatabase = async () => {
     await SystemSetting.bulkCreate([
       { key: 'commission_referral_transaction', value: '0.5', type: 'float', group: 'commission' },
       { key: 'commission_affiliate_transaction', value: '1.0', type: 'float', group: 'commission' },
-      { key: 'site_name', value: 'Peace Bundle', type: 'string', group: 'general' },
-      { key: 'support_email', value: 'support@peacebundle.com', type: 'string', group: 'general' },
+      { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
+      { key: 'support_email', value: 'support@peacebundlle.com', type: 'string', group: 'general' },
     ]);
 
     // 2. Create Data Plans
@@ -92,7 +92,7 @@ const seedDatabase = async () => {
 
     const adminUser = await User.create({
       name: 'Admin User',
-      email: 'admin@peacebundle.com',
+      email: 'admin@peacebundlle.com',
       phone: '08011111111',
       password: hashedPassword,
       role: 'admin',
@@ -102,8 +102,8 @@ const seedDatabase = async () => {
     });
 
     const regularUser = await User.create({
-      name: 'John Doe',
-      email: 'user@peacebundle.com',
+      name: 'Al-Amin',
+      email: 'user@peacebundlle.com',
       phone: '08022222222',
       password: hashedPassword,
       role: 'user',
@@ -130,7 +130,7 @@ const seedDatabase = async () => {
 
     // 5. Create Reseller Pricing for Regular User
     console.log('Seeding Reseller Pricing...');
-    // Give John Doe a discount on MTN SME 1GB
+    // Give Al-Amin a discount on MTN SME 1GB
     await ResellerPlanPricing.create({
       userId: regularUser.id,
       dataPlanId: plans[0].id, // MTN SME 1GB

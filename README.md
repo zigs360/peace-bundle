@@ -1,7 +1,7 @@
-# Peace Bundle
+# Peace Bundlle
 
 ## 1. Overview
-Peace Bundle is a Nigerian-based VTU and fintech platform that allows users to conveniently purchase mobile data, airtime, and utility services, while earning passive income through a structured referral and affiliate system.
+Peace Bundlle is a Nigerian-based VTU and fintech platform that allows users to conveniently purchase mobile data, airtime, and utility services, while earning passive income through a structured referral and affiliate system.
 
 ## Platform Availability
 - **Web Application**

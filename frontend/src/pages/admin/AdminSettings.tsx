@@ -60,7 +60,7 @@ export default function AdminSettings() {
                   className="mt-1 block w-full border rounded-md px-3 py-2"
                   value={settings['site_name'] || ''}
                   onChange={(e) => handleChange('site_name', e.target.value)}
-                  placeholder="Peace Bundle"
+                  placeholder="Peace Bundlle"
                 />
               </div>
               <div>
@@ -86,7 +86,7 @@ export default function AdminSettings() {
                   className="mt-1 block w-full border rounded-md px-3 py-2"
                   value={settings['support_email'] || ''}
                   onChange={(e) => handleChange('support_email', e.target.value)}
-                  placeholder="support@example.com"
+                  placeholder="support@peacebundlle.com"
                 />
               </div>
               <div>

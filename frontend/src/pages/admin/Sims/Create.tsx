@@ -11,7 +11,8 @@ export default function CreateSim() {
     provider: 'mtn',
     phoneNumber: '',
     notes: '',
-    status: 'active'
+    status: 'active',
+    type: 'device_based'
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -60,6 +61,21 @@ export default function CreateSim() {
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
             placeholder="e.g. Server 1 (Main)"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">SIM Type</label>
+          <select
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm p-2 border"
+            value={formData.type}
+            onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+          >
+            <option value="device_based">Device Based (SMEPlug App)</option>
+            <option value="sim_system">System SIM (Hosted)</option>
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            Select 'Device Based' if using the SMEPlug mobile app on your phone.
+          </p>
         </div>
 
         <div>

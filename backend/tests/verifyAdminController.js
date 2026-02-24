@@ -21,8 +21,8 @@ const runVerification = async () => {
     // 1. Seed Initial Settings
     console.log('\n--- Seeding Settings ---');
     const settingsToSeed = [
-      { key: 'site_name', value: 'Peace Bundle', group: 'general' },
-      { key: 'support_email', value: 'support@peacebundle.com', group: 'general' },
+      { key: 'site_name', value: 'Peace Bundlle', group: 'general' },
+      { key: 'support_email', value: 'support@peacebundlle.com', group: 'general' },
       { key: 'min_wallet_fund', value: '100', group: 'payment' },
       { key: 'data_config', value: JSON.stringify({ provider: 'mtn', rate: 250 }), group: 'api' }
     ];
@@ -63,7 +63,7 @@ const runVerification = async () => {
     // 3. Simulate updateSystemSettings (Bulk Update)
     console.log('\n--- Testing updateSystemSettings Logic ---');
     const updates = {
-        site_name: 'Peace Bundle Updated',
+        site_name: 'Peace Bundlle Updated',
         min_wallet_fund: '500',
         data_config: { provider: 'airtel', rate: 240 } // Object handling
     };
@@ -91,7 +91,7 @@ const runVerification = async () => {
     const updatedSiteName = await SystemSetting.findOne({ where: { key: 'site_name' } });
     const updatedConfig = await SystemSetting.findOne({ where: { key: 'data_config' } });
 
-    if (updatedSiteName.value === 'Peace Bundle Updated' && updatedConfig.value.includes('airtel')) {
+    if (updatedSiteName.value === 'Peace Bundlle Updated' && updatedConfig.value.includes('airtel')) {
         console.log('✅ Bulk update logic works');
     } else {
         console.error('❌ Bulk update logic failed');

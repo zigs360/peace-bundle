@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 
 const User = sequelize.define('User', {
   id: {
@@ -80,6 +80,19 @@ const User = sequelize.define('User', {
   package: {
     type: DataTypes.STRING,
     defaultValue: 'Standard',
+  },
+  // Virtual Account Details
+  virtual_account_number: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  virtual_account_bank: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  virtual_account_name: {
+    type: DataTypes.STRING,
+    allowNull: true,
   }
 }, {
   timestamps: true,
@@ -87,10 +100,10 @@ const User = sequelize.define('User', {
 });
 
 // Auto-create wallet on user creation
-User.afterCreate(async (user) => {
+User.afterCreate(async (user, options) => {
   const Wallet = require('./Wallet');
   try {
-    await Wallet.create({ userId: user.id });
+    await Wallet.create({ userId: user.id }, { transaction: options.transaction });
   } catch (error) {
     console.error('Failed to create wallet for user:', user.id, error);
   }

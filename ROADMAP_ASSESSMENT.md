@@ -1,6 +1,6 @@
 # Project Roadmap Assessment
 
-This document outlines the current status of the "Peace Bundle" project against the proposed 10-phase roadmap.
+This document outlines the current status of the "Peace Bundlle" project against the proposed 10-phase roadmap.
 
 ## Phase 1: Project Setup & Database (✅ Completed)
 - **Status**: Backend initialized with Node.js/Express.

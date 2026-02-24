@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
 import { Wallet, Activity, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { SlideUp } from '../../components/animations/MotionComponents';
+import { staggerContainer, itemVariants } from '../../components/animations/variants';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Transaction = any;
@@ -31,7 +34,7 @@ export default function TransactionsPage() {
   if (loading) return <div className="text-center py-10">Loading transactions...</div>;
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
+    <SlideUp className="bg-white rounded-lg shadow overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200">
         <h2 className="text-xl font-bold text-gray-800">Transaction History</h2>
       </div>
@@ -47,10 +50,18 @@ export default function TransactionsPage() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <motion.tbody 
+            className="bg-white divide-y divide-gray-200"
+            variants={staggerContainer}
+            initial="initial"
+            animate="animate"
+          >
             {transactions.length > 0 ? (
               transactions.map((tx) => (
-                <tr key={tx.id}>
+                <motion.tr 
+                    key={tx.id}
+                    variants={itemVariants}
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className={`p-2 rounded-full mr-3 ${
@@ -80,7 +91,7 @@ export default function TransactionsPage() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {new Date(tx.createdAt).toLocaleDateString()} {new Date(tx.createdAt).toLocaleTimeString()}
                   </td>
-                </tr>
+                </motion.tr>
               ))
             ) : (
               <tr>
@@ -89,9 +100,9 @@ export default function TransactionsPage() {
                 </td>
               </tr>
             )}
-          </tbody>
+          </motion.tbody>
         </table>
       </div>
-    </div>
+    </SlideUp>
   );
 }

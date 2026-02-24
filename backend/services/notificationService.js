@@ -24,7 +24,7 @@ const sendEmail = async (to, subject, text, html) => {
         }
 
         const info = await transporter.sendMail({
-            from: '"Peace Bundle" <noreply@peacebundle.com>', // sender address
+            from: '"Peace Bundlle" <noreply@peacebundlle.com>', // sender address
             to, // list of receivers
             subject, // Subject line
             text, // plain text body
@@ -51,7 +51,7 @@ const sendSMS = async (phone, message) => {
         if (process.env.SMS_PROVIDER === 'termii' && process.env.SMS_API_KEY && !process.env.SMS_API_KEY.includes('your_')) {
             const payload = {
                 to: formattedPhone,
-                from: process.env.SMS_SENDER_ID || 'PeaceBundle',
+                from: process.env.SMS_SENDER_ID || 'PeaceBundlle',
                 sms: message,
                 type: 'plain',
                 channel: 'generic',
@@ -86,7 +86,7 @@ const sendTransactionNotification = async (user, transaction) => {
         
         Current Balance: ₦${user.balance}
         
-        Thank you for using Peace Bundle.
+        Thank you for using Peace Bundlle.
     `;
     
     const htmlMessage = `
@@ -101,14 +101,14 @@ const sendTransactionNotification = async (user, transaction) => {
             <li><strong>Date:</strong> ${new Date().toLocaleString()}</li>
         </ul>
         <p><strong>Current Balance:</strong> ₦${user.balance}</p>
-        <p>Thank you for using Peace Bundle.</p>
+        <p>Thank you for using Peace Bundlle.</p>
     `;
 
     // Send Email
     await sendEmail(user.email, subject, message, htmlMessage);
 
     // Send SMS (Short version)
-    const smsMessage = `PeaceBundle: ${transaction.type} of N${transaction.amount} successful. Ref: ${transaction.reference}. Bal: N${user.balance}.`;
+    const smsMessage = `PeaceBundlle: ${transaction.type} of N${transaction.amount} successful. Ref: ${transaction.reference}. Bal: N${user.balance}.`;
     await sendSMS(user.phone, smsMessage);
 };
 

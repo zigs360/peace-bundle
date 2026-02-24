@@ -847,13 +847,21 @@ const getDashboardStats = async (req, res) => {
             where: { walletId: user.Wallet.id }
         });
 
+        // Get recent transactions for dashboard
+        const recentTransactions = await Transaction.findAll({
+            where: { walletId: user.Wallet.id },
+            order: [['createdAt', 'DESC']],
+            limit: 5
+        });
+
         res.json({
             totalSpent,
             totalFunded,
             transactionsCount,
             balance: user.Wallet.balance,
             commission: user.Wallet.commission_balance,
-            bonus: user.Wallet.bonus_balance
+            bonus: user.Wallet.bonus_balance,
+            transactions: recentTransactions
         });
     } catch (error) {
         console.error(error);
