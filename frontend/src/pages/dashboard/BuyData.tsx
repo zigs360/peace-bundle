@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { Wifi, Smartphone, CheckCircle } from 'lucide-react';
 import { SlideUp, FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
+import SelectProvider from '../../components/Forms/SelectProvider';
 
 const NETWORKS = ['mtn', 'airtel', 'glo', '9mobile'];
 

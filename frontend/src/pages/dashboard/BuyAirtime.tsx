@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import api from '../../services/api';
 import { Phone, Smartphone, Banknote } from 'lucide-react';
-import { FadeIn, SlideUp, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
+import { FadeIn, SlideUp, HoverCard } from '../../components/animations/MotionComponents';
+import SelectProvider from '../../components/Forms/SelectProvider';
 
 const NETWORKS = ['mtn', 'airtel', 'glo', '9mobile'];
 
