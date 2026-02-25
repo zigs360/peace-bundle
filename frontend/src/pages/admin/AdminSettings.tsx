@@ -132,6 +132,24 @@ export default function AdminSettings() {
                   onChange={(e) => handleChange('smeplug_api_key', e.target.value)}
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Payvessel API Key</label>
+                <input
+                  type="password"
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  value={settings['payvessel_api_key'] || ''}
+                  onChange={(e) => handleChange('payvessel_api_key', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Payvessel Secret Key</label>
+                <input
+                  type="password"
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  value={settings['payvessel_secret_key'] || ''}
+                  onChange={(e) => handleChange('payvessel_secret_key', e.target.value)}
+                />
+              </div>
             </div>
           </div>
 
