@@ -21,7 +21,11 @@ if (process.env.NODE_ENV === 'test') {
       idle: 10000
     },
     dialectOptions: {
-      connectTimeout: 60000
+      connectTimeout: 60000,
+      ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('render.com') ? {
+        require: true,
+        rejectUnauthorized: false
+      } : false
     }
   });
 }

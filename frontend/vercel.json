@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://peacebundlle-api.vercel.app/api/$1"
+      "destination": "https://peace-bundlle-api.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
