@@ -46,11 +46,6 @@ export default function Home() {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-4xl mx-auto">
-             <ScaleIn delay={0.1} className="inline-flex items-center px-4 py-1.5 rounded-full bg-primary-50 border border-primary-100 text-primary-700 text-xs font-bold tracking-wide uppercase mb-8 hover:bg-primary-100 transition-colors cursor-default">
-               <span className="w-2 h-2 rounded-full bg-primary-500 mr-2 animate-ping"></span>
-               #1 Trusted Telecommunication Platform in Nigeria
-             </ScaleIn>
-             
              <SlideUp delay={0.2} className="text-5xl md:text-7xl font-extrabold text-gray-900 mb-8 tracking-tight leading-[1.1]">
                <h1>
                  Digital Services, <br className="hidden md:block" />
