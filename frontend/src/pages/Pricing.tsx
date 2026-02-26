@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, Wifi, CheckCircle2 } from 'lucide-react';
+import { Wifi, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
