@@ -122,10 +122,14 @@ const loginUser = async (req, res) => {
     const { emailOrPhone, password } = req.body;
 
     try {
-        // Find user
+        // Find user by email, phone, or name (username)
         const user = await User.findOne({
             where: {
-                [Op.or]: [{ email: emailOrPhone }, { phone: emailOrPhone }]
+                [Op.or]: [
+                    { email: emailOrPhone }, 
+                    { phone: emailOrPhone },
+                    { name: emailOrPhone }
+                ]
             },
             include: [{ model: Wallet, as: 'wallet' }] // Include Wallet
         });

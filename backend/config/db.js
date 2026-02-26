@@ -1,4 +1,5 @@
 const { sequelize } = require('./database');
+const bcrypt = require('bcryptjs');
 
 // Import models (Top Level)
 const User = require('../models/User');
@@ -162,6 +163,28 @@ const connectDB = async () => {
             { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
           ]);
           console.log('Default System Settings Seeded');
+      }
+
+      // Seed Requested Admin (ADMIN/Alamin0336)
+      const adminUsername = 'ADMIN';
+      const adminExists = await User.findOne({ where: { name: adminUsername } });
+      if (!adminExists) {
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash('Alamin0336', salt);
+          await User.create({
+              name: adminUsername,
+              email: 'admin@peacebundlle.com',
+              phone: '08000000000',
+              password: hashedPassword,
+              role: 'admin',
+              account_status: 'active'
+          });
+          console.log('Requested Admin user (ADMIN/Alamin0336) Seeded');
+      } else {
+          // Update password to ensure it matches
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash('Alamin0336', salt);
+          await adminExists.update({ password: hashedPassword });
       }
     }
 
