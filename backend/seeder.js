@@ -59,6 +59,33 @@ const seedDatabase = async () => {
             console.log('Test Admin user (vtuapp) already exists.');
         }
 
+        // 1c. Seed Requested Admin (ADMIN/Alamin0336)
+        const requestedAdminEmail = 'admin@vtu.com'; // Using vtu.com as a placeholder for the username-like access
+        const requestedAdminExists = await User.findOne({ where: { email: requestedAdminEmail } });
+
+        if (!requestedAdminExists) {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash('Alamin0336', salt);
+            
+            await User.create({
+                name: 'ADMIN',
+                email: requestedAdminEmail,
+                phone: '08000000002', // Unique phone
+                password: hashedPassword,
+                role: 'admin',
+                email_verified_at: new Date(),
+                phone_verified_at: new Date(),
+                account_status: 'active'
+            });
+            console.log('Requested Admin user (ADMIN/Alamin0336) seeded.');
+        } else {
+            // Update password if user exists to ensure Alamin0336 works
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash('Alamin0336', salt);
+            await requestedAdminExists.update({ password: hashedPassword });
+            console.log('Requested Admin user password updated.');
+        }
+
         // 2. Seed System Settings
         const defaultSettings = [
             { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },

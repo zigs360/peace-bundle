@@ -130,7 +130,32 @@ const loginUser = async (req, res) => {
             include: [{ model: Wallet, as: 'wallet' }] // Include Wallet
         });
 
-        if (user && (await bcrypt.compare(password, user.password))) {
+        if (!user) {
+            return res.status(400).json({ message: 'Invalid credentials' });
+        }
+
+        // Check for lockout
+        if (user.lockout_until && user.lockout_until > new Date()) {
+            const minutesLeft = Math.ceil((user.lockout_until - new Date()) / 60000);
+            return res.status(403).json({ 
+                message: `Account is locked due to multiple failed attempts. Please try again in ${minutesLeft} minute(s).` 
+            });
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+
+        if (isMatch) {
+            // Reset login attempts on successful login
+            await user.update({
+                login_attempts: 0,
+                lockout_until: null
+            });
+
+            // Log activity for admins
+            if (user.role === 'admin') {
+                console.log(`[AUDIT] Admin Login: ${user.email} (${user.id}) at ${new Date().toISOString()}`);
+            }
+
             res.json({
                 token: generateToken(user.id),
                 user: {
@@ -148,6 +173,24 @@ const loginUser = async (req, res) => {
                 message: 'Login successful'
             });
         } else {
+            // Increment failed attempts
+            const newAttempts = (user.login_attempts || 0) + 1;
+            const updateData = { login_attempts: newAttempts };
+
+            // Lockout after 5 failed attempts
+            if (newAttempts >= 5) {
+                updateData.lockout_until = new Date(Date.now() + 15 * 60 * 1000); // Lock for 15 minutes
+                updateData.login_attempts = 0; // Reset attempts after lockout
+            }
+
+            await user.update(updateData);
+
+            if (updateData.lockout_until) {
+                return res.status(403).json({ 
+                    message: 'Account locked due to 5 failed attempts. Please try again in 15 minutes.' 
+                });
+            }
+
             res.status(400).json({ message: 'Invalid credentials' });
         }
     } catch (error) {

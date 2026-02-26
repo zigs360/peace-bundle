@@ -93,6 +93,14 @@ const User = sequelize.define('User', {
   virtual_account_name: {
     type: DataTypes.STRING,
     allowNull: true,
+  },
+  login_attempts: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  lockout_until: {
+    type: DataTypes.DATE,
+    allowNull: true,
   }
 }, {
   timestamps: true,
