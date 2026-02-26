@@ -25,12 +25,24 @@ const {
     sendAdminBulkSMS,
     generateUserVirtualAccount
 } = require('../controllers/adminController');
+const {
+    adminGetSubscriptionPlans,
+    createSubscriptionPlan,
+    updateSubscriptionPlan,
+    deleteSubscriptionPlan
+} = require('../controllers/subscriptionPlanController');
 // const { getAllTransactions } = require('../controllers/transactionController'); // Replaced by admin controller version
 const { protect, admin } = require('../middleware/authMiddleware');
 
 router.get('/stats', protect, admin, getAdminStats);
 router.get('/transactions', protect, admin, getTransactions);
 router.post('/transactions/:id/refund', protect, admin, refundTransaction);
+
+// Subscription Plan Routes
+router.get('/subscription-plans', protect, admin, adminGetSubscriptionPlans);
+router.post('/subscription-plans', protect, admin, createSubscriptionPlan);
+router.put('/subscription-plans/:id', protect, admin, updateSubscriptionPlan);
+router.delete('/subscription-plans/:id', protect, admin, deleteSubscriptionPlan);
 
 // Bulk SMS Routes
 router.get('/bulk-sms', protect, admin, getBulkSMSHistory);

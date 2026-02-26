@@ -14,6 +14,7 @@ const Referral = require('../models/Referral');
 const ApiKey = require('../models/ApiKey');
 const SystemSetting = require('../models/SystemSetting');
 const WalletTransaction = require('../models/WalletTransaction');
+const SubscriptionPlan = require('../models/SubscriptionPlan');
 const Role = require('../models/Role');
 const Permission = require('../models/Permission');
 const SupportTicket = require('../models/SupportTicket');

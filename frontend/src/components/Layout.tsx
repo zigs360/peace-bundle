@@ -112,7 +112,12 @@ export default function Layout() {
             {!isCollapsed && <span>Data Plans</span>}
           </Link>
 
-          <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? "SIM Management" : ""}>
+          <Link to="/admin/subscriptions" className={getLinkClasses('/admin/subscriptions')} title={isCollapsed ? "Subscription Plans" : ""}>
+            <Tag className={getIconClasses('/admin/subscriptions')} />
+            {!isCollapsed && <span>Subscription Plans</span>}
+          </Link>
+          
+          <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? "Manage SIMs" : ""}>
             <Smartphone className={getIconClasses('/admin/sims')} />
             {!isCollapsed && <span>SIM Management</span>}
           </Link>
