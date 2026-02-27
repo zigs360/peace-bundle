@@ -37,18 +37,48 @@ async function runTest() {
         }
         console.log(`Using SIM: ${sim.phoneNumber} (ID: ${sim.id})`);
 
-        // 2. Test Connection
-        console.log('\n--- Testing Connection ---');
+        // 2. Test Connection and Auto Balance Check
+        console.log('\n--- Testing Connection & Auto Balance ---');
         await simManagementService.connectSim(sim);
         await sim.reload();
         console.log(`SIM Connection Status: ${sim.connectionStatus}`);
-        if (sim.connectionStatus === 'connected') {
-            console.log('SUCCESS: SIM connected successfully.');
+        
+        // Wait briefly for the async balance check to complete
+        console.log('Waiting for automatic balance check...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await sim.reload();
+        
+        console.log(`SIM Airtime Balance: ₦${sim.airtimeBalance}`);
+        console.log(`Last Balance Check: ${sim.lastBalanceCheck}`);
+
+        if (sim.connectionStatus === 'connected' && sim.lastBalanceCheck) {
+            console.log('SUCCESS: SIM connected and balance retrieved automatically.');
         } else {
-            console.log('FAILURE: SIM connection status not updated.');
+            console.log('FAILURE: SIM connection or auto-balance failed.');
         }
 
-        // 3. Test Duplicate Connection (Should fail)
+        // 3. Test Caching (Should use existing balance without network call)
+        console.log('\n--- Testing Balance Caching ---');
+        const firstCheck = sim.lastBalanceCheck;
+        await simManagementService.checkBalance(sim);
+        await sim.reload();
+        if (sim.lastBalanceCheck.getTime() === firstCheck.getTime()) {
+            console.log('SUCCESS: Caching mechanism prevented redundant USSD call.');
+        } else {
+            console.log('FAILURE: Caching mechanism failed.');
+        }
+
+        // 4. Test Force Refresh (Should update balance)
+        console.log('\n--- Testing Force Refresh ---');
+        await simManagementService.checkBalance(sim, 3, true);
+        await sim.reload();
+        if (sim.lastBalanceCheck.getTime() > firstCheck.getTime()) {
+            console.log('SUCCESS: Force refresh bypassed cache successfully.');
+        } else {
+            console.log('FAILURE: Force refresh did not update balance.');
+        }
+
+        // 5. Test Duplicate Connection (Should fail)
         console.log('\n--- Testing Duplicate Connection ---');
         try {
             await simManagementService.connectSim(sim);

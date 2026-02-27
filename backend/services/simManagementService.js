@@ -89,36 +89,72 @@ class SimManagementService {
   }
 
   /**
-   * Check SIM balance
+   * Check SIM balance with retry mechanism, logging, and caching
    * @param {Sim} sim
+   * @param {number} retries
+   * @param {boolean} force - Force a fresh check even if cached
    * @returns {Promise<number|null>}
    */
-  async checkBalance(sim) {
-    try {
-      // Simulate USSD balance check
-      // In production, this would connect to actual device/API
-      const mockResponse = "Your balance is NGN 1,234.50";
+  async checkBalance(sim, retries = 3, force = false) {
+    // 1. Caching Mechanism: Skip if checked within the last 5 minutes
+    const CACHE_MINUTES = 5;
+    if (!force && sim.lastBalanceCheck) {
+      const now = new Date();
+      const lastCheck = new Date(sim.lastBalanceCheck);
+      const diffMinutes = (now.getTime() - lastCheck.getTime()) / (1000 * 60);
+      
+      if (diffMinutes < CACHE_MINUTES) {
+        logger.info(`Using cached balance for SIM ${sim.phoneNumber} (Checked ${Math.round(diffMinutes)} mins ago)`);
+        return parseFloat(sim.airtimeBalance);
+      }
+    }
 
-      const balance = ussdParserService.parseBalance(sim.provider, mockResponse);
+    let attempt = 0;
+    let lastError = null;
 
-      if (balance !== null) {
-        await sim.update({
-          airtimeBalance: balance,
-          lastBalanceCheck: new Date(),
-        });
+    while (attempt < retries) {
+      try {
+        logger.info(`Checking balance for SIM ${sim.phoneNumber} (Attempt ${attempt + 1}/${retries})`);
+        
+        // In production, this would call a real USSD API or hardware bridge
+        // For now, we simulate a network call that might fail
+        if (process.env.NODE_ENV !== 'test' && Math.random() < 0.1) {
+          throw new Error('Network timeout during USSD execution');
+        }
 
-        // Check if low balance
-        if (sim.isLowBalance()) {
-          // In a real app, we might emit an event here
-          logger.warn(`SIM ${sim.phoneNumber} balance is low: ${balance}`);
+        const mockResponse = `Your balance is NGN ${Math.floor(Math.random() * 5000) + 500}.50`;
+        const balance = ussdParserService.parseBalance(sim.provider, mockResponse);
+
+        if (balance !== null) {
+          await sim.update({
+            airtimeBalance: balance,
+            lastBalanceCheck: new Date(),
+          });
+
+          logger.info(`Balance updated for SIM ${sim.phoneNumber}: ₦${balance}`);
+          
+          if (sim.isLowBalance()) {
+            logger.warn(`SIM ${sim.phoneNumber} balance is low: ₦${balance}`);
+          }
+
+          return balance;
+        }
+        
+        throw new Error('Could not parse balance from USSD response');
+      } catch (error) {
+        attempt++;
+        lastError = error;
+        logger.error(`Balance check attempt ${attempt} failed for ${sim.phoneNumber}: ${error.message}`);
+        
+        if (attempt < retries) {
+          // Exponential backoff
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500));
         }
       }
-
-      return balance;
-    } catch (error) {
-      logger.error(`Balance check failed for ${sim.phoneNumber}: ${error.message}`);
-      return null;
     }
+
+    logger.error(`All ${retries} balance check attempts failed for ${sim.phoneNumber}. Final error: ${lastError.message}`);
+    return null;
   }
 
   /**
@@ -308,7 +344,7 @@ class SimManagementService {
   }
 
   /**
-   * Connect SIM
+   * Connect SIM and automatically trigger balance check
    * @param {Sim} sim
    * @returns {Promise<Sim>}
    */
@@ -322,13 +358,19 @@ class SimManagementService {
       throw new Error('Cannot connect an inactive or banned SIM');
     }
 
-    // In a real hardware integration, you'd send a "heartbeat" or "connect" signal here
     await sim.update({
       connectionStatus: 'connected',
       lastConnectedAt: new Date(),
     });
 
-    logger.info(`SIM ${sim.phoneNumber} connected`);
+    logger.info(`SIM ${sim.phoneNumber} connected. Triggering automatic balance check...`);
+    
+    // Trigger balance check asynchronously to not block the connection response
+    // but ensure it's logged and handled
+    this.checkBalance(sim).catch(err => {
+      logger.error(`Automatic balance check failed after connection for SIM ${sim.phoneNumber}: ${err.message}`);
+    });
+
     return sim;
   }
 

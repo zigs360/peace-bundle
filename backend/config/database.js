@@ -3,11 +3,6 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-// FORCE TEST MODE for local testing if requested
-if (process.env.FORCE_TEST_DB === 'true') {
-  process.env.NODE_ENV = 'test';
-}
-
 let sequelize;
 
 if (process.env.NODE_ENV === 'test') {

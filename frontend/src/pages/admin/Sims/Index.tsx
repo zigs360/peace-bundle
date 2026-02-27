@@ -62,10 +62,10 @@ export default function SimsIndex() {
     }
   };
 
-  const handleCheckBalance = async (id: string) => {
+  const handleCheckBalance = async (id: string, force: boolean = false) => {
     try {
       setActionLoading(id);
-      const res = await api.post(`/sims/${id}/check-balance`);
+      const res = await api.post(`/sims/${id}/check-balance`, { force });
       if (res.data.success) {
         toast.success(`Balance updated: ₦${res.data.balance}`);
         // Update local state
@@ -116,12 +116,12 @@ export default function SimsIndex() {
       header: 'Balance',
       render: (value: number, row: any) => (
         <div className="flex items-center space-x-2">
-          <span className="font-mono text-sm font-semibold">₦{Number(value || 0).toLocaleString()}</span>
+          <span className="font-mono text-sm font-semibold text-primary-700">₦{Number(value || 0).toLocaleString()}</span>
           <button 
-            onClick={() => handleCheckBalance(row.id)}
+            onClick={() => handleCheckBalance(row.id, true)}
             disabled={actionLoading === row.id}
-            className="p-1 text-gray-400 hover:text-primary-600 transition-colors disabled:opacity-50"
-            title="Refresh Balance"
+            className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-full transition-all disabled:opacity-50"
+            title="Force Refresh Balance"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${actionLoading === row.id ? 'animate-spin' : ''}`} />
           </button>

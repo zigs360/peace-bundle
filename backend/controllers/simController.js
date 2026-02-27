@@ -154,6 +154,7 @@ exports.deleteSim = async (req, res) => {
 // @access  Private
 exports.checkBalance = async (req, res) => {
     const { id } = req.params;
+    const { force = false } = req.body;
 
     try {
         const sim = await Sim.findByPk(id);
@@ -166,7 +167,7 @@ exports.checkBalance = async (req, res) => {
             return res.status(403).json({ message: 'Unauthorized' });
         }
 
-        const balance = await simManagementService.checkBalance(sim);
+        const balance = await simManagementService.checkBalance(sim, 3, force);
         
         res.json({
             success: true,
