@@ -21,6 +21,7 @@ const {
     suspendSim,
     getSimAnalytics,
     getKycRequests,
+    bulkProcessKyc,
     getBulkSMSHistory,
     sendAdminBulkSMS,
     generateUserVirtualAccount

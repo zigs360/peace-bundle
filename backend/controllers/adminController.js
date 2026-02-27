@@ -1069,8 +1069,6 @@ module.exports = {
     getTransactions,
     refundTransaction,
     getKycRequests,
-    approveKyc,
-    rejectKyc,
     bulkProcessKyc,
     getBulkSMSHistory,
     sendAdminBulkSMS,
