@@ -9,7 +9,7 @@ export default function CreateSim() {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     provider: 'mtn',
-    phoneNumber: '',
+    phone_number: '',
     notes: '',
     status: 'active',
     type: 'device_based'
@@ -46,8 +46,8 @@ export default function CreateSim() {
             type="text"
             required
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm p-2 border"
-            value={formData.phoneNumber}
-            onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+            value={formData.phone_number}
+            onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
             placeholder="e.g. 08031234567"
           />
         </div>
