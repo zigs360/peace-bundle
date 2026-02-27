@@ -89,7 +89,7 @@ export default function SimsIndex() {
     { 
       key: 'connectionStatus', 
       header: 'Connection',
-      render: (value: string, row: any) => (
+      render: (value: string) => (
         <div className="flex items-center">
           <span className={`flex h-2.5 w-2.5 rounded-full mr-2 ${value === 'connected' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></span>
           <span className={`text-xs font-medium capitalize ${value === 'connected' ? 'text-green-700' : 'text-gray-500'}`}>
