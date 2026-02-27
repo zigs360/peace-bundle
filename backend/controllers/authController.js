@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const { sequelize } = require('../config/db'); // For transactions
 const VirtualAccountService = require('../services/virtualAccountService');
+const BvnVerificationService = require('../services/bvnVerificationService');
 
 // Generate JWT
 const generateToken = (id) => {
@@ -358,11 +359,21 @@ const changePassword = async (req, res) => {
     }
 };
 
-// @desc    Submit KYC Document
+// @desc    Submit KYC Document and BVN
 // @route   POST /api/auth/kyc
 // @access  Private
 const submitKyc = async (req, res) => {
     try {
+        const { bvn } = req.body;
+
+        if (!bvn) {
+            return res.status(400).json({ message: 'BVN is required' });
+        }
+
+        if (bvn.length !== 11) {
+            return res.status(400).json({ message: 'BVN must be 11 digits' });
+        }
+
         if (!req.file) {
             return res.status(400).json({ message: 'Please upload a document' });
         }
@@ -373,17 +384,44 @@ const submitKyc = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Update user KYC status
+        // 1. Verify BVN
+        try {
+            const isBvnVerified = await BvnVerificationService.verifyBvn(bvn, {
+                firstName: user.name.split(' ')[0],
+                lastName: user.name.split(' ').slice(1).join(' ')
+            });
+
+            if (!isBvnVerified) {
+                return res.status(400).json({ message: 'BVN verification failed' });
+            }
+
+            // Update user BVN status
+            user.bvn = bvn;
+            user.is_bvn_verified = true;
+            user.bvn_verified_at = new Date();
+        } catch (error) {
+            return res.status(400).json({ message: error.message });
+        }
+
+        // 2. Update user KYC status
         user.kyc_document = req.file.path.replace(/\\/g, '/');
         user.kyc_status = 'pending';
         user.kyc_submitted_at = new Date();
         
         await user.save();
 
+        // 3. Trigger Virtual Account Assignment if BVN is verified (it's verified here)
+        // Note: assignVirtualAccount checks settings and might fail, but it's handled inside.
+        // We do it asynchronously to return response quickly.
+        VirtualAccountService.assignVirtualAccount(user).catch(err => {
+            console.error(`Automatic Virtual Account Assignment Failed for User ${user.id}:`, err.message);
+        });
+
         res.json({ 
-            message: 'KYC document submitted successfully. Pending review.',
+            message: 'KYC and BVN submitted successfully. BVN verified, KYC pending review.',
             kycStatus: user.kyc_status,
-            kycDocument: user.kyc_document
+            kycDocument: user.kyc_document,
+            isBvnVerified: user.is_bvn_verified
         });
     } catch (error) {
         console.error(error);

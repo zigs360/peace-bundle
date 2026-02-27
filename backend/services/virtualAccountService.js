@@ -90,6 +90,12 @@ class VirtualAccountService {
     }
 
     async assignVirtualAccount(user) {
+        // KYC Check: BVN is mandatory for virtual accounts
+        if (!user.is_bvn_verified) {
+            console.log(`[VirtualAccount] User ${user.id} BVN not verified. Skipping assignment.`);
+            return null;
+        }
+
         // Prefer Monnify, fallback to Paystack or others
         try {
             const provider = await this.getSetting('virtual_account_provider') || 'monnify';

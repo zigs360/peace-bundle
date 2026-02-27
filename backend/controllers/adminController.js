@@ -806,7 +806,7 @@ const getKycRequests = async (req, res) => {
             attributes: [
                 'id', 'name', 'email', 'phone', 'kyc_status', 
                 'kyc_document', 'kyc_submitted_at', 'kyc_verified_at', 
-                'kyc_rejection_reason', 'account_status'
+                'kyc_rejection_reason', 'account_status', 'bvn', 'is_bvn_verified'
             ],
             order: [['kyc_submitted_at', 'DESC']],
             limit: parseInt(limit),

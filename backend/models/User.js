@@ -57,6 +57,22 @@ const User = sequelize.define('User', {
     type: DataTypes.DATE,
     allowNull: true,
   },
+  bvn: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true,
+    validate: {
+      len: [11, 11], // BVN is always 11 digits
+    },
+  },
+  is_bvn_verified: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  bvn_verified_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
   referral_code: {
     type: DataTypes.STRING,
     unique: true,

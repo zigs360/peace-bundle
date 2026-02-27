@@ -349,6 +349,10 @@ export default function KycIndex() {
                       <span className="text-sm font-medium">{selectedUser.phone}</span>
                     </div>
                     <div>
+                      <span className="text-xs text-gray-500 block">BVN (Verified)</span>
+                      <span className="text-sm font-medium">{selectedUser.bvn || 'N/A'}</span>
+                    </div>
+                    <div>
                       <span className="text-xs text-gray-500 block">Current Status</span>
                       <span className={`text-xs font-bold uppercase ${
                         selectedUser.kyc_status === 'verified' ? 'text-green-600' : 

@@ -22,6 +22,7 @@ export default function Settings() {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   const [kycFile, setKycFile] = useState<File | null>(null);
+  const [bvn, setBvn] = useState(''); // New state for BVN
   const [kycLoading, setKycLoading] = useState(false);
   const [kycMessage, setKycMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -101,6 +102,10 @@ export default function Settings() {
 
   const handleKycSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!bvn || bvn.length !== 11) {
+        setKycMessage({ type: 'error', text: 'Please enter a valid 11-digit BVN' });
+        return;
+    }
     if (!kycFile) {
         setKycMessage({ type: 'error', text: 'Please select a document' });
         return;
@@ -112,6 +117,7 @@ export default function Settings() {
     try {
         const formData = new FormData();
         formData.append('document', kycFile);
+        formData.append('bvn', bvn); // Add BVN to form data
 
         const res = await api.post('/auth/kyc', formData, {
             headers: {
@@ -292,6 +298,23 @@ export default function Settings() {
 
                 {user.kyc_status !== 'verified' && (
                     <form onSubmit={handleKycSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Bank Verification Number (BVN)
+                            </label>
+                            <input
+                                type="text"
+                                maxLength={11}
+                                className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
+                                placeholder="Enter 11-digit BVN"
+                                value={bvn}
+                                onChange={(e) => setBvn(e.target.value.replace(/\D/g, ''))}
+                                required
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1">
+                                Your BVN is required for virtual account generation and will be verified securely.
+                            </p>
+                        </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Upload ID Document (NIN, Passport, Drivers License)
