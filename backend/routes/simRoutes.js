@@ -45,6 +45,9 @@ router.delete('/:id', simController.deleteSim);
 
 router.post('/:id/check-balance', simController.checkBalance);
 
+router.post('/:id/connect', simController.connectSim);
+router.post('/:id/disconnect', simController.disconnectSim);
+
 // Keeping getBundles route if frontend relies on it, though implemented as 501
 router.get('/:id/bundles', simController.getBundles);
 

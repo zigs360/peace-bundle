@@ -50,6 +50,16 @@ const Sim = sequelize.define('Sim', {
     type: DataTypes.ENUM('active', 'paused', 'banned', 'inactive'),
     defaultValue: 'active',
   },
+  connectionStatus: {
+    type: DataTypes.ENUM('connected', 'disconnected'),
+    defaultValue: 'disconnected',
+    field: 'connection_status'
+  },
+  lastConnectedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'last_connected_at'
+  },
   statusReason: {
     type: DataTypes.TEXT,
     allowNull: true,

@@ -308,6 +308,49 @@ class SimManagementService {
   }
 
   /**
+   * Connect SIM
+   * @param {Sim} sim
+   * @returns {Promise<Sim>}
+   */
+  async connectSim(sim) {
+    if (sim.connectionStatus === 'connected') {
+      throw new Error('SIM is already connected');
+    }
+
+    // Real-time validation: Ensure it's active
+    if (sim.status !== 'active') {
+      throw new Error('Cannot connect an inactive or banned SIM');
+    }
+
+    // In a real hardware integration, you'd send a "heartbeat" or "connect" signal here
+    await sim.update({
+      connectionStatus: 'connected',
+      lastConnectedAt: new Date(),
+    });
+
+    logger.info(`SIM ${sim.phoneNumber} connected`);
+    return sim;
+  }
+
+  /**
+   * Disconnect SIM
+   * @param {Sim} sim
+   * @returns {Promise<Sim>}
+   */
+  async disconnectSim(sim) {
+    if (sim.connectionStatus === 'disconnected') {
+      throw new Error('SIM is already disconnected');
+    }
+
+    await sim.update({
+      connectionStatus: 'disconnected',
+    });
+
+    logger.info(`SIM ${sim.phoneNumber} disconnected`);
+    return sim;
+  }
+
+  /**
    * Bulk add SIMs from CSV/Array
    * @param {User} user
    * @param {Array} simsData

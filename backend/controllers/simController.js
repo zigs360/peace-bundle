@@ -179,6 +179,72 @@ exports.checkBalance = async (req, res) => {
     }
 };
 
+// @desc    Connect SIM
+// @route   POST /api/sims/:id/connect
+// @access  Private
+exports.connectSim = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const sim = await Sim.findByPk(id);
+        
+        if (!sim) {
+            return res.status(404).json({ message: 'SIM not found' });
+        }
+
+        if (sim.userId !== req.user.id) {
+            return res.status(403).json({ message: 'Unauthorized' });
+        }
+
+        await simManagementService.connectSim(sim);
+        
+        res.json({
+            success: true,
+            message: 'SIM connected successfully!',
+            data: await sim.reload()
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(400).json({ 
+            success: false,
+            message: error.message 
+        });
+    }
+};
+
+// @desc    Disconnect SIM
+// @route   POST /api/sims/:id/disconnect
+// @access  Private
+exports.disconnectSim = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const sim = await Sim.findByPk(id);
+        
+        if (!sim) {
+            return res.status(404).json({ message: 'SIM not found' });
+        }
+
+        if (sim.userId !== req.user.id) {
+            return res.status(403).json({ message: 'Unauthorized' });
+        }
+
+        await simManagementService.disconnectSim(sim);
+        
+        res.json({
+            success: true,
+            message: 'SIM disconnected successfully!',
+            data: await sim.reload()
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(400).json({ 
+            success: false,
+            message: error.message 
+        });
+    }
+};
+
 // @desc    Get Bundles (Mock/Placeholder)
 // @route   GET /api/sims/:id/bundles
 // @access  Private
