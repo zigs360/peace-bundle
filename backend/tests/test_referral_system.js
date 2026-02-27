@@ -28,7 +28,7 @@ async function runReferralTest() {
             console.log('SUCCESS: Referral code generated correctly.');
         }
 
-        // 3. Test Code Validation
+        // 3. Test Code Validation (Optional)
         console.log('\n--- Testing Code Validation ---');
         const validCodeUser = await referralService.validateCode('REF1234');
         const invalidCodeUser = await referralService.validateCode('INVALID');
@@ -37,7 +37,7 @@ async function runReferralTest() {
             console.log('SUCCESS: Valid code recognized.');
         }
         if (invalidCodeUser === null) {
-            console.log('SUCCESS: Invalid code rejected.');
+            console.log('SUCCESS: Invalid code returns null (handled as optional).');
         }
 
         // 4. Test Referral Tracking and Rewards

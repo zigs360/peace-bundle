@@ -44,16 +44,15 @@ const registerUser = async (req, res) => {
             return res.status(400).json({ message: 'User already exists' });
         }
 
-        // Handle Referral
+        // Handle Referral (Optional)
         let referredBy = null;
         let referrerObj = null;
         if (referralCode) {
             referrerObj = await ReferralService.validateCode(referralCode);
-            if (!referrerObj) {
-                await t.rollback();
-                return res.status(400).json({ message: 'Invalid referral code' });
+            if (referrerObj) {
+                referredBy = referrerObj.referral_code;
             }
-            referredBy = referrerObj.referral_code;
+            // If invalid, we just proceed without linking a referrer
         }
 
         // Generate Referral Code
