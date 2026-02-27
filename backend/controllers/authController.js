@@ -6,6 +6,7 @@ const { Op } = require('sequelize');
 const { sequelize } = require('../config/db'); // For transactions
 const VirtualAccountService = require('../services/virtualAccountService');
 const BvnVerificationService = require('../services/bvnVerificationService');
+const ReferralService = require('../services/referralService');
 
 // Generate JWT
 const generateToken = (id) => {
@@ -45,15 +46,18 @@ const registerUser = async (req, res) => {
 
         // Handle Referral
         let referredBy = null;
+        let referrerObj = null;
         if (referralCode) {
-            const referrer = await User.findOne({ where: { referral_code: referralCode } });
-            if (referrer) {
-                referredBy = referrer.referral_code;
+            referrerObj = await ReferralService.validateCode(referralCode);
+            if (!referrerObj) {
+                await t.rollback();
+                return res.status(400).json({ message: 'Invalid referral code' });
             }
+            referredBy = referrerObj.referral_code;
         }
 
         // Generate Referral Code
-        const generatedRefCode = (userName.substring(0, 3).toUpperCase() + Math.floor(100 + Math.random() * 900)).replace(/\s/g, '');
+        const generatedRefCode = await ReferralService.generateUniqueCode(userName);
 
         // Hash password
         const salt = await bcrypt.genSalt(10);
@@ -72,22 +76,14 @@ const registerUser = async (req, res) => {
             kyc_status: 'none'
         }, { transaction: t });
 
-        // Wallet is now created automatically via User.afterCreate hook
-        // However, since we are inside a transaction, the hook might run outside of it or need special handling.
-        // The safest way with hooks + transactions is to either pass the transaction to the hook or
-        // since we just need to return the balance (0), we can just fetch it or assume 0.
-        // For simplicity and to avoid race conditions with the hook, we can rely on the hook 
-        // but since we need to return the wallet balance, we might need to wait or just return 0.
-        
-        // Wait for wallet creation to ensure it exists if we need to query it immediately
-        // Note: Hooks run after the query. If the hook fails, the user is still created unless the hook is part of the transaction.
-        // Sequelize hooks don't automatically inherit the transaction unless configured.
-        
-        // To ensure consistency, we'll manually check/create if hook didn't (or just return 0)
-        // But to respect the "auto-create" requirement, we'll assume the hook works.
-        // However, to return the balance in the response, we assume 0.
-
         await t.commit();
+
+        // Track referral reward if applicable
+        if (referrerObj) {
+            ReferralService.trackReferral(referrerObj, user).catch(err => {
+                console.error('Failed to track referral reward:', err);
+            });
+        }
 
         // Attempt to assign virtual account asynchronously (don't block response)
         VirtualAccountService.assignVirtualAccount(user).catch(err => {

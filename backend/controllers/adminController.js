@@ -948,6 +948,42 @@ const rejectKyc = async (req, res) => {
     }
 };
 
+// @desc    Get Referral Analytics
+// @route   GET /api/admin/referrals/analytics
+// @access  Private (Admin)
+const getReferralAnalytics = async (req, res) => {
+    try {
+        const totalReferrals = await User.count({
+            where: { referred_by: { [Op.ne]: null } }
+        });
+
+        const topReferrers = await User.findAll({
+            attributes: [
+                'referral_code',
+                'name',
+                [sequelize.fn('COUNT', sequelize.col('referral_code')), 'referral_count']
+            ],
+            include: [{
+                model: User,
+                as: 'referrals',
+                attributes: []
+            }],
+            where: { referral_code: { [Op.ne]: null } },
+            group: ['User.id'],
+            order: [[sequelize.literal('referral_count'), 'DESC']],
+            limit: 10
+        });
+
+        res.json({
+            totalReferrals,
+            topReferrers
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
 // @desc    Get Bulk SMS History
 // @route   GET /api/admin/bulk-sms
 // @access  Private (Admin)
@@ -1070,6 +1106,7 @@ module.exports = {
     refundTransaction,
     getKycRequests,
     bulkProcessKyc,
+    getReferralAnalytics,
     getBulkSMSHistory,
     sendAdminBulkSMS,
     generateUserVirtualAccount

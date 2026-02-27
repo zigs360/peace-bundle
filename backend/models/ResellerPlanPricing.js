@@ -15,13 +15,7 @@ const ResellerPlanPricing = sequelize.define('ResellerPlanPricing', {
   }
 }, {
   timestamps: true,
-  tableName: 'reseller_plan_pricing',
-  indexes: [
-    {
-      unique: true,
-      fields: ['userId', 'dataPlanId'] // Sequelize uses camelCase for foreign keys by default
-    }
-  ]
+  tableName: 'reseller_plan_pricing'
 });
 
 module.exports = ResellerPlanPricing;

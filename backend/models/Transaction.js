@@ -146,7 +146,6 @@ const Transaction = sequelize.define('Transaction', {
       {
           fields: ['recipient_phone', 'createdAt'] // Indexing recipient + created_at
       },
-      { fields: ['userId'] },
       { fields: ['reference'] },
       { fields: ['type'] }
   ]

@@ -24,7 +24,8 @@ const {
     bulkProcessKyc,
     getBulkSMSHistory,
     sendAdminBulkSMS,
-    generateUserVirtualAccount
+    generateUserVirtualAccount,
+    getReferralAnalytics
 } = require('../controllers/adminController');
 const {
     adminGetSubscriptionPlans,
@@ -74,5 +75,8 @@ router.get('/sims', protect, admin, getSims);
 router.get('/sims/analytics', protect, admin, getSimAnalytics);
 router.post('/sims/:id/approve', protect, admin, approveSim);
 router.post('/sims/:id/suspend', protect, admin, suspendSim);
+
+// Referral Analytics Route
+router.get('/referrals/analytics', protect, admin, getReferralAnalytics);
 
 module.exports = router;

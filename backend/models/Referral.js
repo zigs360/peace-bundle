@@ -28,13 +28,7 @@ const Referral = sequelize.define('Referral', {
   }
 }, {
   timestamps: true,
-  tableName: 'referrals',
-  indexes: [
-    {
-      unique: true,
-      fields: ['referrerId', 'referredUserId'] // Using camelCase for association keys
-    }
-  ]
+  tableName: 'referrals'
 });
 
 module.exports = Referral;
