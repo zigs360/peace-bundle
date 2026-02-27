@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Wallet, Wifi, Phone, Receipt, Settings, LogOut, Tv, 
-  GraduationCap, Users, MessageSquare, Key, Share2, Menu, X, ChevronLeft, ChevronRight 
+  GraduationCap, Users, MessageSquare, Key, Share2, Menu, X, ChevronLeft, ChevronRight, ShieldCheck 
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
@@ -141,10 +141,19 @@ export default function UserLayout() {
           </Link>
 
           {(userRole === 'reseller' || userRole === 'admin') && (
-            <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? "SIM Management" : ""}>
-              <Users className={getIconClasses('/admin/sims')} />
-              {!isCollapsed && <span>SIM Management</span>}
-            </Link>
+            <>
+              <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? "SIM Management" : ""}>
+                <Users className={getIconClasses('/admin/sims')} />
+                {!isCollapsed && <span>SIM Management</span>}
+              </Link>
+
+              {userRole === 'admin' && (
+                <Link to="/admin/kyc" className={getLinkClasses('/admin/kyc')} title={isCollapsed ? "KYC Management" : ""}>
+                  <ShieldCheck className={getIconClasses('/admin/kyc')} />
+                  {!isCollapsed && <span>KYC Management</span>}
+                </Link>
+              )}
+            </>
           )}
 
           <Link to="/dashboard/transactions" className={getLinkClasses('/dashboard/transactions')} title={isCollapsed ? "Transactions" : ""}>

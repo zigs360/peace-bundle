@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
-import { BarChart, DollarSign, Users, Activity, Wallet, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { BarChart, DollarSign, Users, Activity, Wallet, ArrowUpRight, ArrowDownLeft, ShieldCheck, Smartphone, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import React from 'react';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -110,6 +111,36 @@ export default function AdminDashboard() {
         {/* Quick Actions or System Status */}
         <div className="lg:col-span-1 space-y-6">
            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">Quick Actions</h3>
+              <div className="grid grid-cols-2 gap-4">
+                  <QuickActionLink 
+                    to="/admin/kyc" 
+                    icon={<ShieldCheck className="w-5 h-5" />} 
+                    label="KYC Requests" 
+                    color="bg-blue-50 text-blue-600"
+                  />
+                  <QuickActionLink 
+                    to="/admin/sims" 
+                    icon={<Smartphone className="w-5 h-5" />} 
+                    label="Manage SIMs" 
+                    color="bg-purple-50 text-purple-600"
+                  />
+                  <QuickActionLink 
+                    to="/admin/users" 
+                    icon={<Users className="w-5 h-5" />} 
+                    label="User List" 
+                    color="bg-green-50 text-green-600"
+                  />
+                  <QuickActionLink 
+                    to="/admin/settings" 
+                    icon={<Settings className="w-5 h-5" />} 
+                    label="Settings" 
+                    color="bg-gray-50 text-gray-600"
+                  />
+              </div>
+           </div>
+
+           <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-bold text-gray-800 mb-4">System Status</h3>
               <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -159,5 +190,26 @@ function StatCard({ title, value, icon, borderClass = "border-gray-200" }: StatC
         </div>
       </div>
     </div>
+  );
+}
+
+interface QuickActionLinkProps {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  color: string;
+}
+
+function QuickActionLink({ to, icon, label, color }: QuickActionLinkProps) {
+  return (
+    <Link 
+      to={to} 
+      className="flex flex-col items-center p-3 rounded-lg border border-gray-100 hover:border-primary-200 hover:shadow-sm transition-all group"
+    >
+      <div className={`p-2 rounded-lg mb-2 ${color} group-hover:scale-110 transition-transform`}>
+        {icon}
+      </div>
+      <span className="text-xs font-medium text-gray-600 group-hover:text-primary-600">{label}</span>
+    </Link>
   );
 }
