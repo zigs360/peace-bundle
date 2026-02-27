@@ -1,6 +1,6 @@
 interface Column {
   key: string;
-  header: string;
+  header: React.ReactNode;
   render?: (value: any, item: any) => React.ReactNode;
 }
 

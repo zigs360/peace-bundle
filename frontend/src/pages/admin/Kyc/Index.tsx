@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react';
 import api from '../../../services/api';
 import DataTable from '../../../components/Tables/DataTable';
-import { ShieldCheck, Search, Filter, Eye, CheckCircle, XCircle, MoreVertical, Loader2 } from 'lucide-react';
+import { ShieldCheck, Search, Filter, Eye, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Pagination from '../../../components/Tables/Pagination';
 
 export default function KycIndex() {
   const [kycs, setKycs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState('');
@@ -31,9 +30,8 @@ export default function KycIndex() {
           limit: 10
         }
       });
-      const { data, total, totalPages, currentPage } = res.data;
+      const { data, totalPages, currentPage } = res.data;
       setKycs(data);
-      setTotal(total);
       setTotalPages(totalPages);
       setCurrentPage(currentPage);
     } catch (err) {
@@ -134,7 +132,7 @@ export default function KycIndex() {
   const getFullDocUrl = (path: string) => {
     if (!path) return '';
     if (path.startsWith('http')) return path;
-    const baseUrl = import.meta.env.VITE_API_URL || 'https://www.peacebundlle.com';
+    const baseUrl = (import.meta as any).env.VITE_API_URL || 'https://www.peacebundlle.com';
     return `${baseUrl}/${path}`;
   };
 
