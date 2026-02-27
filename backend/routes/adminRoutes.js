@@ -51,6 +51,7 @@ router.post('/bulk-sms', protect, admin, sendAdminBulkSMS);
 // User Management Routes
 router.get('/users', protect, admin, getUsers);
 router.get('/users/kyc-requests', protect, admin, getKycRequests);
+router.post('/users/kyc/bulk', protect, admin, bulkProcessKyc);
 router.put('/users/:id', protect, admin, updateUser);
 router.patch('/users/:id/block', protect, admin, toggleBlockUser);
 router.post('/users/:id/fund', protect, admin, fundUserWallet);

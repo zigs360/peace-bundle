@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
-  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight 
+  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck 
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import PageTransition from './animations/PageTransition';
@@ -95,6 +95,11 @@ export default function Layout() {
           <Link to="/admin/users" className={getLinkClasses('/admin/users')} title={isCollapsed ? "Manage Users" : ""}>
             <Users className={getIconClasses('/admin/users')} />
             {!isCollapsed && <span>Manage Users</span>}
+          </Link>
+          
+          <Link to="/admin/kyc" className={getLinkClasses('/admin/kyc')} title={isCollapsed ? "KYC Management" : ""}>
+            <ShieldCheck className={getIconClasses('/admin/kyc')} />
+            {!isCollapsed && <span>KYC Management</span>}
           </Link>
           
           <Link to="/admin/transactions" className={getLinkClasses('/admin/transactions')} title={isCollapsed ? "Transactions" : ""}>

@@ -777,16 +777,98 @@ const updateSystemSettings = async (req, res) => {
 };
 
 // @desc    Get KYC Requests
-// @route   GET /api/admin/kyc
+// @route   GET /api/admin/users/kyc-requests
 // @access  Private (Admin)
 const getKycRequests = async (req, res) => {
     try {
-        const users = await User.findAll({
-            where: { kyc_status: 'pending' },
-            attributes: ['id', 'name', 'email', 'phone', 'kyc_document', 'kyc_submitted_at']
+        const { status, search, page = 1, limit = 20 } = req.query;
+        const offset = (page - 1) * limit;
+
+        const where = {};
+        
+        // Filter by status if provided, otherwise show all non-'none' by default or filter by specific statuses
+        if (status && status !== 'all') {
+            where.kyc_status = status;
+        } else {
+            where.kyc_status = { [Op.ne]: 'none' };
+        }
+
+        if (search) {
+            where[Op.or] = [
+                { name: { [Op.iLike]: `%${search}%` } },
+                { email: { [Op.iLike]: `%${search}%` } },
+                { phone: { [Op.iLike]: `%${search}%` } }
+            ];
+        }
+
+        const { count, rows } = await User.findAndCountAll({
+            where,
+            attributes: [
+                'id', 'name', 'email', 'phone', 'kyc_status', 
+                'kyc_document', 'kyc_submitted_at', 'kyc_verified_at', 
+                'kyc_rejection_reason', 'account_status'
+            ],
+            order: [['kyc_submitted_at', 'DESC']],
+            limit: parseInt(limit),
+            offset: parseInt(offset)
         });
-        res.json(users);
+
+        res.json({
+            data: rows,
+            total: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
     } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc    Bulk Process KYC
+// @route   POST /api/admin/users/kyc/bulk
+// @access  Private (Admin)
+const bulkProcessKyc = async (req, res) => {
+    const t = await sequelize.transaction();
+    try {
+        const { userIds, action, reason } = req.body;
+
+        if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({ message: 'No user IDs provided' });
+        }
+
+        if (!['approve', 'reject'].includes(action)) {
+            return res.status(400).json({ message: 'Invalid action' });
+        }
+
+        const status = action === 'approve' ? 'verified' : 'rejected';
+        const updateData = {
+            kyc_status: status,
+            kyc_verified_at: action === 'approve' ? new Date() : null,
+            kyc_rejection_reason: action === 'reject' ? reason : null
+        };
+
+        await User.update(updateData, {
+            where: { id: { [Op.in]: userIds } },
+            transaction: t
+        });
+
+        await t.commit();
+
+        // Send notifications asynchronously (simplified for bulk)
+        // In a real app, this should be a background job
+        const users = await User.findAll({ where: { id: { [Op.in]: userIds } } });
+        for (const user of users) {
+            if (action === 'approve') {
+                sendEmail(user.email, 'KYC Approved', `Your KYC has been approved.`).catch(console.error);
+            } else {
+                sendEmail(user.email, 'KYC Rejected', `Your KYC was rejected. Reason: ${reason}`).catch(console.error);
+            }
+        }
+
+        res.json({ message: `Bulk KYC ${action} successful for ${userIds.length} users` });
+    } catch (error) {
+        await t.rollback();
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
@@ -987,6 +1069,9 @@ module.exports = {
     getTransactions,
     refundTransaction,
     getKycRequests,
+    approveKyc,
+    rejectKyc,
+    bulkProcessKyc,
     getBulkSMSHistory,
     sendAdminBulkSMS,
     generateUserVirtualAccount

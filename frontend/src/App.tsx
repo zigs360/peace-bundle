@@ -23,6 +23,7 @@ import AdminSettings from './pages/admin/AdminSettings';
 import AdminSupport from './pages/admin/Support';
 import SubscriptionsIndex from './pages/admin/Subscriptions/Index';
 import CreateOrEditSubscriptionPlan from './pages/admin/Subscriptions/Create';
+import KycIndex from './pages/admin/Kyc/Index';
 import UserLayout from './components/UserLayout';
 import CookieConsent from './components/common/CookieConsent';
 import UserDashboard from './pages/dashboard/UserDashboard';
@@ -77,11 +78,13 @@ function App() {
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="transactions" element={<Transactions />} />
           <Route path="pricing" element={<Pricing />} />
+          <Route path="kyc" element={<KycIndex />} />
           <Route path="subscriptions" element={<SubscriptionsIndex />} />
           <Route path="subscriptions/create" element={<CreateOrEditSubscriptionPlan />} />
           <Route path="subscriptions/edit/:id" element={<CreateOrEditSubscriptionPlan />} />
           <Route path="plans" element={<PlansIndex />} />
           <Route path="plans/create" element={<CreatePlan />} />
+          <Route path="plans/edit/:id" element={<CreatePlan />} />
           <Route path="sims" element={<SimsIndex />} />
           <Route path="sims/create" element={<CreateSim />} />
           <Route path="bulk-sms" element={<BulkSMSIndex />} />
