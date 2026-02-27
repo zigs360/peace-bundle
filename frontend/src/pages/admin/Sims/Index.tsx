@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../../services/api';
 import DataTable from '../../../components/Tables/DataTable';
-import { Smartphone, Plus, Power, PowerOff, RefreshCw } from 'lucide-react';
+import { Smartphone, Plus, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
@@ -73,6 +73,25 @@ export default function SimsIndex() {
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to check balance');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Are you sure you want to remove this SIM? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setActionLoading(id);
+      const res = await api.delete(`/sims/${id}`);
+      if (res.data.success) {
+        toast.success(res.data.message || 'SIM removed successfully');
+        setSims(prev => prev.filter(sim => sim.id !== id));
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to remove SIM');
     } finally {
       setActionLoading(null);
     }
@@ -160,6 +179,14 @@ export default function SimsIndex() {
               Connect
             </button>
           )}
+          <button
+            onClick={() => handleDelete(row.id)}
+            disabled={actionLoading === row.id}
+            className="p-1.5 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
+            title="Delete SIM"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       )
     }
