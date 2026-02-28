@@ -1,8 +1,19 @@
 export const NETWORK_PREFIXES: Record<string, string[]> = {
-  airtel: ['0701', '0708', '0802', '0808', '0812', '0902', '0907', '0901', '0912', '0911', '0812'],
-  mtn: ['0703', '0706', '0803', '0806', '0813', '0816', '0903', '0810', '0814', '0906', '0913', '0916', '0702', '0704'],
+  mtn: ['0702', '0703', '0704', '0706', '0803', '0806', '0810', '0813', '0814', '0816', '0903', '0906', '0913', '0916'],
+  airtel: ['0701', '0708', '0802', '0808', '0812', '0901', '0902', '0904', '0907', '0911', '0912'],
   glo: ['0705', '0805', '0807', '0811', '0815', '0905', '0915'],
-  '9mobile': ['0809', '0817', '0818', '0909', '0908'],
+  '9mobile': ['0809', '0817', '0818', '0908', '0909'],
+};
+
+export const isValidNigerianNumber = (phone: string): boolean => {
+  if (!phone) return false;
+  const cleanPhone = phone.replace(/\D/g, '');
+  
+  // Standard Nigerian numbers are 11 digits (starting with 0) or 13 digits (starting with 234)
+  if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) return true;
+  if (cleanPhone.length === 13 && cleanPhone.startsWith('234')) return true;
+  
+  return false;
 };
 
 export const detectNetwork = (phone: string): string | null => {
@@ -16,7 +27,7 @@ export const detectNetwork = (phone: string): string | null => {
     cleanPhone = '0' + cleanPhone.substring(3);
   }
   
-  // If it doesn't start with 0 after 234 normalization, but is 10 digits, add 0
+  // If it's a 10-digit number without a leading zero, add it
   if (cleanPhone.length === 10 && !cleanPhone.startsWith('0')) {
     cleanPhone = '0' + cleanPhone;
   }

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
-import { Smartphone, Banknote, Star, CheckCircle, Loader2, Zap } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Smartphone, Banknote, Star, CheckCircle, Loader2, Zap, AlertCircle } from 'lucide-react';
 import { FadeIn, SlideUp } from '../../components/animations/MotionComponents';
-import { detectNetwork, networkServices, recommendations } from '../../utils/networkDetection';
+import { detectNetwork, networkServices, recommendations, isValidNigerianNumber } from '../../utils/networkDetection';
 import { toast } from 'react-hot-toast';
+import SelectProvider from '../../components/Forms/SelectProvider';
 
 const SERVICE_LABELS: Record<string, string> = {
   airtime: 'Airtime',
@@ -20,8 +22,20 @@ export default function BuyAirtime() {
   const [loading, setLoading] = useState(false);
   const [dataPlans, setDataPlans] = useState<any[]>([]);
   const [activationCode, setActivationCode] = useState<string | null>(null);
+  const [isPhoneValid, setIsPhoneValid] = useState(false);
+  const [manualOverride, setManualOverride] = useState(false);
 
   useEffect(() => {
+    setIsPhoneValid(isValidNigerianNumber(phone));
+    
+    if (phone.length === 0) {
+      setManualOverride(false);
+      setNetwork(null);
+      return;
+    }
+
+    if (manualOverride) return;
+
     const detected = detectNetwork(phone);
     if (detected && detected !== network) {
       setNetwork(detected);
@@ -32,7 +46,7 @@ export default function BuyAirtime() {
     } else if (!detected && phone.length < 4) {
       setNetwork(null);
     }
-  }, [phone]);
+  }, [phone, manualOverride]);
 
   const fetchDataPlans = async (provider: string) => {
     try {
@@ -47,8 +61,12 @@ export default function BuyAirtime() {
 
   const handlePurchase = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPhoneValid) {
+      toast.error('Please enter a valid Nigerian phone number');
+      return;
+    }
     if (!network) {
-      toast.error('Please enter a valid phone number');
+      toast.error('Could not detect network. Please check the number.');
       return;
     }
 
@@ -113,10 +131,10 @@ export default function BuyAirtime() {
 
   const getProviderLogo = (provider: string) => {
     switch (provider) {
-      case 'mtn': return '/images/mtn-logo.png';
-      case 'airtel': return '/images/airtel-logo.png';
-      case 'glo': return '/images/glo-logo.png';
-      case '9mobile': return '/images/9mobile-logo.png';
+      case 'mtn': return '/logos/mtn.jpg';
+      case 'airtel': return '/logos/airtel.svg';
+      case 'glo': return '/logos/glo.png';
+      case '9mobile': return '/logos/9mobile.svg';
       default: return '';
     }
   };
@@ -145,17 +163,74 @@ export default function BuyAirtime() {
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="w-full pl-10 pr-12 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
-                placeholder="08012345678"
+                className={`w-full pl-10 pr-12 py-3 rounded-xl border transition-all ${
+                  isPhoneValid 
+                    ? 'border-green-500 focus:ring-green-500' 
+                    : phone.length >= 11 
+                      ? 'border-red-500 focus:ring-red-500' 
+                      : 'border-gray-300 focus:ring-primary-500'
+                } focus:outline-none focus:ring-2`}
+                placeholder="08012345678 or +234..."
                 required
               />
-              {network && (
-                <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                  <img src={getProviderLogo(network)} alt={network} className="h-8 h-8 object-contain" />
-                </div>
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center gap-2">
+                {isPhoneValid && <CheckCircle className="h-5 w-5 text-green-500" />}
+                {network && (
+                  <motion.img 
+                    initial={{ scale: 0 }} 
+                    animate={{ scale: 1 }} 
+                    src={getProviderLogo(network)} 
+                    alt={network} 
+                    className="h-8 h-8 object-contain rounded-full border border-gray-100 shadow-sm" 
+                  />
+                )}
+              </div>
+            </div>
+            <div className="flex justify-between items-center mt-1">
+              {phone.length >= 4 && !network ? (
+                <p className="text-xs text-red-500 flex items-center">
+                  <AlertCircle size={12} className="mr-1" /> Unknown network prefix
+                </p>
+              ) : phone.length > 0 && phone.length < 11 && !phone.startsWith('+') ? (
+                <p className="text-[10px] text-gray-400">Enter 11 digits (e.g. 080...)</p>
+              ) : (
+                <div />
+              )}
+              
+              {phone.length >= 4 && (
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setNetwork(null);
+                    setManualOverride(true);
+                  }}
+                  className="text-[10px] text-primary-600 hover:underline font-medium"
+                >
+                  {network ? 'Change Network' : 'Select Manually'}
+                </button>
               )}
             </div>
           </div>
+
+          <AnimatePresence>
+            {(!network && phone.length >= 4) && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="mb-6"
+              >
+                <SelectProvider 
+                  value={network || ''} 
+                  onChange={(val) => {
+                    setNetwork(val);
+                    setManualOverride(true);
+                    fetchDataPlans(val);
+                  }} 
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {network && (
             <div className="space-y-6">
