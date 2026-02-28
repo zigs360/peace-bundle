@@ -23,6 +23,8 @@ const purchaseUnified = async (req, res) => {
   const { phone, serviceType, amount, network, planId } = req.body;
   const userId = req.user.id;
 
+  logger.info(`Unified Purchase Initiation: User ${userId}, Service ${serviceType}, Phone ${phone}, Amount ${amount}, Network ${network}`);
+
   try {
     const user = await User.findByPk(userId);
     if (!user) {
@@ -34,14 +36,21 @@ const purchaseUnified = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing required parameters' });
     }
 
+    // Normalize phone for backend processing if needed
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.startsWith('234')) {
+      cleanPhone = '0' + cleanPhone.substring(3);
+    }
+    
     // Verify service capability
     if (!networkServices[network] || !networkServices[network][serviceType]) {
       return res.status(400).json({ success: false, message: `Service ${serviceType} not supported for ${network}` });
     }
 
-    const t = await sequelize.transaction();
-
+    let t;
     try {
+      t = await sequelize.transaction();
+
       let result;
       let transactionType;
       let description;
@@ -49,7 +58,7 @@ const purchaseUnified = async (req, res) => {
 
       if (serviceType === 'airtime' || serviceType === 'talkmore') {
         transactionType = 'airtime_purchase';
-        description = `${network.toUpperCase()} ${serviceType === 'talkmore' ? 'TalkMore' : 'Airtime'} ₦${finalAmount} to ${phone}`;
+        description = `${network.toUpperCase()} ${serviceType === 'talkmore' ? 'TalkMore' : 'Airtime'} ₦${finalAmount} to ${cleanPhone}`;
         
         // Debit Wallet
         const newTransaction = await walletService.debit(
@@ -57,15 +66,15 @@ const purchaseUnified = async (req, res) => {
           finalAmount,
           transactionType,
           description,
-          { network, phone, amount: finalAmount, serviceType },
+          { network, phone: cleanPhone, amount: finalAmount, serviceType },
           t
         );
 
-        // Call SMEPlug API for airtime (TalkMore is just airtime purchase + USSD)
-        // Note: For TalkMore, we just buy the airtime, and the user dials USSD on their phone.
-        const providerResponse = await smeplugService.purchaseAirtime(network, phone, finalAmount);
+        // Call SMEPlug API for airtime
+        const providerResponse = await smeplugService.purchaseAirtime(network, cleanPhone, finalAmount);
         
         if (!providerResponse.success) {
+          logger.error('Smeplug Airtime Failure:', providerResponse);
           throw new Error(providerResponse.error || 'Failed to process airtime purchase');
         }
 
@@ -87,7 +96,6 @@ const purchaseUnified = async (req, res) => {
           throw new Error('Invalid data plan selected');
         }
 
-        // Determine price (could use getPriceForUser if implemented)
         const price = parseFloat(plan.admin_price);
 
         // Debit Wallet
@@ -95,15 +103,16 @@ const purchaseUnified = async (req, res) => {
           user,
           price,
           transactionType,
-          `${network.toUpperCase()} ${plan.size} Data Purchase to ${phone}`,
-          { network, phone, planId, amount: price, planName: plan.name },
+          `${network.toUpperCase()} ${plan.size} Data Purchase to ${cleanPhone}`,
+          { network, phone: cleanPhone, planId, amount: price, planName: plan.name },
           t
         );
 
         // Call SMEPlug API
-        const providerResponse = await smeplugService.purchaseData(network, phone, plan.smeplug_plan_id || plan.id);
+        const providerResponse = await smeplugService.purchaseData(network, cleanPhone, plan.smeplug_plan_id || plan.id);
         
         if (!providerResponse.success) {
+          logger.error('Smeplug Data Failure:', providerResponse);
           throw new Error(providerResponse.error || 'Failed to process data purchase');
         }
 
@@ -120,9 +129,18 @@ const purchaseUnified = async (req, res) => {
       }
 
     } catch (error) {
-      if (t) await t.rollback();
+      if (t && !t.finished) {
+        try {
+          await t.rollback();
+        } catch (rbErr) {
+          logger.error('Transaction Rollback Failed:', rbErr);
+        }
+      }
       logger.error('Unified Purchase Error:', error);
-      return res.status(500).json({ success: false, message: error.message || 'Processing failed' });
+      return res.status(500).json({ 
+        success: false, 
+        message: error.message || 'Processing failed' 
+      });
     }
 
   } catch (error) {

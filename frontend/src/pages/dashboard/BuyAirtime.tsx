@@ -56,8 +56,17 @@ export default function BuyAirtime() {
     setActivationCode(null);
 
     try {
+      // Normalize phone number before sending to backend
+      let cleanPhone = phone.replace(/\D/g, '');
+      if (cleanPhone.startsWith('234')) {
+        cleanPhone = '0' + cleanPhone.substring(3);
+      }
+      if (cleanPhone.length === 10 && !cleanPhone.startsWith('0')) {
+        cleanPhone = '0' + cleanPhone;
+      }
+
       const payload: any = {
-        phone,
+        phone: cleanPhone,
         serviceType,
         network,
       };
