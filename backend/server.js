@@ -107,7 +107,6 @@ const supportRoutes = require('./routes/supportRoutes');
 const beneficiaryRoutes = require('./routes/beneficiaryRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
-const callPlanRoutes = require('./routes/callPlanRoutes');
 const unifiedPurchaseRoutes = require('./routes/unifiedPurchaseRoutes');
 
 app.use('/api/auth', authRoutes);
@@ -122,7 +121,6 @@ app.use('/api/support', supportRoutes);
 app.use('/api/beneficiaries', beneficiaryRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/reviews', reviewRoutes);
-app.use('/api/callplans', callPlanRoutes);
 app.use('/api/purchase', unifiedPurchaseRoutes);
 
 // Error Handling Middleware (Must be last)

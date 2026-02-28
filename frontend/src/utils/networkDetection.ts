@@ -1,13 +1,22 @@
 export const NETWORK_PREFIXES: Record<string, string[]> = {
-  airtel: ['0701', '0708', '0802', '0808', '0812', '0902', '0907'],
-  mtn: ['0703', '0706', '0803', '0806', '0813', '0816', '0903'],
-  glo: ['0705', '0805', '0815', '0811', '0905'],
-  '9mobile': ['0809', '0817', '0818', '0909'],
+  airtel: ['0701', '0708', '0802', '0808', '0812', '0902', '0907', '0817', '0812'],
+  mtn: ['0703', '0706', '0803', '0806', '0813', '0816', '0903', '0810', '0814', '0813'],
+  glo: ['0705', '0805', '0815', '0811', '0905', '0811'],
+  '9mobile': ['0809', '0817', '0818', '0909', '0818'],
 };
 
 export const detectNetwork = (phone: string): string | null => {
   if (phone.length < 4) return null;
-  const prefix = phone.substring(0, 4);
+  
+  // Normalize phone number (handle +234, 234, etc.)
+  let cleanPhone = phone.replace(/\D/g, '');
+  if (cleanPhone.startsWith('234')) {
+    cleanPhone = '0' + cleanPhone.substring(3);
+  } else if (cleanPhone.startsWith('+234')) {
+    cleanPhone = '0' + cleanPhone.substring(4);
+  }
+
+  const prefix = cleanPhone.substring(0, 4);
   for (const [network, prefixes] of Object.entries(NETWORK_PREFIXES)) {
     if (prefixes.includes(prefix)) {
       return network;
