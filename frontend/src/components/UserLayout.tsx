@@ -9,6 +9,7 @@ import PageTransition from './animations/PageTransition';
 import api from '../services/api';
 import { useSidebar } from '../hooks/useSidebar';
 import { useNotifications } from '../context/NotificationContext';
+import ReviewModal from './ReviewModal';
 
 export default function UserLayout() {
   const location = useLocation();
@@ -121,6 +122,8 @@ export default function UserLayout() {
           )}
           {!isCollapsed && <p className="text-xs text-gray-500 font-medium pl-11 truncate">User Dashboard</p>}
         </div>
+
+        <ReviewModal />
         
         <nav className="flex-1 px-2 space-y-2 mt-4 overflow-y-auto pb-20 custom-scrollbar">
           <Link to="/dashboard" className={getLinkClasses('/dashboard')} title={isCollapsed ? "Dashboard" : ""}>
@@ -201,11 +204,6 @@ export default function UserLayout() {
           <Link to="/dashboard/beneficiaries" className={getLinkClasses('/dashboard/beneficiaries')} title={isCollapsed ? "Beneficiaries" : ""}>
             <Users className={getIconClasses('/dashboard/beneficiaries')} />
             {!isCollapsed && <span>Beneficiaries</span>}
-          </Link>
-
-          <Link to="/dashboard/reviews" className={getLinkClasses('/dashboard/reviews')} title={isCollapsed ? "My Reviews" : ""}>
-            <Star className={getIconClasses('/dashboard/reviews')} />
-            {!isCollapsed && <span>My Reviews</span>}
           </Link>
 
           <Link to="/dashboard/settings" className={getLinkClasses('/dashboard/settings')} title={isCollapsed ? "Settings" : ""}>
