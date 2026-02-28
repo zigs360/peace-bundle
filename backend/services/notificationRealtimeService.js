@@ -15,9 +15,11 @@ class NotificationService {
   init(server) {
     this.io = new Server(server, {
       cors: {
-        origin: '*', // Adjust for production
+        origin: process.env.FRONTEND_URL || '*', 
         methods: ['GET', 'POST'],
+        credentials: true
       },
+      allowEIO3: true // Support older clients if necessary
     });
 
     // Authentication middleware
