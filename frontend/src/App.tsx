@@ -32,7 +32,6 @@ import FundWallet from './pages/dashboard/FundWallet';
 import BuyData from './pages/dashboard/BuyData';
 import BuyAirtime from './pages/dashboard/BuyAirtime';
 import Transfer from './pages/dashboard/Transfer';
-import BuyCallSubscription from './pages/dashboard/BuyCallSubscription';
 import PayBills from './pages/dashboard/PayBills';
 import EducationPins from './pages/dashboard/EducationPins';
 import BulkSMS from './pages/dashboard/BulkSMS';

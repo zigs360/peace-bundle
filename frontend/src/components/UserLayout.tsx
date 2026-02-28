@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Wallet, Wifi, Phone, Receipt, Settings, LogOut, Tv, 
-  GraduationCap, Users, MessageSquare, Key, Share2, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Banknote 
+  GraduationCap, Users, MessageSquare, Key, Share2, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Banknote 
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
