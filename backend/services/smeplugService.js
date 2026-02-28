@@ -63,13 +63,14 @@ class SmeplugService {
   }
 
   /**
-   * Purchase airtime
+   * Purchase airtime (using /api/v1/airtime/purchase or /api/v1/vtu)
    * @param {string} provider
    * @param {string} phone
    * @param {number} amount
    * @param {string} [mode='wallet']
    */
   async purchaseAirtime(provider, phone, amount, mode = 'wallet') {
+    // Some SMEPlug docs show /api/v1/vtu for airtime as well
     const data = {
       network_id: this.getNetworkId(provider),
       amount,
@@ -80,7 +81,52 @@ class SmeplugService {
   }
 
   /**
-   * Check transaction status
+   * VTU Airtime Purchase (Specifically /api/v1/vtu)
+   */
+  async purchaseVTU(provider, phone, amount) {
+    const data = {
+      network_id: this.getNetworkId(provider),
+      phone_number: phone,
+      amount
+    };
+    return this.makeRequest('POST', '/api/v1/vtu', data);
+  }
+
+  /**
+   * Get available banks for transfer
+   */
+  async getBanks() {
+    return this.makeRequest('GET', '/api/v1/transfer/banks');
+  }
+
+  /**
+   * Resolve bank account
+   * @param {string} bank_code
+   * @param {string} account_number
+   */
+  async resolveAccount(bank_code, account_number) {
+    const data = { bank_code, account_number };
+    return this.makeRequest('POST', '/api/v1/transfer/resolveaccount', data);
+  }
+
+  /**
+   * Send bank transfer
+   * @param {Object} transferData
+   */
+  async sendTransfer(transferData) {
+    // bank_code, account_number, amount, description, customer_reference
+    return this.makeRequest('POST', '/api/v1/transfer/send', transferData);
+  }
+
+  /**
+   * Get networks (Specifically /api/v1/networks)
+   */
+  async getNetworks() {
+    return this.makeRequest('GET', '/api/v1/networks');
+  }
+
+  /**
+   * Check transaction status (reference or customer_reference)
    * @param {string} reference
    */
   async checkTransactionStatus(reference) {

@@ -71,7 +71,7 @@ const purchaseUnified = async (req, res) => {
         );
 
         // Call SMEPlug API for airtime
-        const providerResponse = await smeplugService.purchaseAirtime(network, cleanPhone, finalAmount);
+        const providerResponse = await smeplugService.purchaseVTU(network, cleanPhone, finalAmount);
         
         if (!providerResponse.success) {
           logger.error('Smeplug Airtime Failure:', providerResponse);
@@ -109,7 +109,7 @@ const purchaseUnified = async (req, res) => {
         );
 
         // Call SMEPlug API
-        const providerResponse = await smeplugService.purchaseData(network, cleanPhone, plan.smeplug_plan_id || plan.id);
+        const providerResponse = await smeplugService.purchaseData(network, cleanPhone, plan.smeplug_plan_id || plan.id, 'wallet');
         
         if (!providerResponse.success) {
           logger.error('Smeplug Data Failure:', providerResponse);

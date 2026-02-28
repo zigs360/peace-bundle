@@ -184,12 +184,12 @@ const buyData = async (req, res) => {
                 // Use plan.smeplug_plan_id if available, otherwise assume mapping exists
                 const smeplugPlanId = plan.smeplug_plan_id || planId;
 
-                const purchaseResult = await smeplugService.purchaseData({
-                    network_id: networkId,
-                    plan_id: smeplugPlanId,
-                    phone: phone,
-                    mode: 'wallet' 
-                });
+                const purchaseResult = await smeplugService.purchaseData(
+                    plan.provider,
+                    phone,
+                    smeplugPlanId,
+                    'wallet'
+                );
 
                 if (!purchaseResult.success) {
                     throw new Error(purchaseResult.error || 'Data purchase failed at provider');
@@ -260,10 +260,22 @@ const buyAirtime = async (req, res) => {
             t
         );
 
-        // Call Provider (Smeplug or other)
-        // Assuming Smeplug doesn't support airtime in this version, we mock it or use generic handler
-        // If Smeplug supports it, add call here.
-        // For now, we assume successful processing if wallet debit works.
+        // 2. Call Smeplug API for Airtime
+        try {
+            const purchaseResult = await smeplugService.purchaseVTU(network, phone, faceValue);
+
+            if (!purchaseResult.success) {
+                throw new Error(purchaseResult.error || 'Airtime purchase failed at provider');
+            }
+
+            // Update transaction with provider reference
+            newTransaction.smeplug_reference = purchaseResult.data?.reference || purchaseResult.data?.transaction_id;
+            newTransaction.smeplug_response = purchaseResult.data;
+            await newTransaction.save({ transaction: t });
+
+        } catch (apiError) {
+            throw apiError; // Trigger rollback
+        }
 
         await t.commit();
         await sendTransactionNotification(user, newTransaction);
