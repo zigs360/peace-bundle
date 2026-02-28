@@ -31,6 +31,8 @@ import UserDashboard from './pages/dashboard/UserDashboard';
 import FundWallet from './pages/dashboard/FundWallet';
 import BuyData from './pages/dashboard/BuyData';
 import BuyAirtime from './pages/dashboard/BuyAirtime';
+import Transfer from './pages/dashboard/Transfer';
+import BuyCallSubscription from './pages/dashboard/BuyCallSubscription';
 import PayBills from './pages/dashboard/PayBills';
 import EducationPins from './pages/dashboard/EducationPins';
 import BulkSMS from './pages/dashboard/BulkSMS';
@@ -65,6 +67,7 @@ function App() {
             <Route path="fund" element={<FundWallet />} />
             <Route path="data" element={<BuyData />} />
             <Route path="airtime" element={<BuyAirtime />} />
+            <Route path="transfer" element={<Transfer />} />
             <Route path="bills" element={<PayBills />} />
             <Route path="education" element={<EducationPins />} />
             <Route path="bulk-sms" element={<BulkSMS />} />

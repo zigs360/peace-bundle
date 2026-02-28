@@ -108,6 +108,7 @@ const beneficiaryRoutes = require('./routes/beneficiaryRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const unifiedPurchaseRoutes = require('./routes/unifiedPurchaseRoutes');
+const transferRoutes = require('./routes/transferRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
@@ -122,6 +123,7 @@ app.use('/api/beneficiaries', beneficiaryRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/purchase', unifiedPurchaseRoutes);
+app.use('/api/transfer', transferRoutes);
 
 // Error Handling Middleware (Must be last)
 app.use(notFound);
