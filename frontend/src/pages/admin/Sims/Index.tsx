@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../../services/api';
 import DataTable from '../../../components/Tables/DataTable';
-import { Smartphone, Plus, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
+import { Smartphone, Plus, Power, PowerOff, RefreshCw, Trash2, RotateCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
@@ -10,13 +10,14 @@ export default function SimsIndex() {
   const [sims, setSims] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const fetchSims = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/sims');
+      const res = await api.get('/admin/sims');
       // Handle paginated response structure
-      const data = res.data.sims?.data || res.data; 
+      const data = res.data.sims?.data || res.data.sims || res.data; 
       setSims(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
@@ -33,7 +34,7 @@ export default function SimsIndex() {
   const handleConnect = async (id: string) => {
     try {
       setActionLoading(id);
-      const res = await api.post(`/sims/${id}/connect`);
+      const res = await api.post(`/admin/sims/${id}/connect`);
       if (res.data.success) {
         toast.success(res.data.message || 'SIM connected successfully');
         // Update local state
@@ -49,7 +50,7 @@ export default function SimsIndex() {
   const handleDisconnect = async (id: string) => {
     try {
       setActionLoading(id);
-      const res = await api.post(`/sims/${id}/disconnect`);
+      const res = await api.post(`/admin/sims/${id}/disconnect`);
       if (res.data.success) {
         toast.success(res.data.message || 'SIM disconnected successfully');
         // Update local state
@@ -65,7 +66,7 @@ export default function SimsIndex() {
   const handleCheckBalance = async (id: string, force: boolean = false) => {
     try {
       setActionLoading(id);
-      const res = await api.post(`/sims/${id}/check-balance`, { force });
+      const res = await api.post(`/admin/sims/${id}/check-balance`, { force });
       if (res.data.success) {
         toast.success(`Balance updated: ₦${res.data.balance}`);
         // Update local state
@@ -85,8 +86,8 @@ export default function SimsIndex() {
 
     try {
       setActionLoading(id);
-      const res = await api.delete(`/sims/${id}`);
-      if (res.data.success) {
+      const res = await api.delete(`/admin/sims/${id}`);
+      if (res.data.success || res.status === 200) {
         toast.success(res.data.message || 'SIM removed successfully');
         setSims(prev => prev.filter(sim => sim.id !== id));
       }
@@ -94,6 +95,21 @@ export default function SimsIndex() {
       toast.error(err.response?.data?.message || 'Failed to remove SIM');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleSync = async () => {
+    try {
+      setIsSyncing(true);
+      const res = await api.post('/admin/sims/sync');
+      if (res.data.success) {
+        toast.success(res.data.message);
+        fetchSims(); // Refresh list
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to sync SIMs from Smeplug');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -202,10 +218,20 @@ export default function SimsIndex() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Manage your hardware SIM connections and balances.</p>
         </div>
-        <Link to="/admin/sims/create" className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-all shadow-sm">
-          <Plus className="w-4 h-4 mr-2" />
-          Add New SIM
-        </Link>
+        <div className="flex items-center space-x-3">
+          <button 
+            onClick={handleSync}
+            disabled={isSyncing || loading}
+            className="flex items-center px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all shadow-sm disabled:opacity-50"
+          >
+            <RotateCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Syncing...' : 'Sync from Smeplug'}
+          </button>
+          <Link to="/admin/sims/create" className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-all shadow-sm">
+            <Plus className="w-4 h-4 mr-2" />
+            Add New SIM
+          </Link>
+        </div>
       </div>
       
       <div className="bg-white shadow-sm border border-gray-200 rounded-xl overflow-hidden">

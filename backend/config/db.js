@@ -18,36 +18,47 @@ const SubscriptionPlan = require('../models/SubscriptionPlan');
 const Role = require('../models/Role');
 const Permission = require('../models/Permission');
 const SupportTicket = require('../models/SupportTicket');
+const Notification = require('../models/Notification');
+const Review = require('../models/Review');
+const CallPlan = require('../models/CallPlan');
 
 // Define Associations (Top Level)
 
 // User - Wallet (One-to-One)
 try {
   User.hasOne(Wallet, { foreignKey: 'userId', as: 'wallet', onDelete: 'CASCADE' });
-  Wallet.belongsTo(User, { foreignKey: 'userId', onDelete: 'CASCADE' });
+  Wallet.belongsTo(User, { foreignKey: 'userId', as: 'user', onDelete: 'CASCADE' });
+
+  // User - Review (One-to-Many)
+  User.hasMany(Review, { foreignKey: 'userId', as: 'reviews', onDelete: 'CASCADE' });
+  Review.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  // User - Notification (One-to-Many)
+  User.hasMany(Notification, { foreignKey: 'userId', as: 'notifications', onDelete: 'CASCADE' });
+  Notification.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
   // Wallet - WalletTransaction (One-to-Many)
-  Wallet.hasMany(WalletTransaction, { foreignKey: 'walletId', onDelete: 'CASCADE' });
-  WalletTransaction.belongsTo(Wallet, { foreignKey: 'walletId' });
+  Wallet.hasMany(WalletTransaction, { foreignKey: 'walletId', as: 'transactions', onDelete: 'CASCADE' });
+  WalletTransaction.belongsTo(Wallet, { foreignKey: 'walletId', as: 'wallet' });
 
   // Roles and Permissions (Spatie-like)
-  User.belongsToMany(Role, { through: 'model_has_roles' });
-  Role.belongsToMany(User, { through: 'model_has_roles' });
+  User.belongsToMany(Role, { through: 'model_has_roles', as: 'roles' });
+  Role.belongsToMany(User, { through: 'model_has_roles', as: 'users' });
 
-  Role.belongsToMany(Permission, { through: 'role_has_permissions' });
-  Permission.belongsToMany(Role, { through: 'role_has_permissions' });
+  Role.belongsToMany(Permission, { through: 'role_has_permissions', as: 'permissions' });
+  Permission.belongsToMany(Role, { through: 'role_has_permissions', as: 'roles' });
 
   // Wallet - Transaction (One-to-Many)
-  Wallet.hasMany(Transaction, { foreignKey: 'walletId', onDelete: 'CASCADE' });
-  Transaction.belongsTo(Wallet, { foreignKey: 'walletId' });
+  Wallet.hasMany(Transaction, { foreignKey: 'walletId', as: 'walletTransactions', onDelete: 'CASCADE' });
+  Transaction.belongsTo(Wallet, { foreignKey: 'walletId', as: 'wallet' });
 
   // User - Transaction (One-to-Many)
-  User.hasMany(Transaction, { foreignKey: 'userId', onDelete: 'CASCADE' });
-  Transaction.belongsTo(User, { foreignKey: 'userId' });
+  User.hasMany(Transaction, { foreignKey: 'userId', as: 'transactions', onDelete: 'CASCADE' });
+  Transaction.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
   // User - Sim (One-to-Many)
-  User.hasMany(Sim, { foreignKey: 'userId', onDelete: 'CASCADE' });
-  Sim.belongsTo(User, { foreignKey: 'userId' });
+  User.hasMany(Sim, { foreignKey: 'userId', as: 'sims', onDelete: 'CASCADE' });
+  Sim.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
   // User - Beneficiary (One-to-Many)
   User.hasMany(Beneficiary, { foreignKey: 'userId', onDelete: 'CASCADE' });
@@ -61,12 +72,12 @@ try {
   ResellerPlanPricing.belongsTo(DataPlan, { foreignKey: 'dataPlanId' });
 
   // Transaction - DataPlan (Many-to-One)
-  DataPlan.hasMany(Transaction, { foreignKey: 'dataPlanId' });
-  Transaction.belongsTo(DataPlan, { foreignKey: 'dataPlanId' });
+  DataPlan.hasMany(Transaction, { foreignKey: 'dataPlanId', as: 'transactions' });
+  Transaction.belongsTo(DataPlan, { foreignKey: 'dataPlanId', as: 'dataPlan' });
 
   // Transaction - Sim (Many-to-One)
-  Sim.hasMany(Transaction, { foreignKey: 'simId' });
-  Transaction.belongsTo(Sim, { foreignKey: 'simId' });
+  Sim.hasMany(Transaction, { foreignKey: 'simId', as: 'transactions' });
+  Transaction.belongsTo(Sim, { foreignKey: 'simId', as: 'sim' });
 
   // Commission Associations
   User.hasMany(Commission, { foreignKey: 'referrerId', as: 'ReferrerCommissions', onDelete: 'CASCADE' });

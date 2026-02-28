@@ -1,5 +1,5 @@
 const { User, DataPlan, Transaction, Sim, Wallet } = require('../models');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 const walletService = require('./walletService');
 const smeplugService = require('./smeplugService');
 const affiliateService = require('./affiliateService');

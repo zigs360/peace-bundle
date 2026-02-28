@@ -3,7 +3,7 @@ const Wallet = require('../models/Wallet'); // Import Wallet
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
-const { sequelize } = require('../config/db'); // For transactions
+const { sequelize } = require('../config/database'); // For transactions
 const VirtualAccountService = require('../services/virtualAccountService');
 const BvnVerificationService = require('../services/bvnVerificationService');
 const ReferralService = require('../services/referralService');
@@ -256,7 +256,7 @@ const getAllUsers = async (req, res) => {
             fullName: user.name,
             email: user.email,
             phone: user.phone,
-            balance: user.Wallet ? user.Wallet.balance : 0,
+            balance: user.wallet ? user.wallet.balance : 0,
             role: user.role,
             createdAt: user.createdAt,
             kycStatus: user.kyc_status,
@@ -276,7 +276,7 @@ const getAllUsers = async (req, res) => {
 const updateProfile = async (req, res) => {
     try {
         const user = await User.findByPk(req.user.id, {
-            include: [{ model: Wallet }]
+            include: [{ model: Wallet, as: 'wallet' }]
         });
 
         if (user) {
@@ -286,11 +286,10 @@ const updateProfile = async (req, res) => {
             
             // Handle avatar upload
             if (req.file) {
-                // If using local storage, path will be 'uploads/filename'
-                // We want to store relative path or full URL.
-                // Storing relative path is more flexible.
-                // Windows uses backslashes, replace with forward slashes for URL
-                user.avatar = req.file.path.replace(/\\/g, '/');
+                // We want to store a relative path that can be served
+                // multer diskStorage 'path' is the full path. 
+                // We just need the filename since we serve the whole uploads folder at /uploads
+                user.avatar = `uploads/${req.file.filename}`;
             }
             
             // NOTE: Password update removed from here, use changePassword instead
@@ -302,7 +301,7 @@ const updateProfile = async (req, res) => {
                 fullName: updatedUser.name,
                 email: updatedUser.email,
                 phone: updatedUser.phone,
-                balance: updatedUser.Wallet ? updatedUser.Wallet.balance : 0,
+                balance: updatedUser.wallet ? updatedUser.wallet.balance : 0,
                 package: updatedUser.package,
                 referralCode: updatedUser.referral_code,
                 role: updatedUser.role,
@@ -399,7 +398,7 @@ const submitKyc = async (req, res) => {
         }
 
         // 2. Update user KYC status
-        user.kyc_document = req.file.path.replace(/\\/g, '/');
+        user.kyc_document = `uploads/${req.file.filename}`;
         user.kyc_status = 'pending';
         user.kyc_submitted_at = new Date();
         

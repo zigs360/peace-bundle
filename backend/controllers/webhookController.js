@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const Transaction = require('../models/Transaction');
 const Wallet = require('../models/Wallet');
 const User = require('../models/User');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 
 // @desc    Handle Paystack Webhook
 // @route   POST /api/webhooks/paystack

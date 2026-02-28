@@ -2,7 +2,7 @@ const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
 const { Op } = require('sequelize');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 
 // @desc    Get System Stats (Admin)
 // @route   GET /api/reports/stats

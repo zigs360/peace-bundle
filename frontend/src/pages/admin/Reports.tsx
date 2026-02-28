@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import TransactionChart from '../../components/Charts/TransactionChart';
-import { BarChart3, Users, Gift, TrendingUp } from 'lucide-react';
+import { BarChart3, Gift, TrendingUp } from 'lucide-react';
 import api from '../../services/api';
 
 export default function Reports() {

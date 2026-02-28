@@ -1,4 +1,4 @@
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const crypto = require('crypto');

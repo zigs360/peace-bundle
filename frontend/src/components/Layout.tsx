@@ -1,16 +1,31 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
-  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck 
+  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star 
 } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useState, useRef, useEffect } from 'react';
 import PageTransition from './animations/PageTransition';
 import { useSidebar } from '../hooks/useSidebar';
+import { useNotifications } from '../context/NotificationContext';
 
 export default function Layout() {
   const location = useLocation();
   const isActive = (path: string) => location.pathname === path;
   const { isCollapsed, isMobileOpen, toggleCollapse, toggleMobile, closeMobile } = useSidebar();
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const getLinkClasses = (path: string) => `
     flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors duration-200
@@ -28,18 +43,92 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
        {/* Mobile Header */}
-       <div className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between sticky top-0 z-20">
+      <div className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between sticky top-0 z-20">
         <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
             <h1 className="text-xl font-bold text-primary-600">Peace Bundlle</h1>
         </div>
-        <button 
-            onClick={toggleMobile} 
-            className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
-            aria-label="Toggle menu"
-        >
-            {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
+        <div className="flex items-center gap-2">
+            {/* Notification Bell for Mobile */}
+            <div className="relative" ref={notificationRef}>
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 relative"
+              >
+                <Bell size={24} />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+              
+              <AnimatePresence>
+                {showNotifications && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 z-50 overflow-hidden"
+                  >
+                    <div className="p-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
+                      <h3 className="font-bold text-gray-800">Notifications</h3>
+                      {unreadCount > 0 && (
+                        <button 
+                          onClick={markAllAsRead}
+                          className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-96 overflow-y-auto custom-scrollbar">
+                      {notifications.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <Bell className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+                          <p className="text-gray-400 text-sm">No notifications yet</p>
+                        </div>
+                      ) : (
+                        notifications.map((n) => (
+                          <div 
+                            key={n.id} 
+                            onClick={() => !n.isRead && markAsRead(n.id)}
+                            className={`p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer ${!n.isRead ? 'bg-primary-50/30' : ''}`}
+                          >
+                            <div className="flex justify-between items-start mb-1">
+                              <span className={`text-xs font-bold uppercase tracking-wider ${
+                                n.type === 'success' ? 'text-green-600' : 
+                                n.type === 'error' ? 'text-red-600' : 
+                                n.type === 'warning' ? 'text-orange-600' : 'text-primary-600'
+                              }`}>
+                                {n.type}
+                              </span>
+                              <span className="text-[10px] text-gray-400 italic">
+                                {new Date(n.createdAt).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <h4 className={`text-sm font-semibold text-gray-800 ${!n.isRead ? 'pr-3 relative' : ''}`}>
+                              {n.title}
+                              {!n.isRead && <span className="absolute right-0 top-1.5 w-2 h-2 bg-primary-500 rounded-full" />}
+                            </h4>
+                            <p className="text-xs text-gray-600 mt-1 line-clamp-2">{n.message}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            
+            <button 
+                onClick={toggleMobile} 
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                aria-label="Toggle menu"
+            >
+                {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+        </div>
       </div>
 
       {/* Overlay for mobile */}
@@ -135,6 +224,11 @@ export default function Layout() {
           <Link to="/admin/reports" className={getLinkClasses('/admin/reports')} title={isCollapsed ? "Reports" : ""}>
             <BarChart3 className={getIconClasses('/admin/reports')} />
             {!isCollapsed && <span>Reports</span>}
+          </Link>
+
+          <Link to="/admin/reviews" className={getLinkClasses('/admin/reviews')} title={isCollapsed ? "Reviews" : ""}>
+            <Star className={getIconClasses('/admin/reviews')} />
+            {!isCollapsed && <span>Reviews</span>}
           </Link>
 
           <Link to="/admin/support" className={getLinkClasses('/admin/support')} title={isCollapsed ? "Support" : ""}>

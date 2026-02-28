@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
-import { Users, Search, Edit, Wallet, ShieldBan, ShieldCheck, X, FileCheck, CheckCircle, XCircle, Download, FileText } from 'lucide-react';
+import { Users, Search, Edit, Wallet, ShieldBan, ShieldCheck, X, FileCheck, CheckCircle, XCircle, Download, FileText, Bell, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
 import { User } from '../../types';
 
 export default function AdminUsersPage() {
@@ -13,12 +14,15 @@ export default function AdminUsersPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
   const [isKycModalOpen, setIsKycModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   
   // Form States
   const [editFormData, setEditFormData] = useState({ name: '', email: '', phone: '', role: 'user' });
   const [fundAmount, setFundAmount] = useState('');
   const [kycRejectReason, setKycRejectReason] = useState('');
+  const [notificationData, setNotificationData] = useState({ title: '', message: '', type: 'info' });
+  const [isSubmittingNotification, setIsSubmittingNotification] = useState(false);
 
   const fetchUsers = async () => {
     try {
@@ -57,6 +61,12 @@ export default function AdminUsersPage() {
     setSelectedUser(user);
     setKycRejectReason('');
     setIsKycModalOpen(true);
+  };
+
+  const handleNotificationClick = (user: User | null) => {
+    setSelectedUser(user);
+    setNotificationData({ title: '', message: '', type: 'info' });
+    setIsNotificationModalOpen(true);
   };
 
   const handleBlockClick = async (user: User) => {
@@ -99,6 +109,32 @@ export default function AdminUsersPage() {
     } catch (err) {
       console.error('Failed to fund wallet', err);
       toast.error('Failed to fund wallet');
+    }
+  };
+
+  const submitNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingNotification(true);
+    
+    try {
+      if (selectedUser) {
+        // Targeted
+        await api.post('/notifications/targeted', {
+          userIds: [selectedUser.id],
+          ...notificationData
+        });
+        toast.success(`Notification sent to ${selectedUser.fullName || selectedUser.name}`);
+      } else {
+        // Broadcast
+        await api.post('/notifications/broadcast', notificationData);
+        toast.success('Broadcast notification sent to all users');
+      }
+      setIsNotificationModalOpen(false);
+    } catch (err: any) {
+      console.error('Failed to send notification', err);
+      toast.error(err.response?.data?.message || 'Failed to send notification');
+    } finally {
+      setIsSubmittingNotification(false);
     }
   };
 
@@ -152,15 +188,25 @@ export default function AdminUsersPage() {
           <h2 className="text-xl font-bold text-gray-800">User Management</h2>
         </div>
         
-        <div className="relative w-full sm:w-64">
-          <input
-            type="text"
-            placeholder="Search users..."
-            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <Search className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => handleNotificationClick(null)}
+            className="flex items-center px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition-all font-medium border border-primary-200"
+          >
+            <Bell className="w-4 h-4 mr-2" />
+            Broadcast Message
+          </button>
+          
+          <div className="relative w-full sm:w-64">
+            <input
+              type="text"
+              placeholder="Search users..."
+              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <Search className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
+          </div>
         </div>
       </div>
       
@@ -220,6 +266,13 @@ export default function AdminUsersPage() {
                       title="Fund Wallet"
                     >
                         <Wallet className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => handleNotificationClick(user)}
+                      className="text-primary-600 hover:text-primary-900 mr-3" 
+                      title="Send Notification"
+                    >
+                        <Bell className="w-5 h-5" />
                     </button>
                     {user.kyc_status === 'pending' && (
                         <button 
@@ -459,6 +512,111 @@ export default function AdminUsersPage() {
           </div>
         </div>
       )}
+
+      {/* Send Notification Modal */}
+      <AnimatePresence>
+        {isNotificationModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md"
+            >
+              <div className="flex justify-between items-center mb-6 border-b pb-4">
+                <div className="flex items-center">
+                  <Bell className="w-5 h-5 text-primary-600 mr-2" />
+                  <h3 className="text-xl font-bold text-gray-800">
+                    {selectedUser ? 'Send Notification' : 'Broadcast Message'}
+                  </h3>
+                </div>
+                <button 
+                  onClick={() => setIsNotificationModalOpen(false)}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              {selectedUser && (
+                <div className="mb-6 p-3 bg-primary-50 rounded-lg flex items-center border border-primary-100">
+                  <div className="w-10 h-10 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold text-sm mr-3">
+                    {(selectedUser.fullName || selectedUser.name || 'U').charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">{selectedUser.fullName || selectedUser.name}</p>
+                    <p className="text-xs text-primary-600">{selectedUser.email}</p>
+                  </div>
+                </div>
+              )}
+
+              <form onSubmit={submitNotification} className="space-y-5">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Title</label>
+                  <input 
+                    type="text" 
+                    required
+                    className="block w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all outline-none"
+                    value={notificationData.title}
+                    onChange={(e) => setNotificationData({...notificationData, title: e.target.value})}
+                    placeholder="e.g., Wallet Funded Successfully"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Message</label>
+                  <textarea 
+                    required
+                    className="block w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all outline-none resize-none"
+                    rows={4}
+                    value={notificationData.message}
+                    onChange={(e) => setNotificationData({...notificationData, message: e.target.value})}
+                    placeholder="Enter your message here..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Type</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {['info', 'success', 'warning', 'error'].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setNotificationData({...notificationData, type: t})}
+                        className={`px-3 py-2 rounded-lg border text-sm font-medium capitalize transition-all ${
+                          notificationData.type === t 
+                            ? 'bg-primary-600 border-primary-600 text-white shadow-md' 
+                            : 'bg-white border-gray-200 text-gray-600 hover:border-primary-300'
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="pt-4 border-t border-gray-100">
+                  <button 
+                    type="submit"
+                    disabled={isSubmittingNotification}
+                    className="w-full bg-primary-600 text-white py-3 rounded-xl font-bold hover:bg-primary-700 transition-all shadow-lg shadow-primary-200 disabled:opacity-50 disabled:shadow-none flex items-center justify-center"
+                  >
+                    {isSubmittingNotification ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Bell className="w-5 h-5 mr-2" />
+                        {selectedUser ? 'Send Notification' : 'Send Broadcast'}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

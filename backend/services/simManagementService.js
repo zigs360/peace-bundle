@@ -2,7 +2,7 @@ const { Sim, SystemSetting, User } = require('../models');
 const ussdParserService = require('./ussdParserService');
 const smeplugService = require('./smeplugService');
 const winston = require('winston');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 
 const logger = winston.createLogger({
   level: 'info',
@@ -15,6 +15,92 @@ const logger = winston.createLogger({
 });
 
 class SimManagementService {
+  /**
+   * Sync SIMs from Smeplug API
+   * @returns {Promise<Object>}
+   */
+  async syncSmeplugSims() {
+    try {
+      logger.info('Syncing SIMs from Smeplug API...');
+      const result = await smeplugService.getLinkedDevices();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch devices from Smeplug');
+      }
+
+      const devices = result.data.devices || [];
+      const syncResults = {
+        total: devices.length,
+        created: 0,
+        updated: 0,
+        failed: 0,
+        errors: []
+      };
+
+      // Find a default admin user to associate these SIMs with
+      const adminUser = await User.findOne({ where: { role: 'admin' } });
+      if (!adminUser) {
+        throw new Error('No admin user found to associate Smeplug SIMs with');
+      }
+
+      for (const device of devices) {
+        try {
+          const phoneNumber = ussdParserService.formatPhoneNumber(device.phone_number);
+          const provider = ussdParserService.detectProvider(phoneNumber);
+
+          // Find existing SIM by phone number
+          let sim = await Sim.findOne({ where: { phoneNumber: phoneNumber } });
+
+          if (sim) {
+            // Update existing SIM
+            await sim.update({
+              provider: provider || sim.provider,
+              airtimeBalance: device.airtime_balance || sim.airtimeBalance,
+              dataBalanceMb: device.data_balance_mb || sim.dataBalanceMb,
+              connectionStatus: device.status === 'online' ? 'connected' : 'disconnected',
+              status: device.is_active ? 'active' : 'paused',
+              lastConnectedAt: device.last_seen ? new Date(device.last_seen) : sim.lastConnectedAt,
+              type: 'sim_system', // Mark as Smeplug system SIM
+              lastBalanceCheck: new Date()
+            });
+            syncResults.updated++;
+          } else {
+            // Create new SIM
+            await Sim.create({
+              userId: adminUser.id,
+              phoneNumber: phoneNumber,
+              provider: provider || 'mtn', // Default to MTN if undetected
+              type: 'sim_system',
+              airtimeBalance: device.airtime_balance || 0,
+              dataBalanceMb: device.data_balance_mb || 0,
+              connectionStatus: device.status === 'online' ? 'connected' : 'disconnected',
+              status: device.is_active ? 'active' : 'paused',
+              lastConnectedAt: device.last_seen ? new Date(device.last_seen) : null,
+              isVerified: true,
+              verifiedAt: new Date(),
+              lastBalanceCheck: new Date()
+            });
+            syncResults.created++;
+          }
+        } catch (deviceError) {
+          syncResults.failed++;
+          syncResults.errors.push({
+            device: device.phone_number,
+            error: deviceError.message
+          });
+          logger.error(`Failed to sync Smeplug device ${device.phone_number}: ${deviceError.message}`);
+        }
+      }
+
+      logger.info(`Smeplug SIM sync completed: ${syncResults.created} created, ${syncResults.updated} updated`);
+      return syncResults;
+
+    } catch (error) {
+      logger.error(`Smeplug SIM sync failed: ${error.message}`);
+      throw error;
+    }
+  }
+
   /**
    * Add new SIM for user
    * @param {User} user

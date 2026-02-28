@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Wifi, Smartphone, Zap, GraduationCap, ShieldCheck, Clock, ArrowRight, CheckCircle, Globe } from 'lucide-react';
 import { FadeIn, SlideUp, StaggerContainer, StaggerItem, HoverCard, ScaleIn } from '../components/animations/MotionComponents';
 import SeoHead from '../components/seo/SeoHead';
+import ReviewSection from '../components/ReviewSection';
 
 export default function Home() {
   return (
@@ -75,7 +76,7 @@ export default function Home() {
              {/* Trust Signals */}
              <FadeIn delay={0.6} className="border-t border-gray-100 pt-10 grid grid-cols-2 md:grid-cols-4 gap-8">
                 <div className="flex flex-col items-center">
-                   <span className="text-3xl font-bold text-gray-900">50k+</span>
+                   <span className="text-3xl font-bold text-gray-900">500+</span>
                    <span className="text-sm text-gray-500">Active Users</span>
                 </div>
                 <div className="flex flex-col items-center">
@@ -237,6 +238,8 @@ export default function Home() {
       </section>
 
       {/* CTA Section */}
+      <ReviewSection />
+
       <section className="py-24 bg-gray-900 relative overflow-hidden">
         <div className="absolute inset-0 opacity-20">
             <svg className="h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">

@@ -19,6 +19,11 @@ const {
     getSims,
     approveSim,
     suspendSim,
+    deleteSim,
+    connectSim,
+    disconnectSim,
+    checkSimBalance,
+    syncSmeplugSims,
     getSimAnalytics,
     getKycRequests,
     bulkProcessKyc,
@@ -73,8 +78,13 @@ router.delete('/plans/:id', protect, admin, deleteDataPlan);
 // SIM Oversight Routes
 router.get('/sims', protect, admin, getSims);
 router.get('/sims/analytics', protect, admin, getSimAnalytics);
+router.post('/sims/sync', protect, admin, syncSmeplugSims);
 router.post('/sims/:id/approve', protect, admin, approveSim);
 router.post('/sims/:id/suspend', protect, admin, suspendSim);
+router.delete('/sims/:id', protect, admin, deleteSim);
+router.post('/sims/:id/connect', protect, admin, connectSim);
+router.post('/sims/:id/disconnect', protect, admin, disconnectSim);
+router.post('/sims/:id/check-balance', protect, admin, checkSimBalance);
 
 // Referral Analytics Route
 router.get('/referrals/analytics', protect, admin, getReferralAnalytics);

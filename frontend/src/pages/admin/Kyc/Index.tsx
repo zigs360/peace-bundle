@@ -132,8 +132,14 @@ export default function KycIndex() {
   const getFullDocUrl = (path: string) => {
     if (!path) return '';
     if (path.startsWith('http')) return path;
-    const baseUrl = (import.meta as any).env.VITE_API_URL || 'https://www.peacebundlle.com';
-    return `${baseUrl}/${path}`;
+    
+    const apiUrl = (import.meta as any).env.VITE_API_URL;
+    if (apiUrl && apiUrl.startsWith('http')) {
+        const serverUrl = apiUrl.replace(/\/api$/, '');
+        return `${serverUrl}/${path}`;
+    }
+    
+    return `/${path}`;
   };
 
   const columns = [

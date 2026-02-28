@@ -2,11 +2,12 @@ const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const Wallet = require('../models/Wallet');
 const { Op } = require('sequelize');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 const SystemSetting = require('../models/SystemSetting');
 const Sim = require('../models/Sim');
 const DataPlan = require('../models/DataPlan');
 const { sendEmail, sendSMS } = require('../services/notificationService');
+const simManagementService = require('../services/simManagementService');
 
 // @desc    Get All Data Plans (Admin)
 // @route   GET /api/admin/plans
@@ -170,7 +171,7 @@ const getSims = async (req, res) => {
 
         const { count, rows } = await Sim.findAndCountAll({
             where,
-            include: [{ model: User, attributes: ['name', 'email'] }],
+            include: [{ model: User, as: 'user', attributes: ['name', 'email'] }],
             limit: parseInt(limit),
             offset: parseInt(offset),
             order: [['createdAt', 'DESC']]
@@ -234,6 +235,95 @@ const suspendSim = async (req, res) => {
     }
 };
 
+// @desc    Delete SIM
+// @route   DELETE /api/admin/sims/:id
+// @access  Private (Admin)
+const deleteSim = async (req, res) => {
+    try {
+        const sim = await Sim.findByPk(req.params.id);
+
+        if (!sim) {
+            return res.status(404).json({ message: 'SIM not found' });
+        }
+
+        // Optional: Check if SIM is connected before deletion
+        // if (sim.connectionStatus === 'connected') {
+        //     return res.status(400).json({ message: 'Cannot remove a connected SIM. Please disconnect it first.' });
+        // }
+
+        await sim.destroy();
+
+        res.json({ message: 'SIM removed successfully' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc    Connect SIM (Admin)
+// @route   POST /api/admin/sims/:id/connect
+// @access  Private (Admin)
+const connectSim = async (req, res) => {
+    try {
+        const sim = await Sim.findByPk(req.params.id);
+        if (!sim) return res.status(404).json({ message: 'SIM not found' });
+
+        await simManagementService.connectSim(sim);
+        
+        res.json({
+            success: true,
+            message: 'SIM connected successfully!',
+            data: await sim.reload()
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+// @desc    Disconnect SIM (Admin)
+// @route   POST /api/admin/sims/:id/disconnect
+// @access  Private (Admin)
+const disconnectSim = async (req, res) => {
+    try {
+        const sim = await Sim.findByPk(req.params.id);
+        if (!sim) return res.status(404).json({ message: 'SIM not found' });
+
+        await simManagementService.disconnectSim(sim);
+        
+        res.json({
+            success: true,
+            message: 'SIM disconnected successfully!',
+            data: await sim.reload()
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+// @desc    Check SIM Balance (Admin)
+// @route   POST /api/admin/sims/:id/check-balance
+// @access  Private (Admin)
+const checkSimBalance = async (req, res) => {
+    try {
+        const { force = false } = req.body;
+        const sim = await Sim.findByPk(req.params.id);
+        if (!sim) return res.status(404).json({ message: 'SIM not found' });
+
+        const balance = await simManagementService.checkBalance(sim, 3, force);
+        
+        res.json({
+            success: true,
+            balance: balance,
+            sim: await sim.reload()
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
 // @desc    Get SIM Analytics
 // @route   GET /api/admin/sims/analytics
 // @access  Private (Admin)
@@ -270,6 +360,23 @@ const getSimAnalytics = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc    Sync SIMs from Smeplug
+// @route   POST /api/admin/sims/sync
+// @access  Private (Admin)
+const syncSmeplugSims = async (req, res) => {
+    try {
+        const results = await simManagementService.syncSmeplugSims();
+        res.json({
+            success: true,
+            message: `SIM synchronization completed: ${results.created} new SIMs added, ${results.updated} updated.`,
+            results
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -383,9 +490,9 @@ const getTransactions = async (req, res) => {
         const { count, rows } = await Transaction.findAndCountAll({
             where,
             include: [
-                { model: User, attributes: ['id', 'name', 'email'] },
-                { model: DataPlan, attributes: ['id', 'name', 'provider'] },
-                { model: Sim, attributes: ['id', 'phoneNumber', 'provider'] }
+                { model: User, as: 'user', attributes: ['id', 'name', 'email'] },
+                { model: DataPlan, as: 'dataPlan', attributes: ['id', 'name', 'provider'] },
+                { model: Sim, as: 'sim', attributes: ['id', 'phoneNumber', 'provider'] }
             ],
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
@@ -413,7 +520,7 @@ const refundTransaction = async (req, res) => {
 
     try {
         const transaction = await Transaction.findByPk(id, {
-            include: [{ model: User }]
+            include: [{ model: User, as: 'user' }]
         });
 
         if (!transaction) {
@@ -433,7 +540,7 @@ const refundTransaction = async (req, res) => {
         try {
             // Credit user wallet
             await walletService.credit(
-                transaction.User, // Note: Sequelize capitalizes model name in instance if alias not set, but here standard
+                transaction.user, // Note: Now correctly lowercase 'user' as alias
                 parseFloat(transaction.amount),
                 'refund',
                 `Admin refund for transaction: ${transaction.reference}`,
@@ -499,7 +606,7 @@ const getAdminStats = async (req, res) => {
             }),
             Transaction.findAll({
                 include: [
-                    { model: User, attributes: ['name', 'email'] },
+                    { model: User, as: 'user', attributes: ['name', 'email'] },
                 ],
                 order: [['createdAt', 'DESC']],
                 limit: 10
@@ -957,21 +1064,20 @@ const getReferralAnalytics = async (req, res) => {
             where: { referred_by: { [Op.ne]: null } }
         });
 
+        // Use a simpler query first to check if the issue is with GROUP BY or associations
         const topReferrers = await User.findAll({
             attributes: [
+                'id',
                 'referral_code',
                 'name',
-                [sequelize.fn('COUNT', sequelize.col('referral_code')), 'referral_count']
+                [sequelize.literal('(SELECT COUNT(*) FROM "Users" AS "referrals" WHERE "referrals"."referred_by" = "User"."referral_code")'), 'referral_count']
             ],
-            include: [{
-                model: User,
-                as: 'referrals',
-                attributes: []
-            }],
-            where: { referral_code: { [Op.ne]: null } },
-            group: ['User.id'],
+            where: { 
+                referral_code: { [Op.ne]: null }
+            },
             order: [[sequelize.literal('referral_count'), 'DESC']],
-            limit: 10
+            limit: 10,
+            subQuery: false
         });
 
         res.json({
@@ -1101,6 +1207,11 @@ module.exports = {
     getSims,
     approveSim,
     suspendSim,
+    deleteSim,
+    connectSim,
+    disconnectSim,
+    checkSimBalance,
+    syncSmeplugSims,
     getSimAnalytics,
     getTransactions,
     refundTransaction,

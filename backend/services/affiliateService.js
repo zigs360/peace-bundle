@@ -1,6 +1,6 @@
 const { Commission, Referral, SystemSetting, User } = require('../models');
 const walletService = require('./walletService');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 const winston = require('winston');
 
 const logger = winston.createLogger({

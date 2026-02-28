@@ -22,6 +22,8 @@ class SmeplugService {
   constructor() {
     this.baseUrl = process.env.SMEPLUG_BASE_URL;
     this.apiKey = process.env.SMEPLUG_API_KEY;
+    this.publicKey = process.env.SMEPLUG_PUBLIC_KEY;
+    this.secretKey = process.env.SMEPLUG_SECRET_KEY;
     this.timeout = parseInt(process.env.SMEPLUG_TIMEOUT) || 30000; // Default 30s
   }
 
@@ -44,16 +46,37 @@ class SmeplugService {
   }
 
   /**
-   * Purchase data (wallet mode or SIM mode)
-   * @param {Object} data
-   * @param {number} data.network_id
-   * @param {string} data.plan_id
-   * @param {string} data.phone
-   * @param {string} data.mode - 'wallet', 'sim_system', 'device_based'
-   * @param {string} [data.sim_number]
+   * Purchase data (simplified)
+   * @param {string} provider
+   * @param {string} phone
+   * @param {string} plan_id
+   * @param {string} [mode='wallet']
    */
-  async purchaseData(data) {
+  async purchaseData(provider, phone, plan_id, mode = 'wallet') {
+    const data = {
+      network_id: this.getNetworkId(provider),
+      plan_id,
+      phone,
+      mode
+    };
     return this.makeRequest('POST', '/api/v1/data/purchase', data);
+  }
+
+  /**
+   * Purchase airtime
+   * @param {string} provider
+   * @param {string} phone
+   * @param {number} amount
+   * @param {string} [mode='wallet']
+   */
+  async purchaseAirtime(provider, phone, amount, mode = 'wallet') {
+    const data = {
+      network_id: this.getNetworkId(provider),
+      amount,
+      phone,
+      mode
+    };
+    return this.makeRequest('POST', '/api/v1/airtime/purchase', data);
   }
 
   /**
@@ -62,6 +85,21 @@ class SmeplugService {
    */
   async checkTransactionStatus(reference) {
     return this.makeRequest('GET', `/api/v1/transactions/${reference}`);
+  }
+
+  /**
+   * Get linked devices (SIMs) from Smeplug
+   */
+  async getLinkedDevices() {
+    return this.makeRequest('GET', '/api/v1/devices');
+  }
+
+  /**
+   * Get specific device details
+   * @param {string} deviceId
+   */
+  async getDeviceDetails(deviceId) {
+    return this.makeRequest('GET', `/api/v1/devices/${deviceId}`);
   }
 
   /**
@@ -97,7 +135,8 @@ class SmeplugService {
         method: method,
         url: `${this.baseUrl}${endpoint}`,
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          'Authorization': `Bearer ${this.apiKey || this.secretKey}`,
+          'Public-Key': this.publicKey,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },

@@ -11,7 +11,7 @@ const smeplugService = require('../services/smeplugService');
 const simManagementService = require('../services/simManagementService');
 const transactionLimitService = require('../services/transactionLimitService');
 const affiliateService = require('../services/affiliateService');
-const { sequelize } = require('../config/db');
+const { sequelize } = require('../config/database');
 const { Op } = require('sequelize');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
@@ -393,14 +393,17 @@ const airtimeToCash = async (req, res) => {
     
     // We don't update balance immediately for airtime to cash, usually it's pending verification
     try {
-        const user = await User.findByPk(userId, { include: [{ model: Wallet }] });
+        const user = await User.findByPk(userId, { include: [{ model: Wallet, as: 'wallet' }] });
+        if (!user || !user.wallet) {
+            return res.status(404).json({ message: 'User or wallet not found' });
+        }
         
         const newTransaction = await Transaction.create({
-            walletId: user.Wallet.id,
+            walletId: user.wallet.id,
             type: 'credit',
             amount: parseFloat(amount) * 0.8, // 80% payout
-            balance_before: user.Wallet.balance,
-            balance_after: user.Wallet.balance, // No change yet
+            balance_before: user.wallet.balance,
+            balance_after: user.wallet.balance, // No change yet
             source: 'funding',
             status: 'pending',
             reference: `A2C-${Date.now()}`,
@@ -615,7 +618,11 @@ const getAllTransactions = async (req, res) => {
     try {
         const transactions = await Transaction.findAll({
             order: [['createdAt', 'DESC']],
-            include: [{ model: Wallet, include: [{ model: User, attributes: ['name', 'email'] }] }]
+            include: [{ 
+                model: Wallet, 
+                as: 'wallet', 
+                include: [{ model: User, as: 'user', attributes: ['name', 'email'] }] 
+            }]
         });
         res.json(transactions);
     } catch (error) {
@@ -712,7 +719,7 @@ const exportTransactions = async (req, res) => {
 
         // Fetch all transactions for export (no pagination, latest first)
         const transactions = await Transaction.findAll({
-            where: { walletId: user.Wallet.id },
+            where: { walletId: user.wallet.id },
             include: [
                 { model: DataPlan, as: 'dataPlan' }, 
                 { model: Sim, as: 'sim' }
@@ -793,13 +800,13 @@ const getTransactions = async (req, res) => {
     }
     
     try {
-        const user = await User.findByPk(userId, { include: [{ model: Wallet }] });
-        if (!user || !user.Wallet) {
-            return res.json([]);
+        const user = await User.findByPk(userId, { include: [{ model: Wallet, as: 'wallet' }] });
+        if (!user || !user.wallet) {
+            return res.status(404).json({ message: 'User or wallet not found' });
         }
 
         const transactions = await Transaction.findAll({
-            where: { walletId: user.Wallet.id },
+            where: { walletId: user.wallet.id },
             order: [['createdAt', 'DESC']]
         });
         res.json(transactions);
@@ -819,15 +826,15 @@ const getDashboardStats = async (req, res) => {
     }
 
     try {
-        const user = await User.findByPk(userId, { include: [{ model: Wallet }] });
-        if (!user || !user.Wallet) {
+        const user = await User.findByPk(userId, { include: [{ model: Wallet, as: 'wallet' }] });
+        if (!user || !user.wallet) {
             return res.status(404).json({ message: 'User not found' });
         }
 
         // Total Spent
         const totalSpent = await Transaction.sum('amount', {
             where: { 
-                walletId: user.Wallet.id, 
+                walletId: user.wallet.id, 
                 type: 'debit',
                 status: 'completed'
             }
@@ -836,7 +843,7 @@ const getDashboardStats = async (req, res) => {
         // Total Funded
         const totalFunded = await Transaction.sum('amount', {
             where: { 
-                walletId: user.Wallet.id, 
+                walletId: user.wallet.id, 
                 type: 'credit',
                 source: 'funding',
                 status: 'completed'
@@ -844,12 +851,12 @@ const getDashboardStats = async (req, res) => {
         }) || 0;
 
         const transactionsCount = await Transaction.count({
-            where: { walletId: user.Wallet.id }
+            where: { walletId: user.wallet.id }
         });
 
         // Get recent transactions for dashboard
         const recentTransactions = await Transaction.findAll({
-            where: { walletId: user.Wallet.id },
+            where: { walletId: user.wallet.id },
             order: [['createdAt', 'DESC']],
             limit: 5
         });
@@ -858,9 +865,9 @@ const getDashboardStats = async (req, res) => {
             totalSpent,
             totalFunded,
             transactionsCount,
-            balance: user.Wallet.balance,
-            commission: user.Wallet.commission_balance,
-            bonus: user.Wallet.bonus_balance,
+            balance: user.wallet.balance,
+            commission: user.wallet.commission_balance,
+            bonus: user.wallet.bonus_balance,
             transactions: recentTransactions
         });
     } catch (error) {
