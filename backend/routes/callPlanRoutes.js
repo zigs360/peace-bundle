@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
+  getVoiceBundles,
   createCallPlan,
   getCallPlans,
   getCallPlanById,
@@ -12,6 +13,7 @@ const { protect, admin } = require('../middleware/authMiddleware');
 
 // Public routes
 router.get('/', getCallPlans);
+router.get('/voice-bundles', getVoiceBundles);
 router.get('/:id', getCallPlanById);
 
 // Private routes (Users)

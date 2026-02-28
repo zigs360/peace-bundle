@@ -21,6 +21,7 @@ export default function BuyAirtime() {
   const [planId, setPlanId] = useState('');
   const [loading, setLoading] = useState(false);
   const [dataPlans, setDataPlans] = useState<any[]>([]);
+  const [voiceBundles, setVoiceBundles] = useState<any[]>([]);
   const [activationCode, setActivationCode] = useState<string | null>(null);
   const [isPhoneValid, setIsPhoneValid] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
@@ -43,6 +44,7 @@ export default function BuyAirtime() {
         setServiceType('airtime');
       }
       fetchDataPlans(detected);
+      fetchVoiceBundles(detected);
     } else if (!detected && phone.length < 4) {
       setNetwork(null);
     }
@@ -56,6 +58,17 @@ export default function BuyAirtime() {
       }
     } catch (err) {
       console.error('Failed to fetch data plans', err);
+    }
+  };
+
+  const fetchVoiceBundles = async (network: string) => {
+    try {
+      const res = await api.get('/plans/voice-bundles', { params: { network, status: 'active' } });
+      if (res.data.success) {
+        setVoiceBundles(res.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch voice bundles', err);
     }
   };
 
@@ -226,6 +239,7 @@ export default function BuyAirtime() {
                     setNetwork(val);
                     setManualOverride(true);
                     fetchDataPlans(val);
+                    fetchVoiceBundles(val);
                   }} 
                 />
               </motion.div>
@@ -270,9 +284,10 @@ export default function BuyAirtime() {
                         onClick={() => {
                           setServiceType(rec.type);
                           if (rec.type === 'data') {
-                            // If it's data, we'd need to find the planId
-                            // For simplicity in this demo, we'll just set amount
                             setAmount(rec.amount.toString());
+                          } else if (rec.type === 'talkmore') {
+                            setAmount(rec.amount.toString());
+                            if (rec.planId) setPlanId(rec.planId);
                           } else {
                             setAmount(rec.amount.toString());
                           }
@@ -299,6 +314,27 @@ export default function BuyAirtime() {
                     {dataPlans.map((plan) => (
                       <option key={plan.id} value={plan.id}>
                         {plan.size} - ₦{plan.admin_price} ({plan.validity})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : serviceType === 'talkmore' && voiceBundles.length > 0 ? (
+                <div>
+                  <label className="block text-gray-700 font-bold mb-2">Select TalkMore Plan</label>
+                  <select
+                    value={planId}
+                    onChange={(e) => {
+                      const selected = voiceBundles.find(b => b.api_plan_id === e.target.value);
+                      setPlanId(e.target.value);
+                      if (selected) setAmount(selected.amount.toString());
+                    }}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    required
+                  >
+                    <option value="">Choose TalkMore plan...</option>
+                    {voiceBundles.map((bundle) => (
+                      <option key={bundle.id} value={bundle.api_plan_id}>
+                        {bundle.plan_name} - ₦{bundle.amount} ({bundle.validity})
                       </option>
                     ))}
                   </select>

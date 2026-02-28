@@ -50,10 +50,12 @@ export const networkServices: Record<string, Record<string, boolean>> = {
   '9mobile': { airtime: true, data: true, talkmore: false },
 };
 
-export const recommendations: Record<string, { title: string, amount: number, type: string }[]> = {
+export const recommendations: Record<string, { title: string, amount: number, type: string, planId?: string }[]> = {
   airtel: [
-    { title: 'TalkMore 500 (Recommended)', amount: 500, type: 'talkmore' },
-    { title: 'TalkMore 1000', amount: 1000, type: 'talkmore' },
+    { title: 'TalkMore 100', amount: 100, type: 'talkmore', planId: 'TM100' },
+    { title: 'TalkMore 200', amount: 200, type: 'talkmore', planId: 'TM200' },
+    { title: 'TalkMore 500 (Recommended)', amount: 500, type: 'talkmore', planId: 'TM500' },
+    { title: 'TalkMore 1000', amount: 1000, type: 'talkmore', planId: 'TM1000' },
   ],
   mtn: [
     { title: '1GB Data (Recommended)', amount: 350, type: 'data' },

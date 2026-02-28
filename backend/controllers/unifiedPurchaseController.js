@@ -66,7 +66,7 @@ const purchaseUnified = async (req, res) => {
           finalAmount,
           transactionType,
           description,
-          { network, phone: cleanPhone, amount: finalAmount, serviceType },
+          { network, phone: cleanPhone, amount: finalAmount, serviceType, planId },
           t
         );
 

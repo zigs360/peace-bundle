@@ -1,9 +1,38 @@
 const CallPlan = require('../models/CallPlan');
+const VoiceBundle = require('../models/VoiceBundle');
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
+
+/**
+ * @desc    Get voice bundles (TalkMore, etc.)
+ * @route   GET /api/callplans/voice-bundles
+ * @access  Public
+ */
+const getVoiceBundles = async (req, res) => {
+  try {
+    const { network, status } = req.query;
+    const where = {};
+
+    if (network) where.network = network;
+    if (status !== undefined) where.is_active = status === 'active';
+
+    const bundles = await VoiceBundle.findAll({
+      where,
+      order: [['amount', 'ASC']],
+    });
+
+    res.json({
+      success: true,
+      data: bundles,
+    });
+  } catch (error) {
+    logger.error('Error fetching voice bundles:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
 
 /**
  * @desc    Create a new call plan
@@ -206,6 +235,7 @@ const purchaseCallPlan = async (req, res) => {
 };
 
 module.exports = {
+  getVoiceBundles,
   createCallPlan,
   getCallPlans,
   getCallPlanById,
