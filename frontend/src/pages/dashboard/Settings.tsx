@@ -166,7 +166,7 @@ export default function Settings() {
                     <div className="shrink-0">
                         <img 
                             className="h-16 w-16 object-cover rounded-full border border-gray-200" 
-                            src={avatar ? URL.createObjectURL(avatar) : (user.avatar ? (user.avatar.startsWith('http') ? user.avatar : `/${user.avatar}`) : "https://via.placeholder.com/150")} 
+                            src={avatar ? URL.createObjectURL(avatar) : (user.avatar ? (user.avatar.startsWith('http') ? user.avatar : `/${user.avatar}`) : "https://placehold.co/150x150?text=Profile")} 
                             alt="Profile" 
                         />
                     </div>

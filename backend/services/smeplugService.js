@@ -175,11 +175,17 @@ class SmeplugService {
    * @param {string} endpoint
    * @param {Object} [data]
    */
-  async makeRequest(method, endpoint, data = {}) {
+  async makeRequest(method, endpoint, data = {}, retryCount = 0) {
+    const maxRetries = 2;
     try {
+      // Use .ng as primary, .com as fallback if DNS fails
+      const currentBaseUrl = (retryCount > 0 && this.baseUrl.includes('.ng')) 
+        ? this.baseUrl.replace('.ng', '.com') 
+        : this.baseUrl;
+
       const config = {
         method: method,
-        url: `${this.baseUrl}${endpoint}`,
+        url: `${currentBaseUrl}${endpoint}`,
         headers: {
           'Authorization': `Bearer ${this.apiKey || this.secretKey}`,
           'Public-Key': this.publicKey,
@@ -214,6 +220,15 @@ class SmeplugService {
     } catch (error) {
       const errorResponse = error.response ? error.response.data : { message: error.message };
       const statusCode = error.response ? error.response.status : 500;
+
+      // Handle DNS resolution failures (EAI_AGAIN, ENOTFOUND) or Timeouts with a retry
+      if ((error.code === 'EAI_AGAIN' || error.code === 'ENOTFOUND' || error.code === 'ECONNABORTED') && retryCount < maxRetries) {
+        logger.warn(`Smeplug API DNS/Timeout Error. Retrying (${retryCount + 1}/${maxRetries})...`, {
+          error: error.message,
+          endpoint
+        });
+        return this.makeRequest(method, endpoint, data, retryCount + 1);
+      }
 
       logger.error('Smeplug API Error', {
         endpoint,

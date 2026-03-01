@@ -1,0 +1,1 @@
+fix: add DNS fallback and retry mechanism for Smeplug API to handle server-side resolution errors
