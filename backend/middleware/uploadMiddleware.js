@@ -1,17 +1,19 @@
 const multer = require('multer');
 const path = require('path');
 
-// Set storage engine
+// Configure storage
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, path.join(__dirname, '../uploads/'));
+        // Secure KYC documents in a separate folder
+        if (file.fieldname === 'document') {
+            cb(null, path.join(__dirname, '../secure_uploads/'));
+        } else {
+            cb(null, path.join(__dirname, '../uploads/'));
+        }
     },
     filename: function (req, file, cb) {
-        // Distinguish between avatar and kyc document
-        // file.fieldname matches the name attribute in the form data ('avatar' or 'document')
-        const prefix = file.fieldname === 'document' ? 'kyc' : 'avatar';
-        // Add timestamp to ensure uniqueness and bust cache
-        cb(null, `${prefix}-${req.user.id}-${Date.now()}${path.extname(file.originalname)}`);
+        const prefix = file.fieldname === 'document' ? 'kyc-' : '';
+        cb(null, prefix + Date.now() + path.extname(file.originalname));
     }
 });
 
@@ -20,9 +22,9 @@ function checkFileType(file, cb) {
     // Default allowed extensions (Images)
     let filetypes = /jpeg|jpg|png|gif/;
     
-    // Allow PDF for KYC documents
+    // Strict validation for KYC documents: Only JPG and PDF as requested
     if (file.fieldname === 'document') {
-        filetypes = /jpeg|jpg|png|gif|pdf/;
+        filetypes = /jpeg|jpg|pdf/;
     }
 
     // Check ext
@@ -30,7 +32,7 @@ function checkFileType(file, cb) {
     // Check mime
     const mimetype = filetypes.test(file.mimetype);
 
-    // Common PDF mime types: application/pdf
+    // Specific check for PDF mimetype
     if (file.fieldname === 'document' && file.mimetype === 'application/pdf') {
         return cb(null, true);
     }
@@ -38,14 +40,17 @@ function checkFileType(file, cb) {
     if (mimetype && extname) {
         return cb(null, true);
     } else {
-        cb('Error: Invalid file type! Images (and PDF for KYC) only.');
+        const errorMsg = file.fieldname === 'document' 
+            ? 'Error: KYC documents must be JPG or PDF format only!' 
+            : 'Error: Invalid file type! Images only.';
+        cb(new Error(errorMsg));
     }
 }
 
 // Init upload
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 5000000 }, // Increased to 5MB to accommodate high-res IDs or PDFs
+    limits: { fileSize: 10 * 1024 * 1024 }, // Increased to 10MB as requested
     fileFilter: function (req, file, cb) {
         checkFileType(file, cb);
     }

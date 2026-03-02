@@ -8,6 +8,10 @@ const Sim = require('../models/Sim');
 const DataPlan = require('../models/DataPlan');
 const { sendEmail, sendSMS } = require('../services/notificationService');
 const simManagementService = require('../services/simManagementService');
+const fs = require('fs');
+const path = require('path');
+const { decrypt } = require('../utils/cryptoUtils');
+const logger = require('../utils/logger');
 
 // @desc    Get All Data Plans (Admin)
 // @route   GET /api/admin/plans
@@ -1090,6 +1094,55 @@ const getReferralAnalytics = async (req, res) => {
     }
 };
 
+// @desc    View KYC Document (Secure)
+// @route   GET /api/admin/users/kyc-document/:filename
+// @access  Private (Admin)
+const viewKycDocument = async (req, res) => {
+    try {
+        const { filename } = req.params;
+        // Basic path traversal protection
+        if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+            return res.status(400).json({ message: 'Invalid filename' });
+        }
+
+        const filePath = path.join(__dirname, '../secure_uploads/', filename);
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+
+        // Audit Logging for KYC Access
+        logger.info(`Admin ${req.user.id} accessed KYC document: ${filename}`);
+
+        let fileBuffer = fs.readFileSync(filePath);
+        
+        // Attempt decryption
+        try {
+            fileBuffer = decrypt(fileBuffer);
+        } catch (decryptError) {
+            // If decryption fails, it might be an older unencrypted file
+            // We just log it and serve as is
+            logger.warn(`Failed to decrypt KYC document ${filename}. Serving as-is.`);
+        }
+
+        // Determine content type
+        const ext = path.extname(filename).toLowerCase();
+        let contentType = 'application/octet-stream';
+        if (ext === '.pdf') contentType = 'application/pdf';
+        else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+        else if (ext === '.png') contentType = 'image/png';
+
+        res.setHeader('Content-Type', contentType);
+        // Set inline disposition so it can be previewed
+        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+        res.send(fileBuffer);
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
 // @desc    Get Bulk SMS History
 // @route   GET /api/admin/bulk-sms
 // @access  Private (Admin)
@@ -1216,6 +1269,7 @@ module.exports = {
     getTransactions,
     refundTransaction,
     getKycRequests,
+    viewKycDocument,
     bulkProcessKyc,
     getReferralAnalytics,
     getBulkSMSHistory,

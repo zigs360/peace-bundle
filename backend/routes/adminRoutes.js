@@ -30,7 +30,8 @@ const {
     getBulkSMSHistory,
     sendAdminBulkSMS,
     generateUserVirtualAccount,
-    getReferralAnalytics
+    getReferralAnalytics,
+    viewKycDocument
 } = require('../controllers/adminController');
 const {
     adminGetSubscriptionPlans,
@@ -58,6 +59,7 @@ router.post('/bulk-sms', protect, admin, sendAdminBulkSMS);
 // User Management Routes
 router.get('/users', protect, admin, getUsers);
 router.get('/users/kyc-requests', protect, admin, getKycRequests);
+router.get('/users/kyc-document/:filename', protect, admin, viewKycDocument);
 router.post('/users/kyc/bulk', protect, admin, bulkProcessKyc);
 router.put('/users/:id', protect, admin, updateUser);
 router.patch('/users/:id/block', protect, admin, toggleBlockUser);

@@ -324,12 +324,12 @@ export default function Settings() {
                                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                         <Upload className="w-8 h-8 mb-3 text-gray-400" />
                                         <p className="mb-2 text-sm text-gray-500"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                                        <p className="text-xs text-gray-500">JPG, PNG, GIF or PDF (MAX. 5MB)</p>
+                                        <p className="text-xs text-gray-500">JPG or PDF only (MAX. 10MB)</p>
                                     </div>
                                     <input 
                                         type="file" 
                                         className="hidden" 
-                                        accept="image/*,application/pdf"
+                                        accept="image/jpeg,application/pdf"
                                         onChange={(e) => e.target.files && setKycFile(e.target.files[0])}
                                     />
                                 </label>

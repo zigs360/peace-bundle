@@ -18,6 +18,8 @@ export default function KycIndex() {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [isRejecting, setIsRejecting] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingDoc, setLoadingDoc] = useState(false);
 
   const fetchKycs = async (page = 1) => {
     try {
@@ -101,6 +103,31 @@ export default function KycIndex() {
     setIsReviewModalOpen(true);
     setRejectionReason('');
     setIsRejecting(false);
+    setPreviewUrl(null);
+    if (user.kyc_document) {
+      fetchDocument(user.kyc_document);
+    }
+  };
+
+  const fetchDocument = async (documentPath: string) => {
+    try {
+      setLoadingDoc(true);
+      // Extract filename from path (e.g., uploads/kyc-...)
+      const filename = documentPath.split('/').pop();
+      if (!filename) return;
+
+      const response = await api.get(`/admin/users/kyc-document/${filename}`, {
+        responseType: 'blob'
+      });
+
+      const url = URL.createObjectURL(response.data);
+      setPreviewUrl(url);
+    } catch (err) {
+      console.error('Failed to fetch document', err);
+      toast.error('Failed to load document preview');
+    } finally {
+      setLoadingDoc(false);
+    }
   };
 
   const processKyc = async (action: 'approve' | 'reject') => {
@@ -127,19 +154,6 @@ export default function KycIndex() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const getFullDocUrl = (path: string) => {
-    if (!path) return '';
-    if (path.startsWith('http')) return path;
-    
-    const apiUrl = (import.meta as any).env.VITE_API_URL;
-    if (apiUrl && apiUrl.startsWith('http')) {
-        const serverUrl = apiUrl.replace(/\/api$/, '');
-        return `${serverUrl}/${path}`;
-    }
-    
-    return `/${path}`;
   };
 
   const columns = [
@@ -304,35 +318,42 @@ export default function KycIndex() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-gray-700">Identity Document</span>
-                  <a 
-                    href={getFullDocUrl(selectedUser.kyc_document)} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-xs text-primary-600 hover:underline flex items-center"
-                  >
-                    Open in New Tab
-                  </a>
+                  {previewUrl && (
+                    <a 
+                      href={previewUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary-600 hover:underline flex items-center"
+                    >
+                      Open in New Tab
+                    </a>
+                  )}
                 </div>
                 <div className="aspect-[4/3] bg-gray-100 rounded-xl border-2 border-dashed border-gray-300 overflow-hidden flex items-center justify-center relative group">
-                  {selectedUser.kyc_document ? (
+                  {loadingDoc ? (
+                    <div className="flex flex-col items-center">
+                      <Loader2 className="w-8 h-8 text-primary-500 animate-spin mb-2" />
+                      <span className="text-sm text-gray-500">Loading document...</span>
+                    </div>
+                  ) : previewUrl ? (
                     selectedUser.kyc_document.toLowerCase().endsWith('.pdf') ? (
-                      <div className="flex flex-col items-center">
-                        <ShieldCheck className="w-12 h-12 text-primary-500 mb-2" />
-                        <span className="text-sm text-gray-600">PDF Document</span>
-                      </div>
+                      <iframe 
+                        src={previewUrl} 
+                        className="w-full h-full border-none"
+                        title="KYC PDF Preview"
+                      />
                     ) : (
                       <img 
-                        src={getFullDocUrl(selectedUser.kyc_document)} 
+                        src={previewUrl} 
                         alt="KYC Document" 
                         className="w-full h-full object-contain"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = '/placeholder-doc.png';
-                        }}
                       />
                     )
                   ) : (
-                    <span className="text-sm text-gray-500">No document uploaded</span>
+                    <div className="flex flex-col items-center p-8 text-center">
+                      <XCircle className="w-12 h-12 text-gray-300 mb-2" />
+                      <span className="text-sm text-gray-500">No document available or failed to load</span>
+                    </div>
                   )}
                 </div>
               </div>

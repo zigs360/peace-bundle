@@ -7,6 +7,10 @@ const { sequelize } = require('../config/database'); // For transactions
 const VirtualAccountService = require('../services/virtualAccountService');
 const BvnVerificationService = require('../services/bvnVerificationService');
 const ReferralService = require('../services/referralService');
+const fs = require('fs');
+const path = require('path');
+const { encrypt } = require('../utils/cryptoUtils');
+const logger = require('../utils/logger');
 
 // Generate JWT
 const generateToken = (id) => {
@@ -398,7 +402,22 @@ const submitKyc = async (req, res) => {
         }
 
         // 2. Update user KYC status
-        user.kyc_document = `uploads/${req.file.filename}`;
+        // Secure Document Handling: Encrypt the file for sensitivity
+        try {
+            const filePath = req.file.path;
+            const fileBuffer = fs.readFileSync(filePath);
+            const encryptedBuffer = encrypt(fileBuffer);
+            
+            // Overwrite original file with encrypted data
+            fs.writeFileSync(filePath, encryptedBuffer);
+            
+            logger.info(`KYC Document encrypted and stored: ${req.file.filename}`);
+        } catch (encryptError) {
+            logger.error('Failed to encrypt KYC document:', encryptError);
+            // We continue even if encryption fails for now, but in strict production we might throw
+        }
+
+        user.kyc_document = `secure_uploads/${req.file.filename}`;
         user.kyc_status = 'pending';
         user.kyc_submitted_at = new Date();
         

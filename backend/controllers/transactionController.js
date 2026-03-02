@@ -355,6 +355,32 @@ const payBill = async (req, res) => {
     }
 };
 
+const validateCustomer = async (req, res) => {
+  try {
+    const { billType, provider, account, meterType } = req.query;
+    if (!billType || !provider || !account) {
+      return res.status(400).json({ message: 'Missing required parameters' });
+    }
+    let result;
+    if (billType === 'power') {
+      result = await smeplugService.validateElectricityCustomer(provider, account, meterType || 'Prepaid');
+    } else {
+      result = await smeplugService.validateCableCustomer(provider, account);
+    }
+    if (!result.success) {
+      return res.status(400).json({ message: result.error || 'Validation failed', data: result.data });
+    }
+    const data = result.data || {};
+    res.json({
+      success: true,
+      name: data.name || data.customer_name || data.account_name || null,
+      details: data
+    });
+  } catch (err) {
+    console.error('Customer validation error:', err);
+    res.status(500).json({ message: 'Server Error' });
+  }
+};
 // @desc    Withdraw Funds
 // @route   POST /api/transactions/withdraw
 // @access  Private
@@ -901,6 +927,7 @@ module.exports = {
     buyData,
     buyAirtime,
     payBill,
+    validateCustomer,
     withdrawFunds,
     airtimeToCash,
     printRechargeCard,

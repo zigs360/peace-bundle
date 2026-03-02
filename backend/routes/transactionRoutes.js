@@ -5,6 +5,7 @@ const {
     buyData,
     buyAirtime,
     payBill,
+    validateCustomer,
     withdrawFunds,
     airtimeToCash,
     printRechargeCard,
@@ -46,6 +47,12 @@ router.post('/bill', protect, validate([
     check('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
     check('phone').matches(/^0[7-9][0-1]\d{8}$/).withMessage('Valid phone number is required')
 ]), payBill);
+
+router.get('/validate-customer', protect, validate([
+    check('billType').isIn(['cable', 'power']).withMessage('Bill Type must be cable or power'),
+    check('provider').notEmpty().withMessage('Provider is required'),
+    check('account').notEmpty().withMessage('Smart Card/Meter Number is required')
+]), validateCustomer);
 
 router.post('/withdraw', protect, validate([
     check('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),

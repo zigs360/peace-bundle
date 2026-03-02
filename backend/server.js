@@ -24,6 +24,13 @@ if (!fs.existsSync(uploadDir)) {
   console.log('Uploads directory created');
 }
 
+// Create secure_uploads directory for KYC if not exists
+const secureUploadDir = path.join(__dirname, 'secure_uploads');
+if (!fs.existsSync(secureUploadDir)) {
+  fs.mkdirSync(secureUploadDir, { recursive: true });
+  console.log('Secure uploads directory created');
+}
+
 // Validate Environment Variables
 validateEnv();
 

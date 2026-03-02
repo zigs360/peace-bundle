@@ -3,7 +3,7 @@ import api from '../../services/api';
 import { Tv, Zap, Smartphone, Banknote, CreditCard, CheckCircle } from 'lucide-react';
 
 const CABLE_PROVIDERS = ['DSTV', 'GOTV', 'STARTIMES'];
-const POWER_PROVIDERS = ['IKEDC', 'EKEDC', 'AEDC', 'IBEDC', 'EEDC'];
+const POWER_PROVIDERS = ['IKEDC', 'EKEDC', 'AEDC', 'IBEDC', 'EEDC', 'KEDCO', 'JEDC'];
 const METER_TYPES = ['Prepaid', 'Postpaid'];
 
 export default function PayBills() {
@@ -15,11 +15,14 @@ export default function PayBills() {
   const [meterType, setMeterType] = useState('Prepaid');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [detectedName, setDetectedName] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
 
   const handleBillTypeChange = (type: 'cable' | 'power') => {
     setBillType(type);
     setProvider(''); // Reset provider when switching types
     setMessage(null);
+    setDetectedName(null);
   };
 
   const handlePay = async (e: React.FormEvent) => {
@@ -40,6 +43,7 @@ export default function PayBills() {
         amount: parseFloat(amount),
         phone,
         meterType: billType === 'power' ? meterType : undefined
+        name: detectedName || undefined
       });
 
       setMessage({ type: 'success', text: 'Bill payment successful!' });
@@ -47,6 +51,7 @@ export default function PayBills() {
       setSmartCardNumber('');
       setPhone('');
       setProvider('');
+      setDetectedName(null);
     } catch (err: any) {
       setMessage({ 
         type: 'error', 
@@ -54,6 +59,22 @@ export default function PayBills() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const validateCustomer = async () => {
+    try {
+      if (!provider || !smartCardNumber) return;
+      setValidating(true);
+      setDetectedName(null);
+      const params: any = { billType, provider, account: smartCardNumber };
+      if (billType === 'power') params.meterType = meterType;
+      const res = await api.get('/transactions/validate-customer', { params });
+      setDetectedName(res.data?.name || null);
+    } catch (err: any) {
+      setDetectedName(null);
+    } finally {
+      setValidating(false);
     }
   };
 
@@ -159,11 +180,19 @@ export default function PayBills() {
               <input
                 type="text"
                 value={smartCardNumber}
-                onChange={(e) => setSmartCardNumber(e.target.value)}
+                onChange={(e) => {
+                  setSmartCardNumber(e.target.value);
+                  setDetectedName(null);
+                }}
+                onBlur={validateCustomer}
                 className={`w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-${billType === 'cable' ? 'purple' : 'yellow'}-500`}
                 placeholder="Enter number"
                 required
               />
+            </div>
+            <div className="mt-2 text-sm">
+              {validating && <span className="text-gray-500">Validating...</span>}
+              {detectedName && <span className="text-green-600">Detected: {detectedName}</span>}
             </div>
           </div>
 

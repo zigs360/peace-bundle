@@ -275,6 +275,71 @@ class SmeplugService {
 
     return map[networkId] || 'mtn';
   }
+
+  getDiscoCode(name) {
+    const map = {
+      ikedc: 'IKEDC',
+      ekedc: 'EKEDC',
+      aedc: 'AEDC',
+      ibedc: 'IBEDC',
+      eedc: 'EEDC',
+      kedco: 'KEDCO',
+      jed: 'JEDC',
+      jedc: 'JEDC',
+      phed: 'PHED',
+    };
+    return map[name.toLowerCase()] || name.toUpperCase();
+  }
+
+  getCableCode(name) {
+    const map = {
+      dstv: 'DSTV',
+      gotv: 'GOTV',
+      startimes: 'STARTIMES',
+    };
+    return map[name.toLowerCase()] || name.toUpperCase();
+  }
+
+  async validateElectricityCustomer(provider, meterNumber, meterType) {
+    const data = {
+      disco: this.getDiscoCode(provider),
+      meter_number: meterNumber,
+      meter_type: meterType?.toLowerCase() === 'postpaid' ? 'POSTPAID' : 'PREPAID',
+    };
+    return this.makeRequest('POST', '/api/v1/power/validate', data);
+  }
+
+  async payElectricity(provider, meterNumber, amount, meterType, phone) {
+    const data = {
+      disco: this.getDiscoCode(provider),
+      meter_number: meterNumber,
+      meter_type: meterType?.toLowerCase() === 'postpaid' ? 'POSTPAID' : 'PREPAID',
+      amount,
+      phone,
+      mode: 'wallet',
+    };
+    return this.makeRequest('POST', '/api/v1/power/purchase', data);
+  }
+
+  async validateCableCustomer(provider, smartCardNumber) {
+    const data = {
+      provider: this.getCableCode(provider),
+      smartcard_number: smartCardNumber,
+    };
+    return this.makeRequest('POST', '/api/v1/cable/validate', data);
+  }
+
+  async payCable(provider, smartCardNumber, amount, phone, plan) {
+    const data = {
+      provider: this.getCableCode(provider),
+      smartcard_number: smartCardNumber,
+      amount,
+      phone,
+      plan: plan || 'subscription',
+      mode: 'wallet',
+    };
+    return this.makeRequest('POST', '/api/v1/cable/purchase', data);
+  }
 }
 
 module.exports = new SmeplugService();
