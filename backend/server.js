@@ -32,10 +32,18 @@ if (!fs.existsSync(secureUploadDir)) {
 }
 
 // Validate Environment Variables
-validateEnv();
+try {
+  validateEnv();
+} catch (error) {
+  logger.error(`Environment validation failed: ${error.message}`);
+  process.exit(1);
+}
 
 if (process.env.NODE_ENV !== 'test') {
-  connectDB();
+  connectDB().catch(err => {
+    logger.error(`Database connection failed: ${err.message}`);
+    process.exit(1);
+  });
 }
 
 const app = express();

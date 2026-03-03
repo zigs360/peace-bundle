@@ -1,14 +1,13 @@
-const payvesselService = require('../services/payvesselService');
-const walletService = require('../services/walletService');
-const User = require('../models/User');
-const Transaction = require('../models/Transaction');
-const { sequelize } = require('../config/database');
+const crypto = require('crypto');
 const logger = require('../utils/logger');
+const { sequelize } = require('../config/database');
 
 // @desc    Handle Paystack Webhook
 // @route   POST /api/webhooks/paystack
 // @access  Public (Secured by Signature)
-const handlePaystackWebhook = async (req, res) => {
+exports.handlePaystackWebhook = async (req, res) => {
+    const walletService = require('../services/walletService');
+    const { Transaction, User } = require('../models');
     try {
         const secret = process.env.PAYSTACK_SECRET_KEY;
         // Verify signature
@@ -72,7 +71,10 @@ const handlePaystackWebhook = async (req, res) => {
 // @desc    Handle PayVessel Webhook
 // @route   POST /api/webhooks/payvessel
 // @access  Public (Secured by Signature and IP)
-const handlePayvesselWebhook = async (req, res) => {
+exports.handlePayvesselWebhook = async (req, res) => {
+    const payvesselService = require('../services/payvesselService');
+    const walletService = require('../services/walletService');
+    const { Transaction, User } = require('../models');
     try {
         const payload = req.body;
         const signature = req.headers['http_payvessel_http_signature'];
@@ -143,7 +145,8 @@ const handlePayvesselWebhook = async (req, res) => {
 // @desc    Handle Monnify Webhook
 // @route   POST /api/webhooks/monnify
 // @access  Public (Secured by Signature)
-const handleMonnifyWebhook = async (req, res) => {
+exports.handleMonnifyWebhook = async (req, res) => {
+    const { Transaction, Wallet } = require('../models');
     try {
         // Monnify signature validation logic would go here
         // const secret = process.env.MONNIFY_SECRET_KEY;
@@ -190,7 +193,8 @@ const handleMonnifyWebhook = async (req, res) => {
 // @desc    Handle Smeplug Webhook (Transaction Status Updates)
 // @route   POST /api/webhooks/smeplug
 // @access  Public
-const handleSmeplugWebhook = async (req, res) => {
+exports.handleSmeplugWebhook = async (req, res) => {
+    const { Transaction } = require('../models');
     try {
         // Implementation depends on Smeplug webhook format
         // Typically updates transaction status (data/airtime)
@@ -229,10 +233,4 @@ const handleSmeplugWebhook = async (req, res) => {
         console.error('Smeplug Webhook Error:', error);
         res.sendStatus(500);
     }
-};
-
-module.exports = {
-    handlePaystackWebhook,
-    handleMonnifyWebhook,
-    handleSmeplugWebhook
 };

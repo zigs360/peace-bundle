@@ -142,14 +142,7 @@ const connectDB = async () => {
     if (process.env.NODE_ENV === 'test') {
       console.log('Syncing models (test mode)...');
       try {
-        // Break down sync to identify hanging model if needed
-        // await sequelize.sync(); 
-        await sequelize.authenticate(); // ensure connection
-        await User.sync({ force: true });
-        await Wallet.sync({ force: true });
-        await SystemSetting.sync({ force: true });
-        // Sync others if needed, or just sync all
-        // await sequelize.sync();
+        await sequelize.sync({ force: true });
         console.log('Models synced');
       } catch (error) {
         console.error('Model sync failed:', error);

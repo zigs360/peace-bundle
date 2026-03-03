@@ -1,11 +1,8 @@
 const logger = require('../utils/logger');
 
 const requiredEnvVars = [
-  'PORT',
-  'NODE_ENV',
   'DATABASE_URL',
-  'JWT_SECRET',
-  // Add other critical variables here
+  'JWT_SECRET'
 ];
 
 const validateEnv = () => {

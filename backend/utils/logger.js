@@ -40,28 +40,29 @@ const format = winston.format.combine(
 
 // Define transports
 const transports = [
-  // Console transport
   new winston.transports.Console(),
-  
-  // Error log file
-  new winston.transports.File({
-    filename: path.join(__dirname, '../logs/error.log'),
-    level: 'error',
-    format: winston.format.combine(
-        winston.format.uncolorize(),
-        winston.format.json()
-    )
-  }),
-  
-  // Combined log file
-  new winston.transports.File({
-    filename: path.join(__dirname, '../logs/combined.log'),
-    format: winston.format.combine(
-        winston.format.uncolorize(),
-        winston.format.json()
-    )
-  }),
 ];
+
+// Add file transports only in local development or if specifically requested
+if (process.env.NODE_ENV !== 'production' && process.env.ENABLE_FILE_LOGGING === 'true') {
+  transports.push(
+    new winston.transports.File({
+      filename: path.join(__dirname, '../logs/error.log'),
+      level: 'error',
+      format: winston.format.combine(
+          winston.format.uncolorize(),
+          winston.format.json()
+      )
+    }),
+    new winston.transports.File({
+      filename: path.join(__dirname, '../logs/combined.log'),
+      format: winston.format.combine(
+          winston.format.uncolorize(),
+          winston.format.json()
+      )
+    })
+  );
+}
 
 // Create the logger instance
 const logger = winston.createLogger({
