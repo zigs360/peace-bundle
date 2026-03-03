@@ -1,6 +1,8 @@
 const axios = require('axios');
 const User = require('../models/User');
 const SystemSetting = require('../models/SystemSetting');
+const payvesselService = require('./payvesselService');
+const logger = require('../utils/logger');
 
 class VirtualAccountService {
     constructor() {
@@ -90,18 +92,14 @@ class VirtualAccountService {
     }
 
     async assignVirtualAccount(user) {
-        // KYC Check: BVN is mandatory for virtual accounts
-        if (!user.is_bvn_verified) {
-            console.log(`[VirtualAccount] User ${user.id} BVN not verified. Skipping assignment.`);
-            return null;
-        }
-
-        // Prefer Monnify, fallback to Paystack or others
+        // Prefer PayVessel, fallback to Monnify or others
         try {
-            const provider = await this.getSetting('virtual_account_provider') || 'monnify';
+            const provider = await this.getSetting('virtual_account_provider') || 'payvessel';
             
             let accountDetails;
-            if (provider === 'monnify') {
+            if (provider === 'payvessel') {
+                accountDetails = await payvesselService.createVirtualAccount(user);
+            } else if (provider === 'monnify') {
                 accountDetails = await this.createMonnifyAccount(user);
             } else if (provider === 'paystack') {
                 accountDetails = await this.createPaystackAccount(user);
@@ -111,11 +109,15 @@ class VirtualAccountService {
                 user.virtual_account_number = accountDetails.accountNumber;
                 user.virtual_account_bank = accountDetails.bankName;
                 user.virtual_account_name = accountDetails.accountName;
+                // Store tracking reference for BVN updates if needed
+                if (accountDetails.trackingReference) {
+                    user.metadata = { ...user.metadata, payvessel_tracking_reference: accountDetails.trackingReference };
+                }
                 await user.save();
                 return accountDetails;
             }
         } catch (error) {
-            console.error(`Failed to assign virtual account for user ${user.id}:`, error.message);
+            logger.error(`Failed to assign virtual account for user ${user.id}:`, error.message);
             // Don't block flow, just log
             return null;
         }

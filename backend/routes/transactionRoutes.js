@@ -16,6 +16,7 @@ const {
     getAllTransactions,
     getDashboardStats,
     redeemCoupon,
+    initializeFunding,
     index,
     exportTransactions
 } = require('../controllers/transactionController');
@@ -25,6 +26,7 @@ const { check } = require('express-validator');
 
 router.get('/', protect, index);
 router.get('/export', protect, exportTransactions);
+router.post('/fund/initialize', protect, initializeFunding);
 router.post('/fund', protect, validate([
     check('amount').isFloat({ gt: 0 }).withMessage('Amount must be positive'),
     check('reference').notEmpty().withMessage('Reference is required')

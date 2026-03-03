@@ -42,7 +42,7 @@ export default function PayBills() {
         smartCardNumber, // acts as meter number for power
         amount: parseFloat(amount),
         phone,
-        meterType: billType === 'power' ? meterType : undefined
+        meterType: billType === 'power' ? meterType : undefined,
         name: detectedName || undefined
       });
 

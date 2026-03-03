@@ -11,6 +11,7 @@ const smeplugService = require('../services/smeplugService');
 const simManagementService = require('../services/simManagementService');
 const transactionLimitService = require('../services/transactionLimitService');
 const affiliateService = require('../services/affiliateService');
+const paymentGatewayService = require('../services/paymentGatewayService');
 const { sequelize } = require('../config/database');
 const { Op } = require('sequelize');
 const PDFDocument = require('pdfkit');
@@ -48,6 +49,33 @@ const processAffiliateCommission = async (user, amount, transaction, t) => {
     } catch (error) {
         console.error('Affiliate Commission Error:', error);
         // Don't fail the main transaction if commission fails
+    }
+};
+
+// @desc    Initialize Wallet Funding
+// @route   POST /api/transactions/fund/initialize
+// @access  Private
+const initializeFunding = async (req, res) => {
+    try {
+        const { amount } = req.body;
+        const user = await User.findByPk(req.user.id);
+        
+        if (!amount || isNaN(amount) || amount <= 0) {
+            return res.status(400).json({ message: 'Invalid amount' });
+        }
+
+        const paymentInfo = await paymentGatewayService.initializePayment(user, parseFloat(amount), {
+            type: 'funding',
+            userId: user.id
+        });
+
+        res.json({
+            success: true,
+            data: paymentInfo
+        });
+    } catch (error) {
+        console.error('Funding Initialization Error:', error);
+        res.status(500).json({ message: error.message || 'Failed to initialize funding' });
     }
 };
 
@@ -938,6 +966,7 @@ module.exports = {
     getTransactions,
     getDashboardStats,
     redeemCoupon,
+    initializeFunding,
     index,
     exportTransactions
 };

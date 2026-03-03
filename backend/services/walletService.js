@@ -76,8 +76,26 @@ class WalletService {
         throw new Error('Wallet not found');
       }
 
+      // Fraud & Compliance Checks
+      if (wallet.status !== 'active') {
+        throw new Error(`Wallet is ${wallet.status}. Please contact support.`);
+      }
+
       const currentBalance = parseFloat(wallet.balance);
       const debitAmount = parseFloat(amount);
+
+      // Daily Limit Check
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      
+      let dailySpent = parseFloat(wallet.daily_spent);
+      if (wallet.last_transaction_at && wallet.last_transaction_at < today) {
+        dailySpent = 0; // Reset for new day
+      }
+
+      if (dailySpent + debitAmount > parseFloat(wallet.daily_limit)) {
+        throw new Error('Daily transaction limit exceeded');
+      }
 
       // Check sufficient balance
       if (currentBalance < debitAmount) {
@@ -87,7 +105,11 @@ class WalletService {
       const balanceBefore = currentBalance;
       const balanceAfter = currentBalance - debitAmount;
       
-      await wallet.update({ balance: balanceAfter }, { transaction: transaction });
+      await wallet.update({ 
+        balance: balanceAfter,
+        daily_spent: dailySpent + debitAmount,
+        last_transaction_at: new Date()
+      }, { transaction: transaction });
       
       // Create transaction record
       const txn = await Transaction.create({

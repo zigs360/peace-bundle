@@ -59,6 +59,20 @@ export default function UserLayout() {
     ${isActive(path) ? 'text-primary-600' : 'text-gray-400'}
   `;
 
+  const handleSupportClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const phoneNumber = '2348035446865';
+    const message = encodeURIComponent('Hello Peace Bundlle Support, I need assistance with my account.');
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${message}`;
+    
+    try {
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('WhatsApp redirect failed:', error);
+      window.location.href = whatsappUrl;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       
@@ -161,10 +175,14 @@ export default function UserLayout() {
             {!isCollapsed && <span>Education</span>}
           </Link>
 
-          <Link to="/dashboard/support" className={getLinkClasses('/dashboard/support')} title={isCollapsed ? "Support Tickets" : ""}>
+          <button 
+            onClick={handleSupportClick}
+            className={getLinkClasses('/dashboard/support')} 
+            title={isCollapsed ? "Support" : ""}
+          >
             <MessageSquare className={getIconClasses('/dashboard/support')} />
-            {!isCollapsed && <span>Support Tickets</span>}
-          </Link>
+            {!isCollapsed && <span>Support</span>}
+          </button>
           
           <Link to="/dashboard/bulk-sms" className={getLinkClasses('/dashboard/bulk-sms')} title={isCollapsed ? "Bulk SMS" : ""}>
             <MessageSquare className={getIconClasses('/dashboard/bulk-sms')} />

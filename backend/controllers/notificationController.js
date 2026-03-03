@@ -1,5 +1,6 @@
 const Notification = require('../models/Notification');
 const notificationRealtimeService = require('../services/notificationRealtimeService');
+const { Op } = require('sequelize');
 
 // @desc    Get all notifications for current user
 // @route   GET /api/notifications

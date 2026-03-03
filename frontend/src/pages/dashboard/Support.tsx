@@ -72,8 +72,41 @@ export default function Support() {
     }
   };
 
+  const handleWhatsAppRedirect = () => {
+    const phoneNumber = '2348035446865';
+    const message = encodeURIComponent('Hello Peace Bundlle Support, I need assistance with my account.');
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${message}`;
+    
+    try {
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('WhatsApp redirect failed:', error);
+      window.location.href = whatsappUrl;
+    }
+  };
+
   return (
     <div className="space-y-6">
+      <div className="bg-primary-50 p-6 rounded-xl border border-primary-100 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-4 text-center md:text-left">
+          <div className="bg-primary-100 p-3 rounded-full text-primary-600">
+            <MessageSquare className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-primary-900">Need Immediate Assistance?</h3>
+            <p className="text-primary-700">Chat directly with our support team on WhatsApp for faster resolution.</p>
+          </div>
+        </div>
+        <button
+          onClick={handleWhatsAppRedirect}
+          className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 flex items-center shadow-md transition-all active:scale-95 whitespace-nowrap"
+        >
+          <span className="mr-2">Chat on WhatsApp</span>
+          <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+            <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.246 2.248 3.484 5.232 3.483 8.412-.003 6.557-5.338 11.892-11.893 11.892-1.997-.001-3.951-.5-5.688-1.448l-6.308 1.656zm6.29-4.132c1.524.881 3.12 1.346 4.795 1.347h.005c5.376 0 9.75-4.374 9.752-9.75.001-2.607-1.013-5.059-2.856-6.903-1.843-1.844-4.294-2.858-6.901-2.859-5.374 0-9.748 4.374-9.75 9.75-.001 1.714.448 3.39 1.298 4.888l-1.082 3.95 4.044-1.073zm10.977-7.412c-.29-.144-1.711-.845-1.976-.941-.264-.096-.457-.144-.65.144-.194.288-.748.941-.917 1.134-.169.192-.338.216-.628.072-.29-.144-1.225-.452-2.333-1.441-.862-.77-1.444-1.72-1.613-2.008-.17-.288-.018-.444.127-.587.13-.13.29-.336.435-.505.145-.168.193-.288.29-.481.097-.192.048-.36-.024-.505-.073-.144-.65-1.562-.89-2.14-.236-.557-.474-.482-.65-.491-.169-.008-.362-.01-.555-.01-.193 0-.507.072-.772.36-.266.289-1.013.986-1.013 2.404 0 1.418 1.037 2.79 1.182 2.982.145.192 2.037 3.113 4.936 4.363.689.298 1.228.476 1.649.611.692.22 1.321.19 1.819.116.555-.083 1.711-.699 1.952-1.371.241-.672.241-1.25.169-1.37-.072-.12-.265-.192-.555-.337z"/></svg>
+        </button>
+      </div>
+
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Support Tickets</h1>

@@ -19,6 +19,8 @@ const generateToken = (id) => {
     });
 };
 
+const payvesselService = require('../services/payvesselService');
+
 // @desc    Register new user
 // @route   POST /api/auth/register
 // @access  Public
@@ -423,7 +425,17 @@ const submitKyc = async (req, res) => {
         
         await user.save();
 
-        // 3. Trigger Virtual Account Assignment if BVN is verified (it's verified here)
+        // 3. Update PayVessel with BVN if tracking reference exists
+        if (user.metadata && user.metadata.payvessel_tracking_reference) {
+            try {
+                await payvesselService.updateAccountBvn(user.metadata.payvessel_tracking_reference, bvn);
+                logger.info(`PayVessel BVN updated for user ${user.id}`);
+            } catch (err) {
+                logger.error(`PayVessel BVN update failed for user ${user.id}:`, err.message);
+            }
+        }
+
+        // 4. Trigger Virtual Account Assignment if BVN is verified (it's verified here)
         // Note: assignVirtualAccount checks settings and might fail, but it's handled inside.
         // We do it asynchronously to return response quickly.
         VirtualAccountService.assignVirtualAccount(user).catch(err => {
