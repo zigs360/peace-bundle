@@ -1,13 +1,6 @@
-const User = require('../models/User');
-const Transaction = require('../models/Transaction');
-const Wallet = require('../models/Wallet');
+const { User, Transaction, Wallet, Sim, DataPlan, SystemSetting, SupportTicket } = require('../models');
 const { Op } = require('sequelize');
 const { sequelize } = require('../config/database');
-const SystemSetting = require('../models/SystemSetting');
-const Sim = require('../models/Sim');
-const DataPlan = require('../models/DataPlan');
-const { sendEmail, sendSMS } = require('../services/notificationService');
-const simManagementService = require('../services/simManagementService');
 const fs = require('fs');
 const path = require('path');
 const { decrypt } = require('../utils/cryptoUtils');
@@ -268,6 +261,7 @@ const deleteSim = async (req, res) => {
 // @route   POST /api/admin/sims/:id/connect
 // @access  Private (Admin)
 const connectSim = async (req, res) => {
+    const simManagementService = require('../services/simManagementService');
     try {
         const sim = await Sim.findByPk(req.params.id);
         if (!sim) return res.status(404).json({ message: 'SIM not found' });
@@ -289,6 +283,7 @@ const connectSim = async (req, res) => {
 // @route   POST /api/admin/sims/:id/disconnect
 // @access  Private (Admin)
 const disconnectSim = async (req, res) => {
+    const simManagementService = require('../services/simManagementService');
     try {
         const sim = await Sim.findByPk(req.params.id);
         if (!sim) return res.status(404).json({ message: 'SIM not found' });
@@ -310,6 +305,7 @@ const disconnectSim = async (req, res) => {
 // @route   POST /api/admin/sims/:id/check-balance
 // @access  Private (Admin)
 const checkSimBalance = async (req, res) => {
+    const simManagementService = require('../services/simManagementService');
     try {
         const { force = false } = req.body;
         const sim = await Sim.findByPk(req.params.id);
@@ -371,7 +367,9 @@ const getSimAnalytics = async (req, res) => {
 // @route   POST /api/admin/sims/sync
 // @access  Private (Admin)
 const syncSmeplugSims = async (req, res) => {
+    const simManagementService = require('../services/simManagementService');
     try {
+        logger.info('Admin requested SIM sync from Smeplug');
         const results = await simManagementService.syncSmeplugSims();
         res.json({
             success: true,
@@ -445,7 +443,7 @@ const getUsers = async (req, res) => {
 // Removed Duplicate rejectKyc Implementation
 // ...
 
-const walletService = require('../services/walletService');
+// ...
 
 // @desc    Get All Transactions (Admin Monitor)
 // @route   GET /api/admin/transactions
@@ -520,6 +518,8 @@ const getTransactions = async (req, res) => {
 // @route   POST /api/admin/transactions/:id/refund
 // @access  Private (Admin)
 const refundTransaction = async (req, res) => {
+    const walletService = require('../services/walletService');
+    const { sendEmail } = require('../services/notificationService');
     const { id } = req.params;
 
     try {
@@ -755,6 +755,8 @@ const toggleBlockUser = async (req, res) => {
 // @route   POST /api/admin/users/:id/fund
 // @access  Private (Admin)
 const fundUserWallet = async (req, res) => {
+    const walletService = require('../services/walletService');
+    const { sendEmail } = require('../services/notificationService');
     const t = await sequelize.transaction();
     try {
         const { amount } = req.body;
@@ -940,6 +942,7 @@ const getKycRequests = async (req, res) => {
 // @route   POST /api/admin/users/kyc/bulk
 // @access  Private (Admin)
 const bulkProcessKyc = async (req, res) => {
+    const { sendEmail } = require('../services/notificationService');
     const t = await sequelize.transaction();
     try {
         const { userIds, action, reason } = req.body;
@@ -989,6 +992,7 @@ const bulkProcessKyc = async (req, res) => {
 // @route   PUT /api/admin/users/:id/kyc/approve
 // @access  Private (Admin)
 const approveKyc = async (req, res) => {
+    const { sendEmail, sendSMS } = require('../services/notificationService');
     try {
         const user = await User.findByPk(req.params.id);
 
@@ -1026,6 +1030,7 @@ const approveKyc = async (req, res) => {
 // @route   PUT /api/admin/users/:id/kyc/reject
 // @access  Private (Admin)
 const rejectKyc = async (req, res) => {
+    const { sendEmail } = require('../services/notificationService');
     try {
         const { reason } = req.body;
         const user = await User.findByPk(req.params.id);
@@ -1215,6 +1220,7 @@ const sendAdminBulkSMS = async (req, res) => {
 // @route   POST /api/admin/users/:id/virtual-account
 // @access  Private (Admin)
 const generateUserVirtualAccount = async (req, res) => {
+    const VirtualAccountService = require('../services/virtualAccountService');
     try {
         const user = await User.findByPk(req.params.id);
         if (!user) return res.status(404).json({ message: 'User not found' });
