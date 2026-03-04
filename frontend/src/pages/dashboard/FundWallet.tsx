@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { Wallet, CreditCard, Building2, Copy, RefreshCw, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
-import { FadeIn, SlideUp, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
+import { FadeIn, StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 import { AnimatePresence, motion } from 'framer-motion';
 import { User } from '../../types';
 import toast from 'react-hot-toast';
