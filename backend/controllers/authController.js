@@ -365,6 +365,8 @@ const changePassword = async (req, res) => {
 const submitKyc = async (req, res) => {
     try {
         const { bvn } = req.body;
+        
+        logger.info(`KYC Submission for User ${req.user.id}: BVN: ${bvn}, File: ${req.file ? req.file.filename : 'No File'}`);
 
         if (!bvn) {
             return res.status(400).json({ message: 'BVN is required' });
@@ -375,7 +377,7 @@ const submitKyc = async (req, res) => {
         }
 
         if (!req.file) {
-            return res.status(400).json({ message: 'Please upload a document' });
+            return res.status(400).json({ message: 'Please upload a document (JPG or PDF only)' });
         }
 
         const user = await User.findByPk(req.user.id);
@@ -386,9 +388,13 @@ const submitKyc = async (req, res) => {
 
         // 1. Verify BVN
         try {
+            const names = user.name ? user.name.split(' ') : ['User', ''];
+            const firstName = names[0];
+            const lastName = names.length > 1 ? names.slice(1).join(' ') : (user.fullName ? user.fullName.split(' ').slice(1).join(' ') : 'Customer');
+
             const isBvnVerified = await BvnVerificationService.verifyBvn(bvn, {
-                firstName: user.name.split(' ')[0],
-                lastName: user.name.split(' ').slice(1).join(' ')
+                firstName,
+                lastName
             });
 
             if (!isBvnVerified) {

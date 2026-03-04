@@ -3,7 +3,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ALGORITHM = 'aes-256-cbc';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'your-secret-key-must-be-32-chars-long-!!!'; // Must be 32 chars
+// Ensure the encryption key is exactly 32 bytes for AES-256
+const rawKey = process.env.ENCRYPTION_KEY || 'peace-bundle-secret-encryption-key-32'; 
+const ENCRYPTION_KEY = crypto.createHash('sha256').update(String(rawKey)).digest();
 const IV_LENGTH = 16;
 
 /**

@@ -1,5 +1,6 @@
 const multer = require('multer');
 const path = require('path');
+const logger = require('../utils/logger');
 
 // Configure storage
 const storage = multer.diskStorage({
@@ -19,6 +20,8 @@ const storage = multer.diskStorage({
 
 // Check file type
 function checkFileType(file, cb) {
+    logger.info(`Checking file type for field ${file.fieldname}: ${file.originalname} (${file.mimetype})`);
+    
     // Default allowed extensions (Images)
     let filetypes = /jpeg|jpg|png|gif/;
     

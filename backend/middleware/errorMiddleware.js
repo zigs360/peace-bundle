@@ -9,8 +9,13 @@ const notFound = (req, res, next) => {
 
 // Global Error Handler
 const errorHandler = (err, req, res, next) => {
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
   
+  // Handle Multer errors
+  if (err.name === 'MulterError' || err.message.includes('Error: KYC documents') || err.message.includes('Error: Invalid file type')) {
+    statusCode = 400;
+  }
+
   // Log the error
   logger.error(`${statusCode} - ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`);
   if (statusCode === 500) {

@@ -1,5 +1,6 @@
 const axios = require('axios');
 const SystemSetting = require('../models/SystemSetting');
+const logger = require('../utils/logger');
 
 class BvnVerificationService {
     constructor() {
@@ -19,12 +20,10 @@ class BvnVerificationService {
         }
 
         const isProduction = process.env.NODE_ENV === 'production';
-        const useMock = process.env.USE_MOCK_BVN === 'true' || !isProduction;
+        const useMock = process.env.USE_MOCK_BVN === 'true' || (!isProduction && process.env.USE_MOCK_BVN !== 'false');
 
         if (useMock) {
-            console.log(`[BVN] Mocking verification for BVN: ${bvn}`);
-            // Mock success for any 11 digit number starting with 123 or 555
-            // In a real mock, you might want to return different results based on the number
+            logger.info(`[BVN] Mocking verification for BVN: ${bvn} for user ${userData.firstName} ${userData.lastName}`);
             if (bvn.startsWith('000')) {
                 throw new Error('BVN verification failed: BVN does not exist or matches no record.');
             }
@@ -34,7 +33,16 @@ class BvnVerificationService {
         // Real Paystack/Monnify implementation
         try {
             const secretKey = await this.getSetting('paystack_secret_key');
-            if (!secretKey) throw new Error('BVN verification provider not configured (Paystack)');
+            const allowMock = await this.getSetting('allow_mock_bvn');
+            
+            // If secret key is missing in production but we want to allow mock
+            if (!secretKey) {
+                if (allowMock === true || allowMock === 'true' || process.env.ALLOW_MOCK_BVN_PROD === 'true') {
+                    logger.warn(`[BVN] Paystack key missing in production. Falling back to MOCK verification for BVN: ${bvn}`);
+                    return true;
+                }
+                throw new Error('BVN verification provider not configured (Paystack)');
+            }
 
             // Paystack BVN verification (Requires Business account and permission)
             // Endpoint: POST https://api.paystack.co/bvn/match

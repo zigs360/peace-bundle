@@ -165,6 +165,8 @@ const connectDB = async () => {
             { key: 'site_url', value: 'https://peacebundlle.com', type: 'string', group: 'general' },
             { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
             { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
+            { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },
+            { key: 'allow_mock_bvn', value: 'true', type: 'boolean', group: 'api' },
             { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
           ]);
           console.log('Default System Settings Seeded');
