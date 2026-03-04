@@ -35,7 +35,7 @@ class PayVesselService {
                 {
                     headers: {
                         'api-key': this.apiKey,
-                        'api-secret': `Bearer ${this.secretKey}`,
+                        'api-secret': this.secretKey, // Most likely raw secret key
                         'Content-Type': 'application/json'
                     }
                 }
@@ -77,7 +77,7 @@ class PayVesselService {
                 {
                     headers: {
                         'api-key': this.apiKey,
-                        'api-secret': `Bearer ${this.secretKey}`,
+                        'api-secret': this.secretKey,
                         'Content-Type': 'application/json'
                     }
                 }

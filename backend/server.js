@@ -49,6 +49,9 @@ if (process.env.NODE_ENV !== 'test') {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust proxy for Render/Cloudflare/etc. (Required for express-rate-limit)
+app.set('trust proxy', 1);
+
 // Security & Optimization Middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -83,6 +86,7 @@ const limiter = rateLimit({
   max: 300, // Limit each IP to 300 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again after 15 minutes',
