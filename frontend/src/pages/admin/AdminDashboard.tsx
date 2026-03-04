@@ -13,6 +13,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<StatData>(null);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -29,6 +30,23 @@ export default function AdminDashboard() {
     };
     fetchData();
   }, []);
+
+  const handleGenerateAccounts = async () => {
+    if (!window.confirm('Are you sure you want to generate virtual accounts for all users missing one? This will call the payment provider API for each user.')) {
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const res = await api.post('/admin/users/generate-virtual-accounts');
+      alert(res.data.message);
+    } catch (err: any) {
+      console.error('Failed to generate virtual accounts', err);
+      alert(err.response?.data?.message || 'Failed to generate virtual accounts');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
 
@@ -141,7 +159,18 @@ export default function AdminDashboard() {
            </div>
 
            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-bold text-gray-800 mb-4">System Status</h3>
+              <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-gray-800">System Status</h3>
+                  <button 
+                    onClick={handleGenerateAccounts}
+                    disabled={isGenerating}
+                    className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all ${
+                        isGenerating ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                    }`}
+                  >
+                      {isGenerating ? 'Processing...' : 'Bulk Generate Virtual Accounts'}
+                  </button>
+              </div>
               <div className="space-y-4">
                   <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-600">Server Status</span>
