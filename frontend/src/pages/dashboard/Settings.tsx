@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Lock, Save, AlertCircle, FileText, Upload } from 'lucide-react';
-import api from '../../services/api';
+import api, { SERVER_ROOT_URL } from '../../services/api';
 import { StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 
 export default function Settings() {
@@ -166,7 +166,7 @@ export default function Settings() {
                     <div className="shrink-0">
                         <img 
                             className="h-16 w-16 object-cover rounded-full border border-gray-200" 
-                            src={avatar ? URL.createObjectURL(avatar) : (user.avatar ? (user.avatar.startsWith('http') ? user.avatar : `/${user.avatar}`) : "https://placehold.co/150x150?text=Profile")} 
+                            src={avatar ? URL.createObjectURL(avatar) : (user.avatar ? `${SERVER_ROOT_URL}/${user.avatar}` : "https://placehold.co/150x150?text=Profile")} 
                             alt="Profile" 
                         />
                     </div>

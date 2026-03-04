@@ -1,8 +1,17 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
+const apiBaseUrl = (import.meta as any).env.VITE_API_URL || '/api';
+
+// Derive the server root URL from the API base URL
+// If VITE_API_URL is 'https://www.peacebundlle.com/api', this will be 'https://www.peacebundlle.com'
+// If it's '/api', this will be an empty string, which is fine for local dev.
+export const SERVER_ROOT_URL = apiBaseUrl.endsWith('/api')
+  ? apiBaseUrl.slice(0, -4)
+  : apiBaseUrl;
+
 const api = axios.create({
-  baseURL: (import.meta as any).env.VITE_API_URL || '/api',
+  baseURL: apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },
