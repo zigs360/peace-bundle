@@ -17,9 +17,15 @@ router.post('/', [
     check('phone_number')
         .notEmpty().withMessage('Phone number is required')
         .custom((value) => {
-            // Remove spaces, dashes, and +234 for validation
-            const clean = value.replace(/[\s\-\+]/g, '').replace(/^234/, '0');
-            return /^0[789][01]\d{8}$/.test(clean);
+            // Remove spaces, dashes, and +234
+            let clean = value.replace(/[\s\-\+]/g, '');
+            if (clean.startsWith('234')) {
+                clean = '0' + clean.slice(3);
+            } else if (clean.length === 10 && !clean.startsWith('0')) {
+                clean = '0' + clean;
+            }
+            // Nigerian format: 0 followed by 10 digits
+            return /^0\d{10}$/.test(clean);
         }).withMessage('Please enter a valid Nigerian phone number'),
     check('provider')
         .optional()

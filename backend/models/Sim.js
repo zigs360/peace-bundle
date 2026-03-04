@@ -7,10 +7,15 @@ const Sim = sequelize.define('Sim', {
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true,
   },
-  // SIM Details
+
+  userId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'user_id'
+  },
+
   phoneNumber: {
-    type: DataTypes.STRING,
-    unique: true,
+    type: DataTypes.STRING,  unique: true,
     allowNull: false,
     field: 'phone_number' // Mapping camelCase to snake_case column
   },

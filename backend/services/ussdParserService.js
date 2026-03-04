@@ -63,40 +63,36 @@ class USSDParserService {
     return patterns[provider.toLowerCase()] || patterns['mtn'];
   }
 
-  /**
-   * Validate Nigerian phone number format
-   * @param {string} phone
-   * @returns {boolean}
-   */
-  validatePhoneNumber(phone) {
-    // Remove spaces and dashes
-    phone = phone.replace(/[\s-]/g, '');
-
-    // Nigerian format: 070xxxxxxxx, 080xxxxxxxx, 090xxxxxxxx, 081xxxxxxxx
-    const regex = /^0[7-9][0-1]\d{8}$/;
-    return regex.test(phone);
+  formatPhoneNumber(phone) {
+    if (!phone) return '';
+    // Remove all non-numeric characters except +
+    let clean = phone.replace(/[^0-9\+]/g, '');
+    
+    // Handle +234
+    if (clean.startsWith('+234')) {
+      clean = '0' + clean.slice(4);
+    }
+    // Handle 234
+    if (clean.startsWith('234') && clean.length > 10) {
+      clean = '0' + clean.slice(3);
+    }
+    // Handle 10 digit numbers (missing leading 0)
+    if (clean.length === 10 && !clean.startsWith('0')) {
+      clean = '0' + clean;
+    }
+    
+    return clean;
   }
 
   /**
-   * Format phone number to standard format
-   * @param {string} phone
-   * @returns {string}
+   * Validate a Nigerian phone number
+   * @param {string} phone 
+   * @returns {boolean}
    */
-  formatPhoneNumber(phone) {
-    // Remove all non-numeric characters
-    phone = phone.replace(/\D/g, '');
-
-    // Add leading 0 if missing (e.g. 8031234567 -> 08031234567)
-    if (phone.length === 10 && phone[0] !== '0') {
-      phone = '0' + phone;
-    }
-
-    // Remove country code if present (e.g. 2348031234567 -> 08031234567)
-    if (phone.length === 13 && phone.substring(0, 3) === '234') {
-      phone = '0' + phone.substring(3);
-    }
-
-    return phone;
+  validatePhoneNumber(phone) {
+    const formatted = this.formatPhoneNumber(phone);
+    // Standard 11-digit Nigerian number starting with 0
+    return /^0\d{10}$/.test(formatted);
   }
 
   /**

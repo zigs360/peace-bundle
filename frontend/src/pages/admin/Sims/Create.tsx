@@ -24,8 +24,15 @@ export default function CreateSim() {
       navigate('/admin/sims');
     } catch (error: any) {
       console.error('Failed to add SIM', error);
-      const msg = error.response?.data?.message || error.response?.data?.errors?.[0]?.msg || 'Failed to add SIM';
-      alert(msg);
+      
+      // Handle express-validator style errors
+      if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
+        const errorMsgs = error.response.data.errors.map((err: any) => err.msg).join('\n');
+        alert(errorMsgs);
+      } else {
+        const msg = error.response?.data?.message || 'Failed to add SIM. Please check your data and try again.';
+        alert(msg);
+      }
     } finally {
       setLoading(false);
     }
