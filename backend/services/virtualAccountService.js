@@ -91,7 +91,8 @@ class VirtualAccountService {
         }
     }
 
-    async assignVirtualAccount(user) {
+    async assignVirtualAccount(user, options = {}) {
+        const { transaction } = options;
         // Prefer PayVessel, fallback to Monnify or others
         try {
             const provider = await this.getSetting('virtual_account_provider') || 'payvessel';
@@ -113,7 +114,7 @@ class VirtualAccountService {
                 if (accountDetails.trackingReference) {
                     user.metadata = { ...user.metadata, payvessel_tracking_reference: accountDetails.trackingReference };
                 }
-                await user.save();
+                await user.save({ transaction });
                 return accountDetails;
             }
         } catch (error) {
