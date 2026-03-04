@@ -993,6 +993,7 @@ const bulkProcessKyc = async (req, res) => {
 // @access  Private (Admin)
 const approveKyc = async (req, res) => {
     const { sendEmail, sendSMS } = require('../services/notificationService');
+    const VirtualAccountService = require('../services/virtualAccountService');
     try {
         const user = await User.findByPk(req.params.id);
 
@@ -1017,6 +1018,19 @@ const approveKyc = async (req, res) => {
         // Send SMS Notification
         if (user.phone) {
             await sendSMS(user.phone, `Hello ${user.name}, your KYC has been approved. You can now access all features. - Peace Bundlle`);
+        }
+
+        // Attempt to assign a virtual account now that KYC is approved
+        try {
+            const account = await VirtualAccountService.assignVirtualAccount(user);
+            if (account) {
+                logger.info(`Virtual account created for user ${user.id} after KYC approval.`);
+            } else {
+                logger.warn(`Virtual account assignment did not return an account for user ${user.id} after KYC approval, but no error was thrown.`);
+            }
+        } catch (error) {
+            logger.error(`Failed to assign virtual account for user ${user.id} after KYC approval: ${error.message}`);
+            // We don't block the response for this failure, just log it.
         }
 
         res.json({ message: 'User KYC approved', user });
