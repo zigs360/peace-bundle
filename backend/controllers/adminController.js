@@ -1233,33 +1233,47 @@ const sendAdminBulkSMS = async (req, res) => {
 // @desc    Generate Virtual Account for User
 // @route   POST /api/admin/users/:id/virtual-account
 // @access  Private (Admin)
-const generateUserVirtualAccount = async (req, res) => {
+const generateMissingVirtualAccounts = async (req, res) => {
     const VirtualAccountService = require('../services/virtualAccountService');
     try {
-        const user = await User.findByPk(req.params.id);
-        if (!user) return res.status(404).json({ message: 'User not found' });
-        
-        if (user.virtual_account_number) {
-            return res.status(400).json({ 
-                message: 'User already has a virtual account',
-                account: {
-                    accountNumber: user.virtual_account_number,
-                    bankName: user.virtual_account_bank,
-                    accountName: user.virtual_account_name
-                }
-            });
+        const usersWithoutAccounts = await User.findAll({
+            where: {
+                [Op.or]: [
+                    { virtual_account_number: null },
+                    { virtual_account_number: '' }
+                ]
+            }
+        });
+
+        if (usersWithoutAccounts.length === 0) {
+            return res.json({ message: 'All users already have virtual accounts.' });
         }
 
-        const account = await VirtualAccountService.assignVirtualAccount(user);
-        
-        if (account) {
-            res.json({ message: 'Virtual account assigned successfully', account });
-        } else {
-            res.status(400).json({ message: 'Failed to assign virtual account. Check provider settings or logs.' });
+        let successCount = 0;
+        let failureCount = 0;
+        const failures = [];
+
+        for (const user of usersWithoutAccounts) {
+            try {
+                await VirtualAccountService.assignVirtualAccount(user);
+                successCount++;
+            } catch (error) {
+                failureCount++;
+                failures.push({ userId: user.id, name: user.name, error: error.message });
+                logger.error(`Failed to generate virtual account for user ${user.id} during bulk generation: ${error.message}`);
+            }
         }
+
+        res.json({
+            message: `Virtual account generation process completed. ${successCount} accounts created, ${failureCount} failed.`,
+            successCount,
+            failureCount,
+            failures
+        });
+
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`Error during bulk virtual account generation: ${error.message}`);
+        res.status(500).json({ message: 'An unexpected error occurred during the bulk generation process.' });
     }
 };
 

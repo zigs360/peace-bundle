@@ -81,6 +81,10 @@ const registerUser = async (req, res) => {
             kyc_status: 'none'
         }, { transaction: t });
 
+        // Assign virtual account as part of the registration transaction
+        // This is now a blocking call to ensure it's created before we respond.
+        await VirtualAccountService.assignVirtualAccount(user, { transaction: t });
+
         await t.commit();
 
         // Track referral reward if applicable
@@ -90,10 +94,7 @@ const registerUser = async (req, res) => {
             });
         }
 
-        // Attempt to assign virtual account asynchronously (don't block response)
-        VirtualAccountService.assignVirtualAccount(user).catch(err => {
-            console.error(`Background Virtual Account Assignment Failed for User ${user.id}:`, err.message);
-        });
+        // Virtual account assignment is now part of the transaction and happens before the commit.
 
         res.status(201).json({
             token: generateToken(user.id),
