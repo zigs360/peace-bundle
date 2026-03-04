@@ -386,27 +386,33 @@ const submitKyc = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // 1. Verify BVN
-        try {
-            const names = user.name ? user.name.split(' ') : ['User', ''];
-            const firstName = names[0];
-            const lastName = names.length > 1 ? names.slice(1).join(' ') : (user.fullName ? user.fullName.split(' ').slice(1).join(' ') : 'Customer');
+        // 1. Non-blocking BVN Verification
+        let isBvnVerified = false;
+        let bvnMessage = 'BVN not provided or verification skipped.';
 
-            const isBvnVerified = await BvnVerificationService.verifyBvn(bvn, {
-                firstName,
-                lastName
-            });
+        if (bvn) {
+            try {
+                const names = user.name ? user.name.split(' ') : ['User', ''];
+                const firstName = names[0];
+                const lastName = names.length > 1 ? names.slice(1).join(' ') : (user.fullName ? user.fullName.split(' ').slice(1).join(' ') : 'Customer');
 
-            if (!isBvnVerified) {
-                return res.status(400).json({ message: 'BVN verification failed' });
+                isBvnVerified = await BvnVerificationService.verifyBvn(bvn, {
+                    firstName,
+                    lastName
+                });
+
+                if (isBvnVerified) {
+                    user.bvn = bvn;
+                    user.is_bvn_verified = true;
+                    user.bvn_verified_at = new Date();
+                    bvnMessage = 'BVN successfully verified.';
+                } else {
+                    bvnMessage = 'BVN verification failed. Please check the number and try again.';
+                }
+            } catch (error) {
+                bvnMessage = `BVN verification could not be completed: ${error.message}`;
+                logger.warn(`BVN verification failed for user ${user.id}: ${error.message}`);
             }
-
-            // Update user BVN status
-            user.bvn = bvn;
-            user.is_bvn_verified = true;
-            user.bvn_verified_at = new Date();
-        } catch (error) {
-            return res.status(400).json({ message: error.message });
         }
 
         // 2. Update user KYC status
@@ -431,8 +437,8 @@ const submitKyc = async (req, res) => {
         
         await user.save();
 
-        // 3. Update PayVessel with BVN if tracking reference exists
-        if (user.metadata && user.metadata.payvessel_tracking_reference) {
+        // 3. Update PayVessel with BVN if it was successfully verified
+        if (isBvnVerified && user.metadata && user.metadata.payvessel_tracking_reference) {
             try {
                 await payvesselService.updateAccountBvn(user.metadata.payvessel_tracking_reference, bvn);
                 logger.info(`PayVessel BVN updated for user ${user.id}`);
@@ -441,15 +447,16 @@ const submitKyc = async (req, res) => {
             }
         }
 
-        // 4. Trigger Virtual Account Assignment if BVN is verified (it's verified here)
-        // Note: assignVirtualAccount checks settings and might fail, but it's handled inside.
-        // We do it asynchronously to return response quickly.
-        VirtualAccountService.assignVirtualAccount(user).catch(err => {
-            console.error(`Automatic Virtual Account Assignment Failed for User ${user.id}:`, err.message);
-        });
+        // 4. Trigger Virtual Account Assignment if BVN is verified
+        if (isBvnVerified) {
+            VirtualAccountService.assignVirtualAccount(user).catch(err => {
+                console.error(`Automatic Virtual Account Assignment Failed for User ${user.id}:`, err.message);
+            });
+        }
 
         res.json({ 
-            message: 'KYC and BVN submitted successfully. BVN verified, KYC pending review.',
+            message: 'KYC document submitted successfully. Your document is now pending review.',
+            bvnMessage,
             kycStatus: user.kyc_status,
             kycDocument: user.kyc_document,
             isBvnVerified: user.is_bvn_verified
