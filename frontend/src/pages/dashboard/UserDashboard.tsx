@@ -1,9 +1,64 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { Wallet, Wifi, Phone, Activity } from 'lucide-react';
+import { Wallet, Wifi, Phone, Activity, Copy } from 'lucide-react';
 import { FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
 import { User, DashboardStats } from '../../types';
+
+// New component for the virtual account display
+const VirtualAccountDisplay = ({ user }: { user: User }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+  };
+
+  if (!user.virtual_account_number) {
+    return null; // Don't render if no account number
+  }
+
+  return (
+    <div className="mb-8 bg-gradient-to-r from-primary-600 to-primary-800 rounded-lg shadow-lg p-6 text-white transform transition-all hover:scale-[1.01]">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Wallet className="w-6 h-6 text-primary-200" />
+            <h2 className="text-xl font-bold">Fund your wallet instantly!</h2>
+          </div>
+          <p className="text-primary-100 max-w-md">
+            Transfer money to your dedicated virtual account number below and your wallet will be funded automatically.
+          </p>
+        </div>
+        <div className="bg-white/10 p-5 rounded-xl backdrop-blur-md border border-white/20 min-w-full md:min-w-[320px] shadow-inner">
+          <div className="flex justify-between mb-3 border-b border-white/10 pb-2">
+            <span className="text-sm text-primary-200">Bank Name</span>
+            <span className="font-bold tracking-wide">{user.virtual_account_bank}</span>
+          </div>
+          <div className="flex justify-between mb-3 items-center">
+            <span className="text-sm text-primary-200">Account Number</span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-2xl font-bold tracking-wider">{user.virtual_account_number}</span>
+              <button 
+                  onClick={() => handleCopy(user.virtual_account_number!)}
+                  className="p-1 hover:bg-white/20 rounded transition-colors relative"
+                  title="Copy Account Number"
+              >
+                  <Copy className="w-4 h-4" />
+                  {copied && <span className="absolute -top-7 right-0 bg-black text-white text-xs px-2 py-1 rounded">Copied!</span>}
+              </button>
+            </div>
+          </div>
+          <div className="flex justify-between pt-1">
+            <span className="text-sm text-primary-200">Account Name</span>
+            <span className="font-medium text-sm truncate max-w-[180px]">{user.virtual_account_name}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function UserDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -59,49 +114,7 @@ export default function UserDashboard() {
       </div>
 
       {/* Virtual Account Section */}
-      {user?.virtual_account_number && (
-        <div className="mb-8 bg-gradient-to-r from-primary-600 to-primary-800 rounded-lg shadow-lg p-6 text-white transform transition-all hover:scale-[1.01]">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Wallet className="w-6 h-6 text-primary-200" />
-                <h2 className="text-xl font-bold">Fund your wallet instantly!</h2>
-              </div>
-              <p className="text-primary-100 max-w-md">
-                Transfer money to your dedicated virtual account number below and your wallet will be funded automatically.
-              </p>
-            </div>
-            <div className="bg-white/10 p-5 rounded-xl backdrop-blur-md border border-white/20 min-w-full md:min-w-[320px] shadow-inner">
-               <div className="flex justify-between mb-3 border-b border-white/10 pb-2">
-                  <span className="text-sm text-primary-200">Bank Name</span>
-                  <span className="font-bold tracking-wide">{user.virtual_account_bank}</span>
-               </div>
-               <div className="flex justify-between mb-3 items-center">
-                  <span className="text-sm text-primary-200">Account Number</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-2xl font-bold tracking-wider">{user.virtual_account_number}</span>
-                    <button 
-                        onClick={() => {
-                            if (user.virtual_account_number) {
-                                navigator.clipboard.writeText(user.virtual_account_number);
-                            }
-                            // Simple alert or toast could be added here
-                        }}
-                        className="p-1 hover:bg-white/20 rounded transition-colors"
-                        title="Copy Account Number"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-                    </button>
-                  </div>
-               </div>
-               <div className="flex justify-between pt-1">
-                  <span className="text-sm text-primary-200">Account Name</span>
-                  <span className="font-medium text-sm truncate max-w-[180px]">{user.virtual_account_name}</span>
-               </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {user && <VirtualAccountDisplay user={user} />}
 
       <StaggerContainer className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         <StaggerItem>
