@@ -22,9 +22,10 @@ export default function CreateSim() {
     try {
       await api.post('/sims', formData);
       navigate('/admin/sims');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to add SIM', error);
-      alert('Failed to add SIM');
+      const msg = error.response?.data?.message || error.response?.data?.errors?.[0]?.msg || 'Failed to add SIM';
+      alert(msg);
     } finally {
       setLoading(false);
     }

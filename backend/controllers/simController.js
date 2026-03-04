@@ -1,4 +1,4 @@
-const Sim = require('../models/Sim');
+const { Sim } = require('../models');
 const simManagementService = require('../services/simManagementService');
 const { validationResult } = require('express-validator');
 

@@ -15,7 +15,12 @@ router.get('/', simController.getSims);
 
 router.post('/', [
     check('phone_number')
-        .matches(/^0[7-9][0-1]\d{8}$/).withMessage('Please enter a valid Nigerian phone number'),
+        .notEmpty().withMessage('Phone number is required')
+        .custom((value) => {
+            // Remove spaces, dashes, and +234 for validation
+            const clean = value.replace(/[\s\-\+]/g, '').replace(/^234/, '0');
+            return /^0[789][01]\d{8}$/.test(clean);
+        }).withMessage('Please enter a valid Nigerian phone number'),
     check('provider')
         .optional()
         .isIn(['mtn', 'airtel', 'glo', '9mobile']).withMessage('Invalid provider'),
