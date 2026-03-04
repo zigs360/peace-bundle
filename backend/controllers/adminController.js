@@ -1308,5 +1308,5 @@ module.exports = {
     getReferralAnalytics,
     getBulkSMSHistory,
     sendAdminBulkSMS,
-    generateUserVirtualAccount
+    generateMissingVirtualAccounts
 };
