@@ -1,16 +1,6 @@
 const { Transaction, SystemSetting } = require('../models');
 const { Op } = require('sequelize');
-const winston = require('winston');
-
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  defaultMeta: { service: 'transaction-limit-service' },
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
+const logger = require('../utils/logger');
 
 class TransactionLimitService {
   /**

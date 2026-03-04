@@ -1,17 +1,7 @@
 const { Commission, Referral, SystemSetting, User } = require('../models');
 const walletService = require('./walletService');
 const { sequelize } = require('../config/database');
-const winston = require('winston');
-
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  defaultMeta: { service: 'affiliate-service' },
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
+const logger = require('../utils/logger');
 
 class AffiliateService {
   /**

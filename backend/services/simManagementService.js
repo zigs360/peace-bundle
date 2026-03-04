@@ -1,18 +1,8 @@
 const { Sim, SystemSetting, User } = require('../models');
 const ussdParserService = require('./ussdParserService');
 const smeplugService = require('./smeplugService');
-const winston = require('winston');
+const logger = require('../utils/logger');
 const { sequelize } = require('../config/database');
-
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  defaultMeta: { service: 'sim-management-service' },
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-  ],
-});
 
 class SimManagementService {
   /**
@@ -24,11 +14,25 @@ class SimManagementService {
       logger.info('Syncing SIMs from Smeplug API...');
       const result = await smeplugService.getLinkedDevices();
 
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch devices from Smeplug');
+      if (!result.success || (result.data && result.data.status === 'error')) {
+        const errorMsg = result.error || (result.data ? result.data.message : 'Failed to fetch devices from Smeplug');
+        throw new Error(errorMsg);
       }
 
-      const devices = result.data.devices || [];
+      // Handle different response structures from Smeplug
+      let devices = [];
+      if (Array.isArray(result.data)) {
+        devices = result.data;
+      } else if (result.data && Array.isArray(result.data.data)) {
+        devices = result.data.data;
+      } else if (result.data && Array.isArray(result.data.devices)) {
+        devices = result.data.devices;
+      } else if (result.data && result.data.data && Array.isArray(result.data.data.devices)) {
+        devices = result.data.data.devices;
+      }
+
+      console.log(`Syncing ${devices.length} devices from Smeplug. Structure:`, JSON.stringify(result.data).substring(0, 200));
+
       const syncResults = {
         total: devices.length,
         created: 0,
@@ -45,7 +49,13 @@ class SimManagementService {
 
       for (const device of devices) {
         try {
-          const phoneNumber = ussdParserService.formatPhoneNumber(device.phone_number);
+          // Check for phone number in different fields
+          const rawPhone = device.phone_number || device.phone || device.phoneNumber;
+          if (!rawPhone) {
+            throw new Error(`Device missing phone number field. Fields: ${Object.keys(device).join(', ')}`);
+          }
+
+          const phoneNumber = ussdParserService.formatPhoneNumber(rawPhone);
           const provider = ussdParserService.detectProvider(phoneNumber);
 
           // Find existing SIM by phone number
@@ -96,8 +106,12 @@ class SimManagementService {
       return syncResults;
 
     } catch (error) {
-      logger.error(`Smeplug SIM sync failed: ${error.message}`);
-      throw error;
+      logger.error(`Smeplug SIM sync failed: ${error.message}`, { stack: error.stack });
+      // Rethrow with more context if it's a known error
+      if (error.message.includes('Smeplug')) {
+        throw error;
+      }
+      throw new Error(`SIM Sync Error: ${error.message}`);
     }
   }
 
