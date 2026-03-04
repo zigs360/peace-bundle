@@ -1,8 +1,11 @@
 const logger = require('../utils/logger');
 
-const requiredEnvVars = [
+const criticalEnvVars = [
   'DATABASE_URL',
-  'JWT_SECRET',
+  'JWT_SECRET'
+];
+
+const serviceEnvVars = [
   'PAYVESSEL_API_KEY',
   'PAYVESSEL_SECRET_KEY',
   'PAYVESSEL_BUSINESS_ID',
@@ -12,11 +15,15 @@ const requiredEnvVars = [
 ];
 
 const validateEnv = () => {
-  const missingVars = requiredEnvVars.filter((key) => !process.env[key]);
-
-  if (missingVars.length > 0) {
-    logger.error(`Missing required environment variables: ${missingVars.join(', ')}`);
+  const missingCritical = criticalEnvVars.filter((key) => !process.env[key]);
+  if (missingCritical.length > 0) {
+    logger.error(`CRITICAL: Missing essential environment variables: ${missingCritical.join(', ')}. App cannot start.`);
     process.exit(1);
+  }
+
+  const missingServices = serviceEnvVars.filter((key) => !process.env[key]);
+  if (missingServices.length > 0) {
+    logger.warn(`WARNING: Missing service API keys: ${missingServices.join(', ')}. Some features like virtual accounts or data purchase may fail.`);
   }
 };
 
