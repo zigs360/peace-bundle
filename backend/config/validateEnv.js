@@ -2,7 +2,13 @@ const logger = require('../utils/logger');
 
 const requiredEnvVars = [
   'DATABASE_URL',
-  'JWT_SECRET'
+  'JWT_SECRET',
+  'PAYVESSEL_API_KEY',
+  'PAYVESSEL_SECRET_KEY',
+  'PAYVESSEL_BUSINESS_ID',
+  'SMEPLUG_API_KEY',
+  'SMEPLUG_SECRET_KEY',
+  'SMEPLUG_BASE_URL'
 ];
 
 const validateEnv = () => {

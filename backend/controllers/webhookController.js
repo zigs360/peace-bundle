@@ -146,46 +146,72 @@ exports.handlePayvesselWebhook = async (req, res) => {
 // @route   POST /api/webhooks/monnify
 // @access  Public (Secured by Signature)
 exports.handleMonnifyWebhook = async (req, res) => {
-    const { Transaction, Wallet } = require('../models');
+    const walletService = require('../services/walletService');
+    const { Transaction, User } = require('../models');
     try {
-        // Monnify signature validation logic would go here
-        // const secret = process.env.MONNIFY_SECRET_KEY;
-        // ...
+        const secret = process.env.MONNIFY_SECRET_KEY;
+        const signature = req.headers['monnify-signature'];
+
+        if (!signature) {
+            return res.status(400).send('No signature provided');
+        }
+
+        // Verify signature (HMAC SHA512 of JSON body)
+        const hash = crypto.createHmac('sha512', secret)
+            .update(JSON.stringify(req.body))
+            .digest('hex');
         
+        if (hash !== signature) {
+            logger.warn('Monnify Webhook: Invalid signature');
+            return res.status(400).send('Invalid signature');
+        }
+
         const event = req.body;
         
         if (event.eventType === 'SUCCESSFUL_TRANSACTION') {
-            const { transactionReference, amountPaid, paymentStatus } = event.eventData;
+            const { transactionReference, amountPaid, paymentStatus, customerDTO } = event.eventData;
             
             if (paymentStatus === 'PAID') {
                 const t = await sequelize.transaction();
                 try {
-                    const transaction = await Transaction.findOne({ where: { reference: transactionReference } }, { transaction: t });
-                    
-                    if (transaction && transaction.status === 'pending') {
-                        transaction.status = 'completed';
-                        await transaction.save({ transaction: t });
-                        
-                        const wallet = await Wallet.findByPk(transaction.walletId, { transaction: t });
-                        if (wallet) {
-                            const oldBalance = parseFloat(wallet.balance);
-                            const newBalance = oldBalance + parseFloat(amountPaid);
-                            wallet.balance = newBalance;
-                            await wallet.save({ transaction: t });
-                        }
+                    // 1. Check if transaction reference already exists to prevent duplicate funding
+                    const existingTxn = await Transaction.findOne({ where: { reference: transactionReference } }, { transaction: t });
+                    if (existingTxn) {
+                        await t.rollback();
+                        return res.status(200).json({ message: 'Transaction already exists' });
                     }
-                    
+
+                    // 2. Find User by email from customerDTO
+                    const user = await User.findOne({ where: { email: customerDTO.email } }, { transaction: t });
+                    if (!user) {
+                        await t.rollback();
+                        logger.error(`User with email ${customerDTO.email} not found for Monnify webhook`);
+                        return res.status(404).send('User not found');
+                    }
+
+                    // 3. Fund user wallet using WalletService
+                    await walletService.credit(
+                        user,
+                        amountPaid,
+                        'funding',
+                        `Monnify Funding: ${transactionReference}`,
+                        { reference: transactionReference, gateway: 'monnify' },
+                        t
+                    );
+
                     await t.commit();
+                    logger.info(`Wallet funded successfully via Monnify: ${user.email} - N${amountPaid}`);
                 } catch (error) {
                     await t.rollback();
-                    console.error('Monnify Webhook Processing Error:', error);
+                    logger.error('Monnify Webhook Processing Error:', error);
+                    return res.status(500).send('Processing failed');
                 }
             }
         }
         
         res.sendStatus(200);
     } catch (error) {
-        console.error('Monnify Webhook Error:', error);
+        logger.error('Monnify Webhook Error:', error);
         res.sendStatus(500);
     }
 };
