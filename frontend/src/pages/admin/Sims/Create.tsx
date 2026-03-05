@@ -20,10 +20,14 @@ export default function CreateSim() {
     setLoading(true);
     
     try {
+      console.log('Sending SIM data:', formData);
       await api.post('/sims', formData);
       navigate('/admin/sims');
     } catch (error: any) {
       console.error('Failed to add SIM', error);
+      if (error.response) {
+        console.log('Error response data:', error.response.data);
+      }
       
       // Handle express-validator style errors
       if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {

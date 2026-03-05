@@ -39,10 +39,16 @@ exports.getSims = async (req, res) => {
 exports.addSim = async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+        logger.warn('SIM Validation Errors:', { errors: errors.array(), body: req.body });
+        return res.status(400).json({ 
+            success: false,
+            message: 'Validation failed',
+            errors: errors.array() 
+        });
     }
 
     try {
+        logger.info('Adding new SIM:', { body: req.body, user: req.user.id });
         const sim = await simManagementService.addSim(req.user, req.body);
         
         res.status(201).json({
@@ -51,7 +57,7 @@ exports.addSim = async (req, res) => {
             data: sim
         });
     } catch (error) {
-        console.error(error);
+        logger.error('Failed to add SIM:', { error: error.message, stack: error.stack });
         res.status(400).json({ 
             success: false,
             message: error.message 

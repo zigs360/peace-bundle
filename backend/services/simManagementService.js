@@ -132,46 +132,67 @@ class SimManagementService {
    * @returns {Promise<Sim>}
    */
   async addSim(user, data) {
+    logger.info(`Processing addSim request for user ${user.id}`, { phone: data.phone_number, provider: data.provider });
+    
     // Validate phone number
     const phoneNumber = ussdParserService.formatPhoneNumber(data.phone_number);
+    logger.debug(`Formatted phone number: ${phoneNumber}`);
 
     if (!ussdParserService.validatePhoneNumber(phoneNumber)) {
-      throw new Error('Invalid phone number format');
+      logger.warn(`Invalid phone number format: ${phoneNumber}`);
+      throw new Error('Invalid phone number format. Please use a valid Nigerian number.');
     }
 
     // Auto-detect provider if not specified
-    const provider = data.provider || ussdParserService.detectProvider(phoneNumber);
+    let provider = data.provider;
+    if (!provider || provider === '') {
+        provider = ussdParserService.detectProvider(phoneNumber);
+        logger.debug(`Detected provider: ${provider}`);
+    }
 
     if (!provider) {
-      throw new Error('Could not detect network provider');
+      logger.warn(`Could not detect network provider for: ${phoneNumber}`);
+      throw new Error('Could not detect network provider. Please select it manually.');
     }
 
     // Check for duplicate
     const existingSim = await Sim.findOne({ where: { phoneNumber: phoneNumber } });
     if (existingSim) {
-      throw new Error('This SIM number is already registered');
+      logger.warn(`SIM number already registered: ${phoneNumber}`);
+      throw new Error(`This SIM number (${phoneNumber}) is already registered in the system.`);
     }
 
     // Create SIM
-    const sim = await Sim.create({
-      userId: user.id,
-      phoneNumber: phoneNumber,
-      provider: provider,
-      type: data.type || 'device_based',
-      lowBalanceThreshold: data.low_balance_threshold || 200,
-      notes: data.notes || null,
-      status: 'active',
-    });
+    try {
+        const sim = await Sim.create({
+            userId: user.id,
+            phoneNumber: phoneNumber,
+            provider: provider,
+            type: data.type || 'device_based',
+            lowBalanceThreshold: data.low_balance_threshold || 200,
+            notes: data.notes || null,
+            status: 'active',
+            connectionStatus: 'disconnected'
+        });
+        
+        logger.info(`SIM successfully registered: ${sim.id} (${phoneNumber})`);
 
-    // Auto-verify if enabled
-    const setting = await SystemSetting.findOne({ where: { key: 'auto_verify_sim' } });
-    const autoVerify = setting ? (setting.value === 'true' || setting.value === '1') : true;
+        // Auto-verify if enabled
+        const setting = await SystemSetting.findOne({ where: { key: 'auto_verify_sim' } });
+        const autoVerify = setting ? (setting.value === 'true' || setting.value === '1') : true;
 
-    if (autoVerify) {
-      await this.verifySim(sim);
-    }
+        if (autoVerify) {
+          await this.verifySim(sim);
+        }
 
-    return sim;
+        return sim;
+    } catch (createError) {
+         if (createError.name === 'SequelizeUniqueConstraintError') {
+             throw new Error(`The phone number ${phoneNumber} is already in use by another SIM.`);
+         }
+         logger.error('Database error creating SIM:', createError);
+         throw new Error('Database error while saving SIM. Please contact support.');
+     }
   }
 
   /**
