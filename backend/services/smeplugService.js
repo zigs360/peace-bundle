@@ -3,7 +3,7 @@ const logger = require('../utils/logger');
 
 class SmeplugService {
   constructor() {
-    this.baseUrl = process.env.SMEPLUG_BASE_URL;
+    this.baseUrl = process.env.SMEPLUG_BASE_URL || 'https://smeplug.ng';
     this.apiKey = process.env.SMEPLUG_API_KEY;
     this.publicKey = process.env.SMEPLUG_PUBLIC_KEY;
     this.secretKey = process.env.SMEPLUG_SECRET_KEY;
@@ -169,6 +169,11 @@ class SmeplugService {
   async makeRequest(method, endpoint, data = {}, retryCount = 0) {
     const maxRetries = 2;
     try {
+      const authHeader = this.apiKey || this.secretKey;
+      if (!authHeader) {
+        throw new Error('SMEPlug API/Secret Key is missing in environment variables');
+      }
+
       // Use .ng as primary, .com as fallback if DNS fails
       const currentBaseUrl = (retryCount > 0 && this.baseUrl.includes('.ng')) 
         ? this.baseUrl.replace('.ng', '.com') 
@@ -178,7 +183,7 @@ class SmeplugService {
         method: method,
         url: `${currentBaseUrl}${endpoint}`,
         headers: {
-          'Authorization': `Bearer ${this.apiKey || this.secretKey}`,
+          'Authorization': `Bearer ${authHeader}`,
           'Public-Key': this.publicKey,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -229,7 +234,7 @@ class SmeplugService {
       });
 
       // Extract specific error messages if they exist in the response
-      let errorMessage = 'API request failed';
+      let errorMessage = `API request failed: ${error.message}`;
       if (errorResponse && errorResponse.message) {
         errorMessage = errorResponse.message;
       } else if (errorResponse && errorResponse.error) {
