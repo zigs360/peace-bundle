@@ -81,9 +81,8 @@ const registerUser = async (req, res) => {
             kyc_status: 'none'
         }, { transaction: t });
 
-        // Assign virtual account as part of the registration transaction
-        // This is now a blocking call to ensure it's created before we respond.
-        await VirtualAccountService.assignVirtualAccount(user, { transaction: t });
+        // User setup (Wallet and Virtual Account) is handled by the User.afterCreate hook
+        // This ensures registration only completes if both are successfully set up.
 
         await t.commit();
 

@@ -115,12 +115,15 @@ class VirtualAccountService {
                     user.metadata = { ...user.metadata, payvessel_tracking_reference: accountDetails.trackingReference };
                 }
                 await user.save({ transaction });
+                logger.info(`[VirtualAccount] Assigned ${provider} account for user ${user.id}`);
                 return accountDetails;
+            } else {
+                throw new Error(`Provider ${provider} returned no account details`);
             }
         } catch (error) {
-            logger.error(`Failed to assign virtual account for user ${user.id}:`, error.message);
-            // Don't block flow, just log
-            return null;
+            logger.error(`[VirtualAccount] Failed to assign virtual account for user ${user.id}:`, error.message);
+            // Re-throw the error to ensure it's handled by the calling function (and triggers a rollback if in a transaction)
+            throw error;
         }
     }
 

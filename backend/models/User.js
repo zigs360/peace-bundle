@@ -123,13 +123,30 @@ const User = sequelize.define('User', {
   paranoid: true, // Soft delete
 });
 
-// Auto-create wallet on user creation
+// Auto-create wallet and virtual account on user creation
 User.afterCreate(async (user, options) => {
   const Wallet = require('./Wallet');
+  const VirtualAccountService = require('../services/virtualAccountService');
+  const logger = require('../utils/logger');
+  
+  const { transaction } = options;
+
   try {
-    await Wallet.create({ userId: user.id }, { transaction: options.transaction });
+    logger.info(`[AUDIT] Starting automated setup for new user: ${user.email} (${user.id})`);
+
+    // 1. Create Wallet
+    await Wallet.create({ userId: user.id }, { transaction });
+    logger.info(`[AUDIT] Wallet created successfully for user: ${user.email}`);
+
+    // 2. Assign Virtual Account
+    // This is now synchronous and will throw if it fails, triggering a rollback of the registration transaction
+    await VirtualAccountService.assignVirtualAccount(user, { transaction });
+    logger.info(`[AUDIT] Virtual account assigned successfully for user: ${user.email}`);
+
   } catch (error) {
-    console.error('Failed to create wallet for user:', user.id, error);
+    logger.error(`[AUDIT] Automated setup FAILED for user: ${user.email}. Error: ${error.message}`);
+    // Re-throw the error to ensure Sequelize rolls back the transaction
+    throw error;
   }
 });
 
