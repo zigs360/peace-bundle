@@ -16,13 +16,23 @@ const getBanks = async (req, res) => {
   try {
     const result = await smeplugService.getBanks();
     if (result.success) {
-      return res.json({ success: true, data: result.data.data || result.data });
+      return res.json({ 
+        success: true, 
+        data: result.data.data || result.data 
+      });
     } else {
-      return res.status(500).json({ success: false, message: result.error || 'Failed to fetch banks' });
+      logger.error(`[Transfer] Bank list fetch error: ${result.error}`);
+      return res.status(500).json({ 
+        success: false, 
+        message: result.error || 'Failed to retrieve banks list' 
+      });
     }
   } catch (error) {
-    logger.error('Get Banks Error:', error);
-    res.status(500).json({ success: false, message: 'Server Error' });
+    logger.error(`[Transfer] Banks fetch exception: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'An internal error occurred while fetching banks' 
+    });
   }
 };
 
@@ -34,19 +44,32 @@ const getBanks = async (req, res) => {
 const resolveAccount = async (req, res) => {
   const { bank_code, account_number } = req.body;
   if (!bank_code || !account_number) {
-    return res.status(400).json({ success: false, message: 'Bank code and account number are required' });
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Both bank code and account number are required' 
+    });
   }
 
   try {
     const result = await smeplugService.resolveAccount(bank_code, account_number);
     if (result.success) {
-      return res.json({ success: true, data: result.data.data || result.data });
+      return res.json({ 
+        success: true, 
+        data: result.data.data || result.data 
+      });
     } else {
-      return res.status(400).json({ success: false, message: result.error || 'Account resolution failed' });
+      logger.warn(`[Transfer] Account resolution failed: ${result.error} for account ${account_number}`);
+      return res.status(400).json({ 
+        success: false, 
+        message: result.error || 'Bank account verification failed. Please check the details.' 
+      });
     }
   } catch (error) {
-    logger.error('Resolve Account Error:', error);
-    res.status(500).json({ success: false, message: 'Server Error' });
+    logger.error(`[Transfer] Resolve account exception: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during account resolution' 
+    });
   }
 };
 
@@ -60,36 +83,51 @@ const initiateTransfer = async (req, res) => {
   const userId = req.user.id;
 
   if (!bank_code || !account_number || !amount) {
-    return res.status(400).json({ success: false, message: 'Missing required parameters' });
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Bank code, account number, and amount are required' 
+    });
   }
 
   const transferAmount = parseFloat(amount);
   if (isNaN(transferAmount) || transferAmount <= 0) {
-    return res.status(400).json({ success: false, message: 'Invalid amount' });
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Please provide a valid transfer amount greater than zero' 
+    });
   }
 
-  // Optional: Add a transfer fee
   const fee = 50.00; // Fixed 50 Naira fee
   const totalDeduction = transferAmount + fee;
 
   const t = await sequelize.transaction();
 
   try {
-    const user = await User.findByPk(userId, { include: [Wallet] });
+    const user = await User.findByPk(userId, { 
+      include: [{ model: Wallet, as: 'wallet' }] 
+    });
+
     if (!user || !user.wallet) {
       await t.rollback();
-      return res.status(404).json({ success: false, message: 'User or wallet not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User wallet account not found' 
+      });
     }
 
-    if (parseFloat(user.wallet.balance) < totalDeduction) {
+    const currentBalance = parseFloat(user.wallet.balance);
+    if (currentBalance < totalDeduction) {
       await t.rollback();
-      return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
+      return res.status(400).json({ 
+        success: false, 
+        message: `Insufficient balance. Required: ₦${totalDeduction} (including ₦${fee} fee), Available: ₦${currentBalance}` 
+      });
     }
 
     // 1. Generate unique customer reference
     const customerReference = `TRF-${uuidv4().substring(0, 8).toUpperCase()}`;
 
-    // 2. Debit Wallet
+    // 2. Debit Wallet (using walletService)
     const newTransaction = await walletService.debit(
       user,
       totalDeduction,
@@ -117,27 +155,37 @@ const initiateTransfer = async (req, res) => {
     });
 
     if (!smeplugResult.success) {
-      logger.error('SMEPlug Transfer Failure:', smeplugResult);
+      logger.error(`[Transfer] SMEPlug API failure: ${smeplugResult.error}`);
       throw new Error(smeplugResult.error || 'Transfer failed at provider');
     }
 
     // 4. Update transaction with SMEPlug reference
-    newTransaction.smeplug_reference = smeplugResult.data?.reference || smeplugResult.data?.transaction_id;
-    newTransaction.smeplug_response = smeplugResult.data;
+    const reference = smeplugResult.data?.reference || smeplugResult.data?.transaction_id || smeplugResult.data?.data?.reference;
+    newTransaction.smeplug_reference = reference;
+    newTransaction.smeplug_response = JSON.stringify(smeplugResult.data);
     await newTransaction.save({ transaction: t });
 
     await t.commit();
+    
+    logger.info(`[Transfer] Successful transfer: ₦${transferAmount} from user ${userId} to ${account_number}. Ref: ${reference}`);
 
     res.json({
       success: true,
-      message: 'Transfer initiated successfully',
-      transaction: newTransaction
+      message: 'Transfer initiated successfully. Your funds are on the way.',
+      data: {
+        transactionId: newTransaction.id,
+        reference: reference,
+        newBalance: user.wallet.balance
+      }
     });
 
   } catch (error) {
-    if (t) await t.rollback();
-    logger.error('Initiate Transfer Error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Server Error' });
+    if (t && !t.finished) await t.rollback();
+    logger.error(`[Transfer] Initiate transfer exception for user ${userId}: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'An error occurred while processing your transfer request' 
+    });
   }
 };
 

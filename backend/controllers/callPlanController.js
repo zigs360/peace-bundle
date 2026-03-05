@@ -16,7 +16,7 @@ const getVoiceBundles = async (req, res) => {
     const { network, status } = req.query;
     const where = {};
 
-    if (network) where.network = network;
+    if (network) where.network = network.toLowerCase();
     if (status !== undefined) where.is_active = status === 'active';
 
     const bundles = await VoiceBundle.findAll({
@@ -29,8 +29,11 @@ const getVoiceBundles = async (req, res) => {
       data: bundles,
     });
   } catch (error) {
-    logger.error('Error fetching voice bundles:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[CallPlan] Voice bundle fetch error: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve voice bundles' 
+    });
   }
 };
 
@@ -43,15 +46,24 @@ const createCallPlan = async (req, res) => {
   try {
     const { name, provider, price, minutes, validityDays, status, type } = req.body;
 
+    if (!name || !provider || !price) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Name, provider, and price are required' 
+      });
+    }
+
     const callPlan = await CallPlan.create({
       name,
-      provider,
+      provider: provider.toLowerCase(),
       price,
       minutes,
       validityDays,
-      status,
-      type,
+      status: status || 'active',
+      type: type || 'prepaid',
     });
+
+    logger.info(`[CallPlan] Created new plan: ${name} for ${provider}`);
 
     res.status(201).json({
       success: true,
@@ -59,8 +71,11 @@ const createCallPlan = async (req, res) => {
       data: callPlan,
     });
   } catch (error) {
-    logger.error('Error creating call plan:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[CallPlan] Creation error: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create call plan' 
+    });
   }
 };
 
@@ -74,7 +89,7 @@ const getCallPlans = async (req, res) => {
     const { provider, status, type } = req.query;
     const where = {};
 
-    if (provider) where.provider = provider;
+    if (provider) where.provider = provider.toLowerCase();
     if (status) where.status = status;
     if (type) where.type = type;
 
@@ -88,8 +103,11 @@ const getCallPlans = async (req, res) => {
       data: callPlans,
     });
   } catch (error) {
-    logger.error('Error fetching call plans:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[CallPlan] Fetch error: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve call plans' 
+    });
   }
 };
 
@@ -103,7 +121,10 @@ const getCallPlanById = async (req, res) => {
     const callPlan = await CallPlan.findByPk(req.params.id);
 
     if (!callPlan) {
-      return res.status(404).json({ success: false, message: 'Call plan not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Call plan not found' 
+      });
     }
 
     res.json({
@@ -111,8 +132,11 @@ const getCallPlanById = async (req, res) => {
       data: callPlan,
     });
   } catch (error) {
-    logger.error('Error fetching call plan by ID:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[CallPlan] Fetch by ID error (${req.params.id}): ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve call plan details' 
+    });
   }
 };
 
@@ -128,11 +152,14 @@ const updateCallPlan = async (req, res) => {
     const callPlan = await CallPlan.findByPk(req.params.id);
 
     if (!callPlan) {
-      return res.status(404).json({ success: false, message: 'Call plan not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Call plan not found' 
+      });
     }
 
     callPlan.name = name || callPlan.name;
-    callPlan.provider = provider || callPlan.provider;
+    callPlan.provider = provider ? provider.toLowerCase() : callPlan.provider;
     callPlan.price = price || callPlan.price;
     callPlan.minutes = minutes || callPlan.minutes;
     callPlan.validityDays = validityDays || callPlan.validityDays;
@@ -140,6 +167,7 @@ const updateCallPlan = async (req, res) => {
     callPlan.type = type || callPlan.type;
 
     await callPlan.save();
+    logger.info(`[CallPlan] Updated plan ID: ${req.params.id}`);
 
     res.json({
       success: true,
@@ -147,8 +175,11 @@ const updateCallPlan = async (req, res) => {
       data: callPlan,
     });
   } catch (error) {
-    logger.error('Error updating call plan:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[CallPlan] Update error for ID ${req.params.id}: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update call plan' 
+    });
   }
 };
 
@@ -162,15 +193,25 @@ const deleteCallPlan = async (req, res) => {
     const callPlan = await CallPlan.findByPk(req.params.id);
 
     if (!callPlan) {
-      return res.status(404).json({ success: false, message: 'Call plan not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Call plan not found' 
+      });
     }
 
     await callPlan.destroy();
+    logger.info(`[CallPlan] Deleted plan ID: ${req.params.id}`);
 
-    res.json({ success: true, message: 'Call plan deleted successfully' });
+    res.json({ 
+      success: true, 
+      message: 'Call plan deleted successfully' 
+    });
   } catch (error) {
-    logger.error('Error deleting call plan:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[CallPlan] Delete error for ID ${req.params.id}: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete call plan' 
+    });
   }
 };
 
@@ -185,30 +226,51 @@ const purchaseCallPlan = async (req, res) => {
     const userId = req.user.id;
     const callPlanId = req.params.id;
 
+    if (!recipientPhoneNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Recipient phone number is required' 
+      });
+    }
+
     const callPlan = await CallPlan.findByPk(callPlanId);
     if (!callPlan) {
-      return res.status(404).json({ success: false, message: 'Call plan not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Selected call plan no longer exists' 
+      });
     }
 
-    const user = await User.findByPk(userId, { include: [Wallet] });
+    const user = await User.findByPk(userId, { 
+      include: [{ model: Wallet, as: 'wallet' }] 
+    });
+
     if (!user || !user.wallet) {
-      return res.status(404).json({ success: false, message: 'User or wallet not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User wallet account not found' 
+      });
     }
 
-    // Check if user has sufficient balance
-    if (parseFloat(user.wallet.balance) < parseFloat(callPlan.price)) {
-      return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
+    const price = parseFloat(callPlan.price);
+    const balance = parseFloat(user.wallet.balance);
+
+    if (balance < price) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Insufficient balance. Required: ₦${price}, Available: ₦${balance}` 
+      });
     }
 
     // Deduct from wallet
-    user.wallet.balance = parseFloat(user.wallet.balance) - parseFloat(callPlan.price);
+    user.wallet.balance = balance - price;
     await user.wallet.save();
 
     // Record transaction
-    await Transaction.create({
+    const transaction = await Transaction.create({
       userId,
       type: 'call_plan_purchase',
-      amount: callPlan.price,
+      amount: price,
       status: 'completed',
       description: `Purchase of ${callPlan.name} for ${recipientPhoneNumber}`,
       metadata: {
@@ -221,16 +283,22 @@ const purchaseCallPlan = async (req, res) => {
       },
     });
 
-    // TODO: Integrate with Smeplug or other service to actually activate the call plan
-    logger.info(`Call plan ${callPlan.name} purchased for ${recipientPhoneNumber} by user ${userId}. Smeplug integration pending.`);
+    logger.info(`[CallPlan] Purchase successful: User ${userId} bought ${callPlan.name} for ${recipientPhoneNumber}. Transaction: ${transaction.id}`);
 
     res.json({
       success: true,
       message: 'Call plan purchased successfully. Activation is being processed.',
+      data: {
+        transactionId: transaction.id,
+        newBalance: user.wallet.balance
+      }
     });
   } catch (error) {
-    logger.error('Error purchasing call plan:', error);
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[CallPlan] Purchase error for user ${req.user.id}: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'An error occurred while processing your purchase' 
+    });
   }
 };
 

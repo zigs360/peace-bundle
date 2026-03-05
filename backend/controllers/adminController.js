@@ -35,14 +35,19 @@ const getDataPlans = async (req, res) => {
         });
 
         res.json({
-            plans: rows,
-            total: count,
-            totalPages: Math.ceil(count / limit),
-            currentPage: parseInt(page)
+            success: true,
+            data: {
+                plans: rows,
+                pagination: {
+                    total: count,
+                    totalPages: Math.ceil(count / limit),
+                    currentPage: parseInt(page)
+                }
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Get Data Plans Error:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -58,7 +63,7 @@ const createDataPlan = async (req, res) => {
 
         // Validation (Basic)
         if (!provider || !category || !name || !size || !size_mb || !validity || !admin_price) {
-            return res.status(400).json({ message: 'Please fill all required fields' });
+            return res.status(400).json({ success: false, message: 'Please fill all required fields' });
         }
 
         const plan = await DataPlan.create({
@@ -75,12 +80,13 @@ const createDataPlan = async (req, res) => {
         });
 
         res.status(201).json({
+            success: true,
             message: 'Data plan created successfully',
-            plan
+            data: plan
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Create Data Plan Error:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -92,7 +98,7 @@ const updateDataPlan = async (req, res) => {
         const plan = await DataPlan.findByPk(req.params.id);
 
         if (!plan) {
-            return res.status(404).json({ message: 'Data plan not found' });
+            return res.status(404).json({ success: false, message: 'Data plan not found' });
         }
 
         const updates = req.body;
@@ -111,12 +117,13 @@ const updateDataPlan = async (req, res) => {
         await plan.save();
 
         res.json({
+            success: true,
             message: 'Data plan updated successfully',
-            plan
+            data: plan
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Update Data Plan Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -128,15 +135,15 @@ const deleteDataPlan = async (req, res) => {
         const plan = await DataPlan.findByPk(req.params.id);
 
         if (!plan) {
-            return res.status(404).json({ message: 'Data plan not found' });
+            return res.status(404).json({ success: false, message: 'Data plan not found' });
         }
 
         await plan.destroy();
 
-        res.json({ message: 'Data plan deleted successfully' });
+        res.json({ success: true, message: 'Data plan deleted successfully' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Delete Data Plan Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -175,14 +182,19 @@ const getSims = async (req, res) => {
         });
 
         res.json({
-            sims: rows,
-            total: count,
-            totalPages: Math.ceil(count / limit),
-            currentPage: parseInt(page)
+            success: true,
+            data: {
+                sims: rows,
+                pagination: {
+                    total: count,
+                    totalPages: Math.ceil(count / limit),
+                    currentPage: parseInt(page)
+                }
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Get Sims Error:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -194,7 +206,7 @@ const approveSim = async (req, res) => {
         const sim = await Sim.findByPk(req.params.id);
 
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
 
         sim.isVerified = true;
@@ -203,10 +215,10 @@ const approveSim = async (req, res) => {
 
         await sim.save();
 
-        res.json({ message: 'SIM approved successfully' });
+        res.json({ success: true, message: 'SIM approved successfully' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Approve SIM Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -218,17 +230,17 @@ const suspendSim = async (req, res) => {
         const sim = await Sim.findByPk(req.params.id);
 
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
 
         sim.status = 'paused';
 
         await sim.save();
 
-        res.json({ message: 'SIM suspended successfully' });
+        res.json({ success: true, message: 'SIM suspended successfully' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Suspend SIM Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -240,20 +252,15 @@ const deleteSim = async (req, res) => {
         const sim = await Sim.findByPk(req.params.id);
 
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
-
-        // Optional: Check if SIM is connected before deletion
-        // if (sim.connectionStatus === 'connected') {
-        //     return res.status(400).json({ message: 'Cannot remove a connected SIM. Please disconnect it first.' });
-        // }
 
         await sim.destroy();
 
-        res.json({ message: 'SIM removed successfully' });
+        res.json({ success: true, message: 'SIM removed successfully' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Delete SIM Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -264,7 +271,7 @@ const connectSim = async (req, res) => {
     const simManagementService = require('../services/simManagementService');
     try {
         const sim = await Sim.findByPk(req.params.id);
-        if (!sim) return res.status(404).json({ message: 'SIM not found' });
+        if (!sim) return res.status(404).json({ success: false, message: 'SIM not found' });
 
         await simManagementService.connectSim(sim);
         
@@ -274,7 +281,7 @@ const connectSim = async (req, res) => {
             data: await sim.reload()
         });
     } catch (error) {
-        console.error(error);
+        logger.error('Admin Connect SIM Error:', { error: error.message, id: req.params.id });
         res.status(400).json({ success: false, message: error.message });
     }
 };
@@ -286,7 +293,7 @@ const disconnectSim = async (req, res) => {
     const simManagementService = require('../services/simManagementService');
     try {
         const sim = await Sim.findByPk(req.params.id);
-        if (!sim) return res.status(404).json({ message: 'SIM not found' });
+        if (!sim) return res.status(404).json({ success: false, message: 'SIM not found' });
 
         await simManagementService.disconnectSim(sim);
         
@@ -296,7 +303,7 @@ const disconnectSim = async (req, res) => {
             data: await sim.reload()
         });
     } catch (error) {
-        console.error(error);
+        logger.error('Admin Disconnect SIM Error:', { error: error.message, id: req.params.id });
         res.status(400).json({ success: false, message: error.message });
     }
 };
@@ -309,7 +316,7 @@ const checkSimBalance = async (req, res) => {
     try {
         const { force = false } = req.body;
         const sim = await Sim.findByPk(req.params.id);
-        if (!sim) return res.status(404).json({ message: 'SIM not found' });
+        if (!sim) return res.status(404).json({ success: false, message: 'SIM not found' });
 
         const balance = await simManagementService.checkBalance(sim, 3, force);
         
@@ -319,8 +326,8 @@ const checkSimBalance = async (req, res) => {
             sim: await sim.reload()
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Check SIM Balance Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -348,7 +355,8 @@ const getSimAnalytics = async (req, res) => {
         const totalDispenses = await Sim.sum('total_dispenses');
 
         res.json({
-            stats: {
+            success: true,
+            data: {
                 total_sims: totalSims,
                 active_sims: activeSims,
                 banned_sims: bannedSims,
@@ -358,8 +366,8 @@ const getSimAnalytics = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Get SIM Analytics Error:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -374,10 +382,10 @@ const syncSmeplugSims = async (req, res) => {
         res.json({
             success: true,
             message: `SIM synchronization completed: ${results.created} new SIMs added, ${results.updated} updated.`,
-            results
+            data: results
         });
     } catch (error) {
-        console.error(error);
+        logger.error('Admin Sync SIMs Error:', { error: error.message });
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -423,14 +431,19 @@ const getUsers = async (req, res) => {
         });
 
         res.json({
-            users: rows,
-            total: count,
-            totalPages: Math.ceil(count / limit),
-            currentPage: parseInt(page)
+            success: true,
+            data: {
+                users: rows,
+                pagination: {
+                    total: count,
+                    totalPages: Math.ceil(count / limit),
+                    currentPage: parseInt(page)
+                }
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Get Users Error:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -505,15 +518,20 @@ const getTransactions = async (req, res) => {
         });
 
         res.json({
-            transactions: rows,
-            total: count,
-            totalPages: Math.ceil(count / limit),
-            currentPage: parseInt(page),
-            filters: { status, provider, user_id, date_from, date_to }
+            success: true,
+            data: {
+                transactions: rows,
+                pagination: {
+                    total: count,
+                    totalPages: Math.ceil(count / limit),
+                    currentPage: parseInt(page)
+                },
+                filters: { status, provider, user_id, date_from, date_to }
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Get Transactions Error:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -522,7 +540,6 @@ const getTransactions = async (req, res) => {
 // @access  Private (Admin)
 const refundTransaction = async (req, res) => {
     const walletService = require('../services/walletService');
-    const { sendEmail } = require('../services/notificationService');
     const { id } = req.params;
 
     try {
@@ -531,15 +548,12 @@ const refundTransaction = async (req, res) => {
         });
 
         if (!transaction) {
-            return res.status(404).json({ message: 'Transaction not found' });
+            return res.status(404).json({ success: false, message: 'Transaction not found' });
         }
 
         if (transaction.status === 'refunded') {
-            return res.status(400).json({ message: 'Transaction already refunded' });
+            return res.status(400).json({ success: false, message: 'Transaction already refunded' });
         }
-
-        // Check permission (Optional: assuming admin middleware covers generic admin rights)
-        // if (!req.user.hasPermission('process-refunds')) ...
 
         // Process Refund
         const t = await sequelize.transaction();
@@ -547,7 +561,7 @@ const refundTransaction = async (req, res) => {
         try {
             // Credit user wallet
             await walletService.credit(
-                transaction.user, // Note: Now correctly lowercase 'user' as alias
+                transaction.user,
                 parseFloat(transaction.amount),
                 'refund',
                 `Admin refund for transaction: ${transaction.reference}`,
@@ -562,18 +576,19 @@ const refundTransaction = async (req, res) => {
             await t.commit();
 
             res.json({
+                success: true,
                 message: 'Transaction refunded successfully',
-                transaction
+                data: transaction
             });
 
         } catch (error) {
-            await t.rollback();
+            if (t) await t.rollback();
             throw error;
         }
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Refund failed: ' + error.message });
+        logger.error('Admin Refund Transaction Error:', { error: error.message, id });
+        res.status(500).json({ success: false, message: 'Refund failed: ' + error.message });
     }
 };
 
@@ -622,23 +637,26 @@ const getAdminStats = async (req, res) => {
         ]);
 
         res.json({
-            stats: {
-                total_users: totalUsers,
-                total_resellers: totalResellers,
-                total_transactions: totalTransactions,
-                successful_transactions: successfulTransactions,
-                total_revenue: totalRevenue,
-                pending_transactions: pendingTransactions,
-                total_sims: totalSims,
-                active_sims: activeSims
-            },
-            revenueByProvider,
-            recentTransactions,
-            trendData: trends
+            success: true,
+            data: {
+                stats: {
+                    total_users: totalUsers,
+                    total_resellers: totalResellers,
+                    total_transactions: totalTransactions,
+                    successful_transactions: successfulTransactions,
+                    total_revenue: totalRevenue,
+                    pending_transactions: pendingTransactions,
+                    total_sims: totalSims,
+                    active_sims: activeSims
+                },
+                revenueByProvider,
+                recentTransactions,
+                trendData: trends
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Get Stats Error:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -704,7 +722,7 @@ const updateUser = async (req, res) => {
         const user = await User.findByPk(req.params.id);
 
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         user.name = name || user.name;
@@ -715,16 +733,19 @@ const updateUser = async (req, res) => {
         await user.save();
 
         res.json({
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            phone: user.phone,
-            role: user.role,
-            message: 'User updated successfully'
+            success: true,
+            message: 'User updated successfully',
+            data: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                role: user.role
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Update User Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 
@@ -736,7 +757,7 @@ const toggleBlockUser = async (req, res) => {
         const user = await User.findByPk(req.params.id);
 
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         // Toggle status: 'active' <-> 'banned'
@@ -744,13 +765,16 @@ const toggleBlockUser = async (req, res) => {
         await user.save();
 
         res.json({
-            id: user.id,
-            account_status: user.account_status,
-            message: `User ${user.account_status === 'banned' ? 'blocked' : 'unblocked'} successfully`
+            success: true,
+            message: `User ${user.account_status === 'banned' ? 'blocked' : 'unblocked'} successfully`,
+            data: {
+                id: user.id,
+                account_status: user.account_status
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Admin Toggle Block User Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
 

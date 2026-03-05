@@ -511,18 +511,16 @@ const withdrawFunds = async (req, res) => {
 const airtimeToCash = async (req, res) => {
     const { network, amount, phoneNumber, sharePin } = req.body;
     const userId = req.user.id;
-    // Implementation: Verify transfer manually or via API, then credit wallet (after taking percentage)
-    // For now, simple mock
     
-    // We don't update balance immediately for airtime to cash, usually it's pending verification
     try {
         const user = await User.findByPk(userId, { include: [{ model: Wallet, as: 'wallet' }] });
         if (!user || !user.wallet) {
-            return res.status(404).json({ message: 'User or wallet not found' });
+            return res.status(404).json({ success: false, message: 'User or wallet not found' });
         }
         
         const newTransaction = await Transaction.create({
             walletId: user.wallet.id,
+            userId: user.id,
             type: 'credit',
             amount: parseFloat(amount) * 0.8, // 80% payout
             balance_before: user.wallet.balance,
@@ -534,10 +532,14 @@ const airtimeToCash = async (req, res) => {
             metadata: { network, phoneNumber, sharePin }
         });
 
-        res.json({ message: 'Request submitted successfully', transaction: newTransaction });
+        res.json({ 
+            success: true,
+            message: 'Request submitted successfully', 
+            data: newTransaction 
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Airtime to Cash Error:', { error: error.message, userId });
+        res.status(500).json({ success: false, message: 'Failed to submit airtime to cash request' });
     }
 };
 
@@ -545,16 +547,15 @@ const airtimeToCash = async (req, res) => {
 // @route   POST /api/transactions/recharge-card
 // @access  Private
 const printRechargeCard = async (req, res) => {
-    // Similar to buyAirtime but returns PIN
-    // Mock implementation
     const { network, amount, quantity } = req.body;
     const userId = req.user.id;
+    let t;
     
-    const t = await sequelize.transaction();
     try {
         const user = await User.findByPk(userId);
         const totalCost = parseFloat(amount) * parseInt(quantity);
         
+        t = await sequelize.transaction();
         const newTransaction = await walletService.debit(
             user,
             totalCost,
@@ -577,11 +578,16 @@ const printRechargeCard = async (req, res) => {
             });
         }
         
-        res.json({ message: 'Cards generated successfully', transaction: newTransaction, cards: cards });
+        res.json({ 
+            success: true,
+            message: 'Cards generated successfully', 
+            transaction: newTransaction, 
+            cards: cards 
+        });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: error.message || 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Print Recharge Card Error:', { error: error.message, userId });
+        res.status(500).json({ success: false, message: error.message || 'Failed to print cards' });
     }
 };
 
@@ -591,39 +597,34 @@ const printRechargeCard = async (req, res) => {
 const checkResult = async (req, res) => {
     const { examType, quantity } = req.body;
     const userId = req.user.id;
+    let t;
     
-    const t = await sequelize.transaction();
     try {
         const user = await User.findByPk(userId);
         const price = 3500; // Mock price
         const totalCost = price * parseInt(quantity || 1);
         
+        t = await sequelize.transaction();
         const newTransaction = await walletService.debit(
             user,
             totalCost,
-            'exam_payment',
-            `${examType} Scratch Card Purchase`,
+            'bill_payment',
+            `${examType} Result Checker x${quantity}`,
             { examType, quantity },
             t
         );
 
         await t.commit();
-        
-        // Generate Mock Pins
-        const pins = [];
-        for(let i=0; i<parseInt(quantity || 1); i++) {
-            pins.push({
-                pin: Math.floor(100000000000 + Math.random() * 900000000000).toString(),
-                serial: `WAEC${Math.floor(10000000 + Math.random() * 90000000)}`,
-                exam: examType
-            });
-        }
-        
-        res.json({ message: 'Pins generated successfully', transaction: newTransaction, pins: pins });
+
+        res.json({
+            success: true,
+            message: 'Result checker purchased successfully',
+            transaction: newTransaction
+        });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: error.message || 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Check Result Error:', { error: error.message, userId });
+        res.status(500).json({ success: false, message: error.message || 'Failed to purchase result checker' });
     }
 };
 

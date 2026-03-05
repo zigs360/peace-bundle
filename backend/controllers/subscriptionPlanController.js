@@ -10,10 +10,16 @@ const getSubscriptionPlans = async (req, res) => {
             where: { is_active: true },
             order: [['sort_order', 'ASC']]
         });
-        res.json(plans);
+        res.json({
+            success: true,
+            data: plans
+        });
     } catch (error) {
-        logger.error(`Error fetching subscription plans: ${error.message}`);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[SubscriptionPlan] Fetch error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve subscription plans' 
+        });
     }
 };
 
@@ -25,10 +31,16 @@ const adminGetSubscriptionPlans = async (req, res) => {
         const plans = await SubscriptionPlan.findAll({
             order: [['sort_order', 'ASC']]
         });
-        res.json(plans);
+        res.json({
+            success: true,
+            data: plans
+        });
     } catch (error) {
-        logger.error(`Admin error fetching subscription plans: ${error.message}`);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[SubscriptionPlan] Admin fetch error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve subscription plans for admin' 
+        });
     }
 };
 
@@ -37,14 +49,30 @@ const adminGetSubscriptionPlans = async (req, res) => {
 // @access  Private/Admin
 const createSubscriptionPlan = async (req, res) => {
     try {
+        const { name, price, duration_days } = req.body;
+        
+        if (!name || !price) {
+            return res.status(400).json({
+                success: false,
+                message: 'Plan name and price are required'
+            });
+        }
+
         const plan = await SubscriptionPlan.create(req.body);
         
-        logger.info(`[AUDIT] Admin ${req.user.id} created subscription plan: ${plan.name} (${plan.id})`);
+        logger.info(`[SubscriptionPlan] Admin ${req.user.id} created plan: ${plan.name} (${plan.id})`);
         
-        res.status(201).json(plan);
+        res.status(201).json({
+            success: true,
+            message: 'Subscription plan created successfully',
+            data: plan
+        });
     } catch (error) {
-        logger.error(`Error creating subscription plan: ${error.message}`);
-        res.status(400).json({ message: error.message || 'Validation failed' });
+        logger.error(`[SubscriptionPlan] Creation error: ${error.message}`);
+        res.status(400).json({ 
+            success: false,
+            message: error.message || 'Failed to create subscription plan' 
+        });
     }
 };
 
@@ -55,18 +83,28 @@ const updateSubscriptionPlan = async (req, res) => {
     try {
         const plan = await SubscriptionPlan.findByPk(req.params.id);
         if (!plan) {
-            return res.status(404).json({ message: 'Plan not found' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'Subscription plan not found' 
+            });
         }
 
         const oldName = plan.name;
         await plan.update(req.body);
 
-        logger.info(`[AUDIT] Admin ${req.user.id} updated subscription plan: ${oldName} -> ${plan.name} (${plan.id})`);
+        logger.info(`[SubscriptionPlan] Admin ${req.user.id} updated plan: ${oldName} -> ${plan.name} (${plan.id})`);
 
-        res.json(plan);
+        res.json({
+            success: true,
+            message: 'Subscription plan updated successfully',
+            data: plan
+        });
     } catch (error) {
-        logger.error(`Error updating subscription plan: ${error.message}`);
-        res.status(400).json({ message: error.message || 'Update failed' });
+        logger.error(`[SubscriptionPlan] Update error for ID ${req.params.id}: ${error.message}`);
+        res.status(400).json({ 
+            success: false,
+            message: error.message || 'Failed to update subscription plan' 
+        });
     }
 };
 
@@ -77,18 +115,27 @@ const deleteSubscriptionPlan = async (req, res) => {
     try {
         const plan = await SubscriptionPlan.findByPk(req.params.id);
         if (!plan) {
-            return res.status(404).json({ message: 'Plan not found' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'Subscription plan not found' 
+            });
         }
 
         const planName = plan.name;
         await plan.destroy();
 
-        logger.info(`[AUDIT] Admin ${req.user.id} deleted subscription plan: ${planName} (${req.params.id})`);
+        logger.info(`[SubscriptionPlan] Admin ${req.user.id} deleted plan: ${planName} (${req.params.id})`);
 
-        res.json({ message: 'Plan removed successfully' });
+        res.json({ 
+            success: true,
+            message: 'Subscription plan removed successfully' 
+        });
     } catch (error) {
-        logger.error(`Error deleting subscription plan: ${error.message}`);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[SubscriptionPlan] Delete error for ID ${req.params.id}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to delete subscription plan' 
+        });
     }
 };
 

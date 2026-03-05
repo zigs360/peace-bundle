@@ -1,6 +1,7 @@
 const Review = require('../models/Review');
 const User = require('../models/User');
 const { Op } = require('sequelize');
+const logger = require('../utils/logger');
 
 /**
  * @desc    Submit a new review
@@ -12,35 +13,50 @@ const submitReview = async (req, res) => {
     const { rating, comment } = req.body;
     const userId = req.user.id;
 
-    // Validation
     if (!rating || !comment) {
-      return res.status(400).json({ success: false, message: 'Rating and comment are required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Both rating and comment are required to submit a review' 
+      });
     }
 
-    if (rating < 1 || rating > 5) {
-      return res.status(400).json({ success: false, message: 'Rating must be between 1 and 5' });
+    const ratingNum = parseInt(rating);
+    if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Rating must be a number between 1 and 5' 
+      });
     }
 
     // Check if user already submitted a review
     const existingReview = await Review.findOne({ where: { userId } });
     if (existingReview) {
-      return res.status(400).json({ success: false, message: 'You have already submitted a review' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'You have already submitted a review for this service' 
+      });
     }
 
     const review = await Review.create({
       userId,
-      rating,
+      rating: ratingNum,
       comment,
       status: 'pending' // Admin must approve
     });
 
+    logger.info(`[Review] New review submitted by user ${userId} (Rating: ${ratingNum})`);
+
     res.status(201).json({
       success: true,
-      message: 'Review submitted successfully and is awaiting moderation',
+      message: 'Thank you! Your review has been submitted and is awaiting moderation.',
       data: review
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[Review] Submission error for user ${req.user.id}: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'An error occurred while submitting your review' 
+    });
   }
 };
 
@@ -52,11 +68,11 @@ const submitReview = async (req, res) => {
 const getApprovedReviews = async (req, res) => {
   try {
     const { page = 1, limit = 10, rating } = req.query;
-    const offset = (page - 1) * limit;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     const where = { status: 'approved' };
     if (rating) {
-      where.rating = rating;
+      where.rating = parseInt(rating);
     }
 
     const { count, rows } = await Review.findAndCountAll({
@@ -77,11 +93,15 @@ const getApprovedReviews = async (req, res) => {
       pagination: {
         total: count,
         page: parseInt(page),
-        pages: Math.ceil(count / limit)
+        pages: Math.ceil(count / parseInt(limit))
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[Review] Public fetch error: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve reviews' 
+    });
   }
 };
 
@@ -102,7 +122,11 @@ const getMyReviews = async (req, res) => {
       data: reviews
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[Review] User fetch error for user ${req.user.id}: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve your reviews' 
+    });
   }
 };
 
@@ -114,7 +138,7 @@ const getMyReviews = async (req, res) => {
 const getAllReviewsAdmin = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
-    const offset = (page - 1) * limit;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
     if (status) {
@@ -139,11 +163,15 @@ const getAllReviewsAdmin = async (req, res) => {
       pagination: {
         total: count,
         page: parseInt(page),
-        pages: Math.ceil(count / limit)
+        pages: Math.ceil(count / parseInt(limit))
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[Review] Admin fetch error: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to retrieve reviews for admin' 
+    });
   }
 };
 
@@ -158,7 +186,10 @@ const updateReviewStatus = async (req, res) => {
     const review = await Review.findByPk(req.params.id);
 
     if (!review) {
-      return res.status(404).json({ success: false, message: 'Review not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Review not found' 
+      });
     }
 
     if (status) review.status = status;
@@ -166,14 +197,19 @@ const updateReviewStatus = async (req, res) => {
     if (isFeatured !== undefined) review.isFeatured = isFeatured;
 
     await review.save();
+    logger.info(`[Review] Status updated for review ${req.params.id} by admin ${req.user.id}: ${status || 'metadata updated'}`);
 
     res.json({
       success: true,
-      message: `Review ${status || 'updated'} successfully`,
+      message: `Review updated successfully to status: ${status || 'updated'}`,
       data: review
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[Review] Update error for ID ${req.params.id}: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update review status' 
+    });
   }
 };
 
@@ -186,15 +222,26 @@ const markHelpful = async (req, res) => {
   try {
     const review = await Review.findByPk(req.params.id);
     if (!review) {
-      return res.status(404).json({ success: false, message: 'Review not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Review not found' 
+      });
     }
 
     review.helpfulCount += 1;
     await review.save();
 
-    res.json({ success: true, helpfulCount: review.helpfulCount });
+    res.json({ 
+      success: true, 
+      message: 'Marked as helpful',
+      helpfulCount: review.helpfulCount 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    logger.error(`[Review] Helpful count error for ID ${req.params.id}: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to mark review as helpful' 
+    });
   }
 };
 

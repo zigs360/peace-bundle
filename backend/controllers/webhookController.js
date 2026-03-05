@@ -5,19 +5,20 @@ const { sequelize } = require('../config/database');
 // @desc    Handle Paystack Webhook
 // @route   POST /api/webhooks/paystack
 // @access  Public (Secured by Signature)
-exports.handlePaystackWebhook = async (req, res) => {
+const handlePaystackWebhook = async (req, res) => {
     const walletService = require('../services/walletService');
     const { Transaction, User } = require('../models');
     try {
         const secret = process.env.PAYSTACK_SECRET_KEY;
-        // Verify signature
         const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
         
         if (hash !== req.headers['x-paystack-signature']) {
+            logger.warn('[Webhook] Paystack: Invalid signature');
             return res.status(400).send('Invalid signature');
         }
 
         const event = req.body;
+        logger.info(`[Webhook] Paystack received: ${event.event}`, { reference: event.data?.reference });
         
         if (event.event === 'charge.success') {
             const { reference, amount, status, customer } = event.data;
@@ -25,24 +26,22 @@ exports.handlePaystackWebhook = async (req, res) => {
             if (status === 'success') {
                 const t = await sequelize.transaction();
                 try {
-                    // Check if reference already exists to prevent duplicate funding
-                    const existingTxn = await Transaction.findOne({ where: { reference } }, { transaction: t });
+                    const existingTxn = await Transaction.findOne({ where: { reference } });
                     if (existingTxn) {
                         await t.rollback();
-                        return res.status(200).json({ message: 'Transaction already exists' });
+                        logger.info(`[Webhook] Paystack: Transaction ${reference} already processed`);
+                        return res.status(200).json({ success: true, message: 'Transaction already exists' });
                     }
 
-                    // Find User by email from customer data
-                    const user = await User.findOne({ where: { email: customer.email } }, { transaction: t });
+                    const user = await User.findOne({ where: { email: customer.email } });
                     if (!user) {
                         await t.rollback();
-                        logger.error(`User with email ${customer.email} not found for Paystack webhook`);
+                        logger.error(`[Webhook] Paystack: User with email ${customer.email} not found`);
                         return res.status(404).send('User not found');
                     }
 
-                    // Credit Wallet using WalletService
-                    const creditAmount = amount / 100; // Paystack amount is in kobo
-                    const newTransaction = await walletService.credit(
+                    const creditAmount = amount / 100; // kobo to Naira
+                    await walletService.credit(
                         user,
                         creditAmount,
                         'funding',
@@ -52,10 +51,10 @@ exports.handlePaystackWebhook = async (req, res) => {
                     );
                     
                     await t.commit();
-                    logger.info(`Wallet funded successfully via Paystack: ${user.email} - N${creditAmount}`);
+                    logger.info(`[Webhook] Paystack: Wallet funded successfully for ${user.email} - ₦${creditAmount}`);
                 } catch (error) {
-                    await t.rollback();
-                    logger.error('Paystack Webhook Processing Error:', error);
+                    if (t && !t.finished) await t.rollback();
+                    logger.error(`[Webhook] Paystack processing error: ${error.message}`, { reference });
                     return res.status(500).send('Processing failed');
                 }
             }
@@ -63,7 +62,7 @@ exports.handlePaystackWebhook = async (req, res) => {
         
         res.sendStatus(200);
     } catch (error) {
-        logger.error('Paystack Webhook Error:', error);
+        logger.error(`[Webhook] Paystack error: ${error.message}`);
         res.sendStatus(500);
     }
 };
@@ -71,7 +70,7 @@ exports.handlePaystackWebhook = async (req, res) => {
 // @desc    Handle PayVessel Webhook
 // @route   POST /api/webhooks/payvessel
 // @access  Public (Secured by Signature and IP)
-exports.handlePayvesselWebhook = async (req, res) => {
+const handlePayvesselWebhook = async (req, res) => {
     const payvesselService = require('../services/payvesselService');
     const walletService = require('../services/walletService');
     const { Transaction, User } = require('../models');
@@ -81,38 +80,35 @@ exports.handlePayvesselWebhook = async (req, res) => {
         const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
         const allowedIps = ["3.255.23.38", "162.246.254.36"];
 
-        // Security Check: Signature & IP
         const isValidSignature = payvesselService.verifySignature(payload, signature);
         const isAllowedIp = allowedIps.some(ip => ipAddress.includes(ip));
 
         if (!isValidSignature || !isAllowedIp) {
-            logger.warn('PayVessel Webhook: Permission denied (Invalid signature or IP)', { ipAddress });
+            logger.warn(`[Webhook] PayVessel: Permission denied (Invalid signature or IP: ${ipAddress})`);
             return res.status(400).json({ message: 'Permission denied, invalid hash or ip address.' });
         }
 
         const { order, transaction, customer } = payload;
         const reference = transaction.reference;
-        const amount = parseFloat(order.settlement_amount || order.amount); // Use settlement amount as it's the final value after fees
+        const amount = parseFloat(order.settlement_amount || order.amount);
         
         const t = await sequelize.transaction();
         try {
-            // 1. Check if reference already exists (Prevent duplicate funding)
-            const existingTxn = await Transaction.findOne({ where: { reference } }, { transaction: t });
+            const existingTxn = await Transaction.findOne({ where: { reference } });
             if (existingTxn) {
                 await t.rollback();
-                return res.status(200).json({ message: 'transaction already exist' });
+                logger.info(`[Webhook] PayVessel: Transaction ${reference} already processed`);
+                return res.status(200).json({ success: true, message: 'transaction already exist' });
             }
 
-            // 2. Find user by email from customer data
-            const user = await User.findOne({ where: { email: customer.email } }, { transaction: t });
+            const user = await User.findOne({ where: { email: customer.email } });
             if (!user) {
                 await t.rollback();
-                logger.error(`User with email ${customer.email} not found for PayVessel webhook`);
-                return res.status(404).json({ message: 'user not found' });
+                logger.error(`[Webhook] PayVessel: User with email ${customer.email} not found`);
+                return res.status(404).json({ success: false, message: 'user not found' });
             }
 
-            // 3. Fund user wallet
-            const newTransaction = await walletService.credit(
+            await walletService.credit(
                 user,
                 amount,
                 'funding',
@@ -127,17 +123,17 @@ exports.handlePayvesselWebhook = async (req, res) => {
             );
 
             await t.commit();
-            logger.info(`Wallet funded successfully via PayVessel: ${user.email} - N${amount}`);
-            res.status(200).json({ message: 'success' });
+            logger.info(`[Webhook] PayVessel: Wallet funded successfully for ${user.email} - ₦${amount}`);
+            res.status(200).json({ success: true, message: 'success' });
 
         } catch (error) {
-            await t.rollback();
-            logger.error('PayVessel Webhook Processing Error:', error);
-            res.status(500).json({ message: 'Internal server error during processing' });
+            if (t && !t.finished) await t.rollback();
+            logger.error(`[Webhook] PayVessel processing error: ${error.message}`, { reference });
+            res.status(500).json({ success: false, message: 'Internal server error during processing' });
         }
 
     } catch (error) {
-        logger.error('PayVessel Webhook Error:', error);
+        logger.error(`[Webhook] PayVessel error: ${error.message}`);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
@@ -145,7 +141,7 @@ exports.handlePayvesselWebhook = async (req, res) => {
 // @desc    Handle Monnify Webhook
 // @route   POST /api/webhooks/monnify
 // @access  Public (Secured by Signature)
-exports.handleMonnifyWebhook = async (req, res) => {
+const handleMonnifyWebhook = async (req, res) => {
     const walletService = require('../services/walletService');
     const { Transaction, User } = require('../models');
     try {
@@ -156,13 +152,12 @@ exports.handleMonnifyWebhook = async (req, res) => {
             return res.status(400).send('No signature provided');
         }
 
-        // Verify signature (HMAC SHA512 of JSON body)
         const hash = crypto.createHmac('sha512', secret)
             .update(JSON.stringify(req.body))
             .digest('hex');
         
         if (hash !== signature) {
-            logger.warn('Monnify Webhook: Invalid signature');
+            logger.warn('[Webhook] Monnify: Invalid signature');
             return res.status(400).send('Invalid signature');
         }
 
@@ -174,22 +169,20 @@ exports.handleMonnifyWebhook = async (req, res) => {
             if (paymentStatus === 'PAID') {
                 const t = await sequelize.transaction();
                 try {
-                    // 1. Check if transaction reference already exists to prevent duplicate funding
-                    const existingTxn = await Transaction.findOne({ where: { reference: transactionReference } }, { transaction: t });
+                    const existingTxn = await Transaction.findOne({ where: { reference: transactionReference } });
                     if (existingTxn) {
                         await t.rollback();
-                        return res.status(200).json({ message: 'Transaction already exists' });
+                        logger.info(`[Webhook] Monnify: Transaction ${transactionReference} already processed`);
+                        return res.status(200).json({ success: true, message: 'Transaction already exists' });
                     }
 
-                    // 2. Find User by email from customerDTO
-                    const user = await User.findOne({ where: { email: customerDTO.email } }, { transaction: t });
+                    const user = await User.findOne({ where: { email: customerDTO.email } });
                     if (!user) {
                         await t.rollback();
-                        logger.error(`User with email ${customerDTO.email} not found for Monnify webhook`);
+                        logger.error(`[Webhook] Monnify: User with email ${customerDTO.email} not found`);
                         return res.status(404).send('User not found');
                     }
 
-                    // 3. Fund user wallet using WalletService
                     await walletService.credit(
                         user,
                         amountPaid,
@@ -198,12 +191,12 @@ exports.handleMonnifyWebhook = async (req, res) => {
                         { reference: transactionReference, gateway: 'monnify' },
                         t
                     );
-
+                    
                     await t.commit();
-                    logger.info(`Wallet funded successfully via Monnify: ${user.email} - N${amountPaid}`);
+                    logger.info(`[Webhook] Monnify: Wallet funded successfully for ${user.email} - ₦${amountPaid}`);
                 } catch (error) {
-                    await t.rollback();
-                    logger.error('Monnify Webhook Processing Error:', error);
+                    if (t && !t.finished) await t.rollback();
+                    logger.error(`[Webhook] Monnify processing error: ${error.message}`, { reference: transactionReference });
                     return res.status(500).send('Processing failed');
                 }
             }
@@ -211,7 +204,7 @@ exports.handleMonnifyWebhook = async (req, res) => {
         
         res.sendStatus(200);
     } catch (error) {
-        logger.error('Monnify Webhook Error:', error);
+        logger.error(`[Webhook] Monnify error: ${error.message}`);
         res.sendStatus(500);
     }
 };
@@ -219,44 +212,44 @@ exports.handleMonnifyWebhook = async (req, res) => {
 // @desc    Handle Smeplug Webhook (Transaction Status Updates)
 // @route   POST /api/webhooks/smeplug
 // @access  Public
-exports.handleSmeplugWebhook = async (req, res) => {
+const handleSmeplugWebhook = async (req, res) => {
     const { Transaction } = require('../models');
     try {
-        // Implementation depends on Smeplug webhook format
-        // Typically updates transaction status (data/airtime)
         const { reference, status } = req.body;
+        logger.info(`[Webhook] SMEPlug received: ${reference} - ${status}`);
         
         if (reference && status) {
             const t = await sequelize.transaction();
             try {
-                const transaction = await Transaction.findOne({ where: { reference } }, { transaction: t });
+                const transaction = await Transaction.findOne({ where: { reference } });
                 
                 if (transaction) {
                     if (status === 'success' && transaction.status !== 'completed') {
-                        transaction.status = 'completed';
-                        await transaction.save({ transaction: t });
+                        await transaction.markAsCompleted(req.body);
+                        logger.info(`[Webhook] SMEPlug: Transaction ${reference} marked as completed`);
                     } else if (status === 'failed' && transaction.status !== 'failed') {
-                        transaction.status = 'failed';
-                        
-                        // Refund if necessary (logic depends on business rules)
-                        // const wallet = await Wallet.findByPk(transaction.walletId, { transaction: t });
-                        // wallet.balance = parseFloat(wallet.balance) + parseFloat(transaction.amount);
-                        // await wallet.save({ transaction: t });
-                        
-                        await transaction.save({ transaction: t });
+                        await transaction.markAsFailed(req.body.reason || 'SMEPlug reports failure');
+                        logger.warn(`[Webhook] SMEPlug: Transaction ${reference} marked as failed`);
                     }
                 }
                 
                 await t.commit();
             } catch (error) {
-                await t.rollback();
-                console.error('Smeplug Webhook Processing Error:', error);
+                if (t && !t.finished) await t.rollback();
+                logger.error(`[Webhook] SMEPlug processing error: ${error.message}`, { reference });
             }
         }
         
         res.sendStatus(200);
     } catch (error) {
-        console.error('Smeplug Webhook Error:', error);
+        logger.error(`[Webhook] SMEPlug error: ${error.message}`);
         res.sendStatus(500);
     }
+};
+
+module.exports = {
+    handlePaystackWebhook,
+    handlePayvesselWebhook,
+    handleMonnifyWebhook,
+    handleSmeplugWebhook
 };

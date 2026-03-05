@@ -71,7 +71,6 @@ const getApiKey = async (req, res) => {
         let apiKey = await ApiKey.findOne({ where: { userId } });
         
         if (!apiKey) {
-            // Generate one if not exists
             const key = 'pk_live_' + crypto.randomBytes(16).toString('hex');
             const secret = 'sk_live_' + crypto.randomBytes(16).toString('hex');
             
@@ -82,24 +81,33 @@ const getApiKey = async (req, res) => {
                 secret: secret
             });
 
-            // Return secret on creation
+            logger.info(`[APIKey] New key generated for user ${userId}`);
+
             return res.json({
-                key: apiKey.key,
-                secret: apiKey.secret,
-                isActive: apiKey.is_active,
-                message: 'API Key generated. Save your secret now!'
+                success: true,
+                message: 'API Key generated successfully. Please save your secret key securely.',
+                data: {
+                    key: apiKey.key,
+                    secret: apiKey.secret,
+                    isActive: apiKey.is_active
+                }
             });
         }
         
-        // Return masked secret for existing key
         res.json({
-            key: apiKey.key,
-            secret: '********************', // Masked
-            isActive: apiKey.is_active
+            success: true,
+            data: {
+                key: apiKey.key,
+                secret: '********************', // Masked
+                isActive: apiKey.is_active
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[APIKey] Fetch error for user ${userId}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve API key' 
+        });
     }
 };
 
@@ -127,15 +135,23 @@ const regenerateApiKey = async (req, res) => {
             });
         }
         
+        logger.info(`[APIKey] Key regenerated for user ${userId}`);
+
         res.json({
-            key: apiKey.key,
-            secret: apiKey.secret,
-            isActive: apiKey.is_active,
-            message: 'New API Key generated successfully'
+            success: true,
+            message: 'New API Key generated successfully. Previous keys are now invalid.',
+            data: {
+                key: apiKey.key,
+                secret: apiKey.secret,
+                isActive: apiKey.is_active
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[APIKey] Regeneration error for user ${userId}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to regenerate API key' 
+        });
     }
 };
 
@@ -151,7 +167,10 @@ const getAffiliateStats = async (req, res) => {
         });
 
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'User not found' 
+            });
         }
 
         const referrals = await Referral.findAll({
@@ -165,8 +184,7 @@ const getAffiliateStats = async (req, res) => {
         });
 
         const totalEarnings = user.wallet ? user.wallet.commission_balance : 0;
-        const pendingPayout = 0; // Logic for pending payout can be added later
-
+        
         const recentReferrals = referrals.map(ref => ({
             name: ref.ReferredUser ? ref.ReferredUser.name : 'Unknown',
             date: ref.createdAt,
@@ -175,16 +193,21 @@ const getAffiliateStats = async (req, res) => {
         }));
 
         res.json({
-            referralCode: user.referral_code,
-            referralLink: `https://peacebundlle.com/register?ref=${user.referral_code}`,
-            totalEarnings,
-            referredUsersCount: referrals.length,
-            pendingPayout,
-            recentReferrals
+            success: true,
+            data: {
+                referralCode: user.referral_code,
+                referralLink: `https://peacebundlle.com/register?ref=${user.referral_code}`,
+                totalEarnings,
+                referredUsersCount: referrals.length,
+                recentReferrals
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Affiliate] Stats fetch error for user ${userId}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve affiliate statistics' 
+        });
     }
 };
 
@@ -199,10 +222,16 @@ const getBeneficiaries = async (req, res) => {
             where: { userId },
             order: [['createdAt', 'DESC']]
         });
-        res.json(beneficiaries);
+        res.json({
+            success: true,
+            data: beneficiaries
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Beneficiary] Fetch error for user ${userId}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve beneficiaries' 
+        });
     }
 };
 
@@ -213,22 +242,19 @@ const addBeneficiary = async (req, res) => {
     const { name, phone, network, accountNumber, bankName } = req.body;
     const userId = req.user.id;
 
-    // Validation
-    if (!name) {
-        return res.status(400).json({ message: 'Name is required' });
+    if (!name || (!phone && !accountNumber)) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'Name and at least one contact method (Phone or Account Number) are required' 
+        });
     }
 
     try {
-        const user = await User.findByPk(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
         const newBeneficiary = await Beneficiary.create({
             userId,
             name,
             phoneNumber: phone,
-            network: network || 'others',
+            network: (network || 'others').toLowerCase(),
             accountNumber,
             bankName
         });
@@ -238,14 +264,22 @@ const addBeneficiary = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
-        res.json({
+        logger.info(`[Beneficiary] Added for user ${userId}: ${name}`);
+
+        res.status(201).json({
+            success: true,
             message: 'Beneficiary added successfully',
-            beneficiary: newBeneficiary,
-            beneficiaries
+            data: {
+                beneficiary: newBeneficiary,
+                beneficiaries
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Beneficiary] Add error for user ${userId}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to add beneficiary' 
+        });
     }
 };
 
@@ -270,16 +304,25 @@ const deleteBeneficiary = async (req, res) => {
                 order: [['createdAt', 'DESC']]
             });
 
+            logger.info(`[Beneficiary] Deleted for user ${userId}: ID ${beneficiaryId}`);
+
             res.json({
+                success: true,
                 message: 'Beneficiary removed successfully',
-                beneficiaries
+                data: beneficiaries
             });
         } else {
-            res.status(404).json({ message: 'Beneficiary not found' });
+            res.status(404).json({ 
+                success: false,
+                message: 'Beneficiary not found or unauthorized' 
+            });
         }
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Beneficiary] Delete error for user ${userId}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to remove beneficiary' 
+        });
     }
 };
 

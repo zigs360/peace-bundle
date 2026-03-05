@@ -49,36 +49,27 @@ if (process.env.NODE_ENV !== 'test') {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Trust proxy for Render/Cloudflare/etc. (Required for express-rate-limit)
-app.set('trust proxy', 1);
+// Security Middleware
+app.use(helmet());
+app.use(cors());
+app.use(compression());
 
-// Security & Optimization Middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://www.googletagmanager.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "blob:", "https:", "https://www.google-analytics.com"],
-      connectSrc: [
-        "'self'", 
-        "https://*.google-analytics.com", 
-        "https://*.analytics.google.com",
-        "https://*.googletagmanager.com",
-        "https://stats.g.doubleclick.net",
-        "ws://localhost:5173", 
-        "http://localhost:5173",
-        "http://localhost:5000"
-      ],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      objectSrc: ["'none'"],
-      upgradeInsecureRequests: [],
-    },
-  },
-})); // Secure HTTP headers
-app.use(compression()); // Compress responses
-app.use(cors()); // CORS (Configure restricted origin in production)
-app.use(express.json());
+// Logging Middleware
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+}
+
+// Request Timeout (30 seconds)
+app.use((req, res, next) => {
+  res.setTimeout(30000, () => {
+    logger.warn('Request timeout:', { method: req.method, url: req.url });
+    res.status(408).json({ success: false, message: 'Request Timeout' });
+  });
+  next();
+});
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate Limiting
 const limiter = rateLimit({

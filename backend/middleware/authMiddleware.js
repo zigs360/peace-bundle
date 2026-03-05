@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const logger = require('../utils/logger');
 
 const protect = async (req, res, next) => {
     let token;
@@ -20,18 +21,18 @@ const protect = async (req, res, next) => {
             });
 
             if (!req.user) {
-                return res.status(401).json({ message: 'Not authorized, user not found' });
+                return res.status(401).json({ success: false, message: 'Not authorized, user not found' });
             }
             
-            next();
+            return next();
         } catch (error) {
-            console.error(error);
-            res.status(401).json({ message: 'Not authorized, token failed' });
+            logger.error('Auth protect error:', { error: error.message, token: token ? 'provided' : 'none' });
+            return res.status(401).json({ success: false, message: 'Not authorized, token failed' });
         }
     }
 
     if (!token) {
-        res.status(401).json({ message: 'Not authorized, no token' });
+        return res.status(401).json({ success: false, message: 'Not authorized, no token' });
     }
 };
 
@@ -39,7 +40,8 @@ const admin = (req, res, next) => {
     if (req.user && req.user.role === 'admin') {
         next();
     } else {
-        res.status(403).json({ message: 'Not authorized as an admin' });
+        logger.warn('Admin Access Denied:', { userId: req.user?.id, role: req.user?.role });
+        res.status(403).json({ success: false, message: 'Not authorized as an admin' });
     }
 };
 
@@ -47,14 +49,19 @@ const reseller = (req, res, next) => {
     if (req.user && (req.user.role === 'reseller' || req.user.role === 'admin')) {
         next();
     } else {
-        res.status(403).json({ message: 'Not authorized as a reseller' });
+        logger.warn('Reseller Access Denied:', { userId: req.user?.id, role: req.user?.role });
+        res.status(403).json({ success: false, message: 'Not authorized as a reseller' });
     }
 };
 
 const authorize = (...roles) => {
     return (req, res, next) => {
         if (!req.user || !roles.includes(req.user.role)) {
-            return res.status(403).json({ message: `Role ${req.user ? req.user.role : 'unknown'} is not authorized to access this route` });
+            logger.warn('Role Access Denied:', { userId: req.user?.id, role: req.user?.role, required: roles });
+            return res.status(403).json({ 
+                success: false,
+                message: `Role ${req.user ? req.user.role : 'unknown'} is not authorized to access this route` 
+            });
         }
         next();
     };

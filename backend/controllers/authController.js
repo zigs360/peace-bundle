@@ -32,7 +32,10 @@ const registerUser = async (req, res) => {
 
     // Simple validation
     if (!userName || !email || !phone || !password) {
-        return res.status(400).json({ message: 'Please include all fields' });
+        return res.status(400).json({ 
+            success: false,
+            message: 'Please include all fields: Name, Email, Phone, and Password' 
+        });
     }
 
     const t = await sequelize.transaction();
@@ -47,18 +50,24 @@ const registerUser = async (req, res) => {
 
         if (userExists) {
             await t.rollback();
-            return res.status(400).json({ message: 'User already exists' });
+            return res.status(400).json({ 
+                success: false,
+                message: 'A user with this email or phone number already exists' 
+            });
         }
 
         // Handle Referral (Optional)
         let referredBy = null;
         let referrerObj = null;
         if (referralCode) {
-            referrerObj = await ReferralService.validateCode(referralCode);
-            if (referrerObj) {
-                referredBy = referrerObj.referral_code;
+            try {
+                referrerObj = await ReferralService.validateCode(referralCode);
+                if (referrerObj) {
+                    referredBy = referrerObj.referral_code;
+                }
+            } catch (refErr) {
+                logger.warn(`Referral validation failed for code ${referralCode}: ${refErr.message}`);
             }
-            // If invalid, we just proceed without linking a referrer
         }
 
         // Generate Referral Code
@@ -81,39 +90,42 @@ const registerUser = async (req, res) => {
             kyc_status: 'none'
         }, { transaction: t });
 
-        // User setup (Wallet and Virtual Account) is handled by the User.afterCreate hook
-        // This ensures registration only completes if both are successfully set up.
-
         await t.commit();
+
+        logger.info(`[Auth] New user registered: ${email} (${user.id})`);
 
         // Track referral reward if applicable
         if (referrerObj) {
             ReferralService.trackReferral(referrerObj, user).catch(err => {
-                console.error('Failed to track referral reward:', err);
+                logger.error(`[Referral] Failed to track referral reward for user ${user.id}: ${err.message}`);
             });
         }
 
-        // Virtual account assignment is now part of the transaction and happens before the commit.
-
         res.status(201).json({
-            token: generateToken(user.id),
-            user: {
-                id: user.id,
-                fullName: user.name,
-                email: user.email,
-                phone: user.phone,
-                balance: 0.00, // Initial balance
-                package: user.package,
-                referralCode: user.referral_code,
-                role: user.role,
-                kycStatus: user.kyc_status
-            },
-            message: 'Registration successful'
+            success: true,
+            message: 'Registration successful',
+            data: {
+                token: generateToken(user.id),
+                user: {
+                    id: user.id,
+                    fullName: user.name,
+                    email: user.email,
+                    phone: user.phone,
+                    balance: 0.00,
+                    package: user.package,
+                    referralCode: user.referral_code,
+                    role: user.role,
+                    kycStatus: user.kyc_status
+                }
+            }
         });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        if (t && !t.finished) await t.rollback();
+        logger.error(`[Auth] Registration error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Registration failed. Please try again later.' 
+        });
     }
 };
 
@@ -122,6 +134,13 @@ const registerUser = async (req, res) => {
 // @access  Public
 const loginUser = async (req, res) => {
     const { emailOrPhone, password } = req.body;
+
+    if (!emailOrPhone || !password) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'Please provide both email/phone and password' 
+        });
+    }
 
     try {
         // Find user by email, phone, or name (username)
@@ -137,14 +156,19 @@ const loginUser = async (req, res) => {
         });
 
         if (!user) {
-            return res.status(400).json({ message: 'Invalid credentials' });
+            logger.warn(`[Auth] Failed login attempt: User not found for ${emailOrPhone}`);
+            return res.status(401).json({ 
+                success: false,
+                message: 'Invalid email/phone or password' 
+            });
         }
 
         // Check for lockout
         if (user.lockout_until && user.lockout_until > new Date()) {
             const minutesLeft = Math.ceil((user.lockout_until - new Date()) / 60000);
             return res.status(403).json({ 
-                message: `Account is locked due to multiple failed attempts. Please try again in ${minutesLeft} minute(s).` 
+                success: false,
+                message: `Account is temporarily locked due to multiple failed attempts. Please try again in ${minutesLeft} minute(s).` 
             });
         }
 
@@ -157,26 +181,26 @@ const loginUser = async (req, res) => {
                 lockout_until: null
             });
 
-            // Log activity for admins
-            if (user.role === 'admin') {
-                console.log(`[AUDIT] Admin Login: ${user.email} (${user.id}) at ${new Date().toISOString()}`);
-            }
+            logger.info(`[Auth] User logged in: ${user.email} (${user.id})`);
 
             res.json({
-                token: generateToken(user.id),
-                user: {
-                    id: user.id,
-                    fullName: user.name,
-                    email: user.email,
-                    phone: user.phone,
-                    balance: user.wallet ? user.wallet.balance : 0, // Access balance from Wallet
-                    package: user.package,
-                    referralCode: user.referral_code,
-                    role: user.role,
-                    kycStatus: user.kyc_status,
-                    avatar: user.avatar
-                },
-                message: 'Login successful'
+                success: true,
+                message: 'Login successful',
+                data: {
+                    token: generateToken(user.id),
+                    user: {
+                        id: user.id,
+                        fullName: user.name,
+                        email: user.email,
+                        phone: user.phone,
+                        balance: user.wallet ? user.wallet.balance : 0,
+                        package: user.package,
+                        referralCode: user.referral_code,
+                        role: user.role,
+                        kycStatus: user.kyc_status,
+                        avatar: user.avatar
+                    }
+                }
             });
         } else {
             // Increment failed attempts
@@ -187,21 +211,29 @@ const loginUser = async (req, res) => {
             if (newAttempts >= 5) {
                 updateData.lockout_until = new Date(Date.now() + 15 * 60 * 1000); // Lock for 15 minutes
                 updateData.login_attempts = 0; // Reset attempts after lockout
+                logger.warn(`[Auth] Account locked for ${user.email} due to 5 failed attempts`);
             }
 
             await user.update(updateData);
 
             if (updateData.lockout_until) {
                 return res.status(403).json({ 
-                    message: 'Account locked due to 5 failed attempts. Please try again in 15 minutes.' 
+                    success: false,
+                    message: 'Account locked due to multiple failed attempts. Please try again in 15 minutes.' 
                 });
             }
 
-            res.status(400).json({ message: 'Invalid credentials' });
+            res.status(401).json({ 
+                success: false,
+                message: 'Invalid email/phone or password' 
+            });
         }
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[Auth] Login error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'An internal server error occurred during login' 
+        });
     }
 };
 
@@ -214,8 +246,12 @@ const getMe = async (req, res) => {
             attributes: { exclude: ['password'] },
             include: [{ model: Wallet, as: 'wallet' }]
         });
+        
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'User profile not found' 
+            });
         }
 
         // Auto-assign virtual account if missing (for existing users)
@@ -223,14 +259,12 @@ const getMe = async (req, res) => {
             try {
                 const accountDetails = await VirtualAccountService.assignVirtualAccount(user);
                 if (accountDetails) {
-                    // Update user object in memory to return latest data
                     user.virtual_account_number = accountDetails.accountNumber;
                     user.virtual_account_bank = accountDetails.bankName;
                     user.virtual_account_name = accountDetails.accountName;
                 }
             } catch (err) {
-                console.error(`Failed to auto-assign virtual account for user ${user.id}:`, err.message);
-                // Continue without it, don't block profile load
+                logger.warn(`[Auth] Failed to auto-assign virtual account for user ${user.id}: ${err.message}`);
             }
         }
         
@@ -238,10 +272,16 @@ const getMe = async (req, res) => {
         const userResponse = user.toJSON();
         userResponse.balance = user.wallet ? user.wallet.balance : 0;
         
-        res.json(userResponse);
+        res.json({
+            success: true,
+            data: userResponse
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[Auth] Profile fetch error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve user profile' 
+        });
     }
 };
 
@@ -256,7 +296,6 @@ const getAllUsers = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
         
-        // Format for frontend
         const formattedUsers = users.map(user => ({
             id: user.id,
             fullName: user.name,
@@ -269,10 +308,16 @@ const getAllUsers = async (req, res) => {
             avatar: user.avatar
         }));
         
-        res.json(formattedUsers);
+        res.json({
+            success: true,
+            data: formattedUsers
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[Auth] Admin fetch users error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve users' 
+        });
     }
 };
 
@@ -285,24 +330,28 @@ const updateProfile = async (req, res) => {
             include: [{ model: Wallet, as: 'wallet' }]
         });
 
-        if (user) {
-            user.name = req.body.fullName || user.name;
-            user.email = req.body.email || user.email;
-            user.phone = req.body.phone || user.phone;
-            
-            // Handle avatar upload
-            if (req.file) {
-                // We want to store a relative path that can be served
-                // multer diskStorage 'path' is the full path. 
-                // We just need the filename since we serve the whole uploads folder at /uploads
-                user.avatar = `uploads/${req.file.filename}`;
-            }
-            
-            // NOTE: Password update removed from here, use changePassword instead
+        if (!user) {
+            return res.status(404).json({ 
+                success: false,
+                message: 'User not found' 
+            });
+        }
 
-            const updatedUser = await user.save();
+        user.name = req.body.fullName || user.name;
+        user.email = req.body.email || user.email;
+        user.phone = req.body.phone || user.phone;
+        
+        if (req.file) {
+            user.avatar = `uploads/${req.file.filename}`;
+        }
+        
+        const updatedUser = await user.save();
+        logger.info(`[Auth] Profile updated for user ${user.id}`);
 
-            res.json({
+        res.json({
+            success: true,
+            message: 'Profile updated successfully',
+            data: {
                 id: updatedUser.id,
                 fullName: updatedUser.name,
                 email: updatedUser.email,
@@ -312,15 +361,16 @@ const updateProfile = async (req, res) => {
                 referralCode: updatedUser.referral_code,
                 role: updatedUser.role,
                 kycStatus: updatedUser.kyc_status,
-                avatar: updatedUser.avatar, // Include avatar in response
+                avatar: updatedUser.avatar,
                 token: generateToken(updatedUser.id)
-            });
-        } else {
-            res.status(404).json({ message: 'User not found' });
-        }
+            }
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[Auth] Profile update error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to update profile' 
+        });
     }
 };
 
@@ -331,31 +381,46 @@ const changePassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
-        return res.status(400).json({ message: 'Please provide current and new password' });
+        return res.status(400).json({ 
+            success: false,
+            message: 'Please provide both current and new passwords' 
+        });
     }
 
     try {
         const user = await User.findByPk(req.user.id);
 
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'User not found' 
+            });
         }
 
-        // Check current password
         const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) {
-            return res.status(400).json({ message: 'Invalid current password' });
+            return res.status(400).json({ 
+                success: false,
+                message: 'Current password provided is incorrect' 
+            });
         }
 
-        // Hash new password
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(newPassword, salt);
         await user.save();
 
-        res.json({ message: 'Password updated successfully' });
+        logger.info(`[Auth] Password changed for user ${user.id}`);
+
+        res.json({ 
+            success: true,
+            message: 'Password updated successfully' 
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[Auth] Password change error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to update password' 
+        });
     }
 };
 
@@ -366,69 +431,77 @@ const submitKyc = async (req, res) => {
     try {
         const { bvn } = req.body;
         
-        logger.info(`KYC Submission for User ${req.user.id}: BVN: ${bvn}, File: ${req.file ? req.file.filename : 'No File'}`);
-
         if (!bvn) {
-            return res.status(400).json({ message: 'BVN is required' });
+            return res.status(400).json({ 
+                success: false,
+                message: 'BVN is required for verification' 
+            });
         }
 
         if (bvn.length !== 11) {
-            return res.status(400).json({ message: 'BVN must be 11 digits' });
+            return res.status(400).json({ 
+                success: false,
+                message: 'BVN must be exactly 11 digits' 
+            });
         }
 
         if (!req.file) {
-            return res.status(400).json({ message: 'Please upload a document (JPG or PDF only)' });
+            return res.status(400).json({ 
+                success: false,
+                message: 'Please upload a valid document (JPG or PDF)' 
+            });
         }
 
         const user = await User.findByPk(req.user.id);
 
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'User not found' 
+            });
         }
 
-        // 1. Non-blocking BVN Verification
+        logger.info(`[KYC] Submission for User ${req.user.id}: BVN: ${bvn}, File: ${req.file.filename}`);
+
+        // 1. BVN Verification
         let isBvnVerified = false;
-        let bvnMessage = 'BVN not provided or verification skipped.';
+        let bvnMessage = '';
 
-        if (bvn) {
-            try {
-                const names = user.name ? user.name.split(' ') : ['User', ''];
-                const firstName = names[0];
-                const lastName = names.length > 1 ? names.slice(1).join(' ') : (user.fullName ? user.fullName.split(' ').slice(1).join(' ') : 'Customer');
+        try {
+            // Safer name extraction
+            const names = (user.name || '').trim().split(/\s+/);
+            const firstName = names[0] || 'Customer';
+            const lastName = names.length > 1 ? names.slice(1).join(' ') : 'User';
 
-                isBvnVerified = await BvnVerificationService.verifyBvn(bvn, {
-                    firstName,
-                    lastName
-                });
+            isBvnVerified = await BvnVerificationService.verifyBvn(bvn, {
+                firstName,
+                lastName
+            });
 
-                if (isBvnVerified) {
-                    user.bvn = bvn;
-                    user.is_bvn_verified = true;
-                    user.bvn_verified_at = new Date();
-                    bvnMessage = 'BVN successfully verified.';
-                } else {
-                    bvnMessage = 'BVN verification failed. Please check the number and try again.';
-                }
-            } catch (error) {
-                bvnMessage = `BVN verification could not be completed: ${error.message}`;
-                logger.warn(`BVN verification failed for user ${user.id}: ${error.message}`);
+            if (isBvnVerified) {
+                user.bvn = bvn;
+                user.is_bvn_verified = true;
+                user.bvn_verified_at = new Date();
+                bvnMessage = 'BVN verified successfully.';
+                logger.info(`[KYC] BVN verified for user ${user.id}`);
+            } else {
+                bvnMessage = 'BVN verification failed. Please ensure names on BVN match your profile.';
+                logger.warn(`[KYC] BVN verification failed for user ${user.id}`);
             }
+        } catch (error) {
+            bvnMessage = `BVN verification service unavailable: ${error.message}`;
+            logger.error(`[KYC] BVN service error for user ${user.id}: ${error.message}`);
         }
 
-        // 2. Update user KYC status
-        // Secure Document Handling: Encrypt the file for sensitivity
+        // 2. Document Handling
         try {
             const filePath = req.file.path;
             const fileBuffer = fs.readFileSync(filePath);
             const encryptedBuffer = encrypt(fileBuffer);
-            
-            // Overwrite original file with encrypted data
             fs.writeFileSync(filePath, encryptedBuffer);
-            
-            logger.info(`KYC Document encrypted and stored: ${req.file.filename}`);
+            logger.info(`[KYC] Document encrypted for user ${user.id}`);
         } catch (encryptError) {
-            logger.error('Failed to encrypt KYC document:', encryptError);
-            // We continue even if encryption fails for now, but in strict production we might throw
+            logger.error(`[KYC] Encryption failed for user ${user.id}: ${encryptError.message}`);
         }
 
         user.kyc_document = `secure_uploads/${req.file.filename}`;
@@ -437,33 +510,35 @@ const submitKyc = async (req, res) => {
         
         await user.save();
 
-        // 3. Update PayVessel with BVN if it was successfully verified
+        // 3. Update External Providers
         if (isBvnVerified && user.metadata && user.metadata.payvessel_tracking_reference) {
-            try {
-                await payvesselService.updateAccountBvn(user.metadata.payvessel_tracking_reference, bvn);
-                logger.info(`PayVessel BVN updated for user ${user.id}`);
-            } catch (err) {
-                logger.error(`PayVessel BVN update failed for user ${user.id}:`, err.message);
-            }
+            payvesselService.updateAccountBvn(user.metadata.payvessel_tracking_reference, bvn).catch(err => {
+                logger.error(`[PayVessel] BVN update failed for user ${user.id}: ${err.message}`);
+            });
         }
 
-        // 4. Trigger Virtual Account Assignment if BVN is verified
+        // 4. Trigger Virtual Account Assignment
         if (isBvnVerified) {
             VirtualAccountService.assignVirtualAccount(user).catch(err => {
-                console.error(`Automatic Virtual Account Assignment Failed for User ${user.id}:`, err.message);
+                logger.error(`[VirtualAccount] Assignment failed after KYC for user ${user.id}: ${err.message}`);
             });
         }
 
         res.json({ 
-            message: 'KYC document submitted successfully. Your document is now pending review.',
-            bvnMessage,
-            kycStatus: user.kyc_status,
-            kycDocument: user.kyc_document,
-            isBvnVerified: user.is_bvn_verified
+            success: true,
+            message: 'KYC submitted successfully and is now pending review.',
+            data: {
+                bvnMessage,
+                kycStatus: user.kyc_status,
+                isBvnVerified: user.is_bvn_verified
+            }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error(`[KYC] Submission error for user ${req.user.id}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'An error occurred while submitting KYC' 
+        });
     }
 };
 

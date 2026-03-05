@@ -1,4 +1,5 @@
 const Beneficiary = require('../models/Beneficiary');
+const logger = require('../utils/logger');
 
 // @desc    Get user beneficiaries
 // @route   GET /api/beneficiaries
@@ -9,10 +10,13 @@ const getBeneficiaries = async (req, res) => {
             where: { userId: req.user.id },
             order: [['createdAt', 'DESC']]
         });
-        res.json(beneficiaries);
+        res.json({
+            success: true,
+            data: beneficiaries
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error('Get Beneficiaries Error:', { error: error.message, userId: req.user.id });
+        res.status(500).json({ success: false, message: 'Failed to fetch beneficiaries' });
     }
 };
 
@@ -24,7 +28,7 @@ const createBeneficiary = async (req, res) => {
         const { name, phoneNumber, network, accountNumber, bankName } = req.body;
 
         if (!name) {
-            return res.status(400).json({ message: 'Name is required' });
+            return res.status(400).json({ success: false, message: 'Name is required' });
         }
 
         const beneficiary = await Beneficiary.create({
@@ -36,10 +40,14 @@ const createBeneficiary = async (req, res) => {
             bankName
         });
 
-        res.status(201).json(beneficiary);
+        res.status(201).json({
+            success: true,
+            message: 'Beneficiary created successfully',
+            data: beneficiary
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error('Create Beneficiary Error:', { error: error.message, userId: req.user.id });
+        res.status(500).json({ success: false, message: 'Failed to create beneficiary' });
     }
 };
 
@@ -56,14 +64,14 @@ const deleteBeneficiary = async (req, res) => {
         });
 
         if (!beneficiary) {
-            return res.status(404).json({ message: 'Beneficiary not found' });
+            return res.status(404).json({ success: false, message: 'Beneficiary not found' });
         }
 
         await beneficiary.destroy();
-        res.json({ message: 'Beneficiary removed' });
+        res.json({ success: true, message: 'Beneficiary removed' });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error' });
+        logger.error('Delete Beneficiary Error:', { error: error.message, userId: req.user.id, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Failed to delete beneficiary' });
     }
 };
 

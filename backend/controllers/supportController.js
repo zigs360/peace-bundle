@@ -1,5 +1,6 @@
 const SupportTicket = require('../models/SupportTicket');
 const User = require('../models/User');
+const logger = require('../utils/logger');
 
 // @desc    Create a new support ticket
 // @route   POST /api/support
@@ -9,7 +10,10 @@ const createTicket = async (req, res) => {
         const { subject, message, priority } = req.body;
 
         if (!subject || !message) {
-            return res.status(400).json({ message: 'Please provide subject and message' });
+            return res.status(400).json({ 
+                success: false,
+                message: 'Please provide both a subject and a message for your ticket' 
+            });
         }
 
         const ticket = await SupportTicket.create({
@@ -19,10 +23,19 @@ const createTicket = async (req, res) => {
             priority: priority || 'medium'
         });
 
-        res.status(201).json(ticket);
+        logger.info(`[Support] New ticket created by user ${req.user.id}: ${subject}`);
+
+        res.status(201).json({
+            success: true,
+            message: 'Support ticket created successfully. Our team will get back to you soon.',
+            data: ticket
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Support] Ticket creation error for user ${req.user.id}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to create support ticket' 
+        });
     }
 };
 
@@ -35,10 +48,17 @@ const getUserTickets = async (req, res) => {
             where: { userId: req.user.id },
             order: [['createdAt', 'DESC']]
         });
-        res.json(tickets);
+        
+        res.json({
+            success: true,
+            data: tickets
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Support] User fetch error for user ${req.user.id}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve your support tickets' 
+        });
     }
 };
 
@@ -51,10 +71,17 @@ const getAllTickets = async (req, res) => {
             include: [{ model: User, as: 'User', attributes: ['name', 'email'] }],
             order: [['createdAt', 'DESC']]
         });
-        res.json(tickets);
+        
+        res.json({
+            success: true,
+            data: tickets
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Support] Admin fetch all error: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve all support tickets' 
+        });
     }
 };
 
@@ -68,18 +95,30 @@ const getTicketById = async (req, res) => {
         });
 
         if (!ticket) {
-            return res.status(404).json({ message: 'Ticket not found' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'Support ticket not found' 
+            });
         }
 
         // Check ownership if not admin
         if (ticket.userId !== req.user.id && req.user.role !== 'admin') {
-            return res.status(401).json({ message: 'Not authorized' });
+            return res.status(401).json({ 
+                success: false,
+                message: 'Not authorized to view this ticket' 
+            });
         }
 
-        res.json(ticket);
+        res.json({
+            success: true,
+            data: ticket
+        });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Support] Fetch by ID error (${req.params.id}): ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to retrieve ticket details' 
+        });
     }
 };
 
@@ -92,12 +131,18 @@ const replyToTicket = async (req, res) => {
         const ticket = await SupportTicket.findByPk(req.params.id);
 
         if (!ticket) {
-            return res.status(404).json({ message: 'Ticket not found' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'Support ticket not found' 
+            });
         }
 
         // Check ownership if not admin
         if (ticket.userId !== req.user.id && req.user.role !== 'admin') {
-            return res.status(401).json({ message: 'Not authorized' });
+            return res.status(401).json({ 
+                success: false,
+                message: 'Not authorized to reply to this ticket' 
+            });
         }
 
         // If admin, they can resolve and add admin_response
@@ -105,20 +150,28 @@ const replyToTicket = async (req, res) => {
             if (response) ticket.admin_response = response;
             if (status) ticket.status = status;
             if (status === 'resolved') ticket.resolved_at = new Date();
-        } else {
-            // User logic (maybe append to message or separate conversation model later)
-            // For now, let's just allow them to update the message if open?
-            // Or simpler: User can only create tickets, Admin responds.
-            // Let's stick to the model: admin_response is a single field.
-            // So this endpoint is mainly for Admin to resolve.
-            return res.status(403).json({ message: 'Only admins can reply/resolve currently' });
-        }
+            
+            await ticket.save();
+            logger.info(`[Support] Admin ${req.user.id} replied to ticket ${req.params.id}`);
 
-        await ticket.save();
-        res.json(ticket);
+            res.json({
+                success: true,
+                message: 'Ticket updated successfully',
+                data: ticket
+            });
+        } else {
+            // Currently only admins can reply via this endpoint
+            return res.status(403).json({ 
+                success: false,
+                message: 'Currently, only administrators can respond to or resolve tickets.' 
+            });
+        }
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error(`[Support] Reply error for ticket ${req.params.id}: ${error.message}`);
+        res.status(500).json({ 
+            success: false,
+            message: 'Failed to update support ticket' 
+        });
     }
 };
 

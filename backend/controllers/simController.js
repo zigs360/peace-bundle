@@ -20,17 +20,20 @@ exports.getSims = async (req, res) => {
         });
 
         res.json({
-            sims: {
-                data: rows,
-                current_page: page,
-                total: count,
-                per_page: limit,
-                last_page: Math.ceil(count / limit)
+            success: true,
+            data: {
+                sims: rows,
+                pagination: {
+                    current_page: page,
+                    total: count,
+                    per_page: limit,
+                    last_page: Math.ceil(count / limit)
+                }
             }
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Get Sims Error:', { error: error.message, userId: req.user.id });
+        res.status(500).json({ success: false, message: 'Failed to fetch SIMs' });
     }
 };
 
@@ -76,11 +79,11 @@ exports.getSim = async (req, res) => {
         const sim = await Sim.findByPk(id);
         
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
 
         if (sim.userId !== req.user.id) {
-            return res.status(403).json({ message: 'Unauthorized' });
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
         
         res.json({
@@ -88,8 +91,8 @@ exports.getSim = async (req, res) => {
             data: sim
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Get Single SIM Error:', { error: error.message, userId: req.user.id, id });
+        res.status(500).json({ success: false, message: 'Failed to fetch SIM' });
     }
 };
 
@@ -104,11 +107,11 @@ exports.updateSim = async (req, res) => {
         const sim = await Sim.findByPk(id);
         
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
 
         if (sim.userId !== req.user.id) {
-            return res.status(403).json({ message: 'Unauthorized' });
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
         
         if (low_balance_threshold !== undefined) sim.lowBalanceThreshold = low_balance_threshold;
@@ -122,8 +125,8 @@ exports.updateSim = async (req, res) => {
             data: sim
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Update SIM Error:', { error: error.message, userId: req.user.id, id });
+        res.status(500).json({ success: false, message: 'Failed to update SIM' });
     }
 };
 
@@ -137,11 +140,11 @@ exports.deleteSim = async (req, res) => {
         const sim = await Sim.findByPk(id);
         
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
 
         if (sim.userId !== req.user.id) {
-            return res.status(403).json({ message: 'Unauthorized' });
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
         await sim.destroy();
@@ -151,8 +154,8 @@ exports.deleteSim = async (req, res) => {
             message: 'SIM deleted successfully!'
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Delete SIM Error:', { error: error.message, userId: req.user.id, id });
+        res.status(500).json({ success: false, message: 'Failed to delete SIM' });
     }
 };
 
@@ -167,11 +170,11 @@ exports.checkBalance = async (req, res) => {
         const sim = await Sim.findByPk(id);
         
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
 
         if (sim.userId !== req.user.id) {
-            return res.status(403).json({ message: 'Unauthorized' });
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
         const balance = await simManagementService.checkBalance(sim, 3, force);
@@ -182,8 +185,8 @@ exports.checkBalance = async (req, res) => {
             sim: await sim.reload() // Reload to get fresh data
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        logger.error('Check SIM Balance Error:', { error: error.message, userId: req.user.id, id });
+        res.status(500).json({ success: false, message: error.message || 'Failed to check SIM balance' });
     }
 };
 
@@ -197,11 +200,11 @@ exports.connectSim = async (req, res) => {
         const sim = await Sim.findByPk(id);
         
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
 
         if (sim.userId !== req.user.id) {
-            return res.status(403).json({ message: 'Unauthorized' });
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
         await simManagementService.connectSim(sim);
@@ -212,10 +215,10 @@ exports.connectSim = async (req, res) => {
             data: await sim.reload()
         });
     } catch (error) {
-        console.error(error);
+        logger.error('Connect SIM Error:', { error: error.message, userId: req.user.id, id });
         res.status(400).json({ 
             success: false,
-            message: error.message 
+            message: error.message || 'Failed to connect SIM' 
         });
     }
 };
@@ -230,11 +233,11 @@ exports.disconnectSim = async (req, res) => {
         const sim = await Sim.findByPk(id);
         
         if (!sim) {
-            return res.status(404).json({ message: 'SIM not found' });
+            return res.status(404).json({ success: false, message: 'SIM not found' });
         }
 
         if (sim.userId !== req.user.id) {
-            return res.status(403).json({ message: 'Unauthorized' });
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
         await simManagementService.disconnectSim(sim);
@@ -245,10 +248,10 @@ exports.disconnectSim = async (req, res) => {
             data: await sim.reload()
         });
     } catch (error) {
-        console.error(error);
+        logger.error('Disconnect SIM Error:', { error: error.message, userId: req.user.id, id });
         res.status(400).json({ 
             success: false,
-            message: error.message 
+            message: error.message || 'Failed to disconnect SIM' 
         });
     }
 };
