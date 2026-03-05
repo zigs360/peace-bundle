@@ -4,6 +4,7 @@ const Transaction = require('../models/Transaction');
 const DataPlan = require('../models/DataPlan');
 const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
+const transactionLimitService = require('../services/transactionLimitService');
 const logger = require('../utils/logger');
 const { sequelize } = require('../config/database');
 
@@ -22,6 +23,7 @@ const networkServices = {
 const purchaseUnified = async (req, res) => {
   const { phone, serviceType, amount, network, planId } = req.body;
   const userId = req.user.id;
+  let t;
 
   logger.info(`Unified Purchase Initiation: User ${userId}, Service ${serviceType}, Phone ${phone}, Amount ${amount}, Network ${network}`);
 
@@ -29,6 +31,16 @@ const purchaseUnified = async (req, res) => {
     const user = await User.findByPk(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check Transaction Limits
+    const limitCheck = await transactionLimitService.canTransact(user);
+    if (!limitCheck.allowed) {
+        return res.status(403).json({ 
+            success: false,
+            message: limitCheck.reason,
+            details: limitCheck 
+        });
     }
 
     // Basic validation
@@ -47,7 +59,6 @@ const purchaseUnified = async (req, res) => {
       return res.status(400).json({ success: false, message: `Service ${serviceType} not supported for ${network}` });
     }
 
-    let t;
     try {
       t = await sequelize.transaction();
 
@@ -96,7 +107,7 @@ const purchaseUnified = async (req, res) => {
           throw new Error('Invalid data plan selected');
         }
 
-        const price = parseFloat(plan.admin_price);
+        const price = parseFloat(await plan.getPriceForUser(user));
 
         // Debit Wallet
         const newTransaction = await walletService.debit(
@@ -124,19 +135,19 @@ const purchaseUnified = async (req, res) => {
           transaction: newTransaction
         });
       } else {
-        await t.rollback();
+        if (t) await t.rollback();
         return res.status(400).json({ success: false, message: 'Invalid service type' });
       }
 
     } catch (error) {
-      if (t && !t.finished) {
+      if (t) {
         try {
           await t.rollback();
         } catch (rbErr) {
-          logger.error('Transaction Rollback Failed:', rbErr);
+          // Ignore rollback errors if already finished
         }
       }
-      logger.error('Unified Purchase Error:', error);
+      logger.error('Unified Purchase Inner Error:', { error: error.message, stack: error.stack, userId, phone });
       return res.status(500).json({ 
         success: false, 
         message: error.message || 'Processing failed' 
@@ -144,7 +155,7 @@ const purchaseUnified = async (req, res) => {
     }
 
   } catch (error) {
-    logger.error('Unified Purchase Outer Error:', error);
+    logger.error('Unified Purchase Outer Error:', { error: error.message, stack: error.stack, userId });
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
