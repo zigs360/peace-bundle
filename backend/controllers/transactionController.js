@@ -16,6 +16,7 @@ const { sequelize } = require('../config/database');
 const { Op } = require('sequelize');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
+const logger = require('../utils/logger');
 
 // Helper for Affiliate Commission
 const processAffiliateCommission = async (user, amount, transaction, t) => {
@@ -61,7 +62,7 @@ const initializeFunding = async (req, res) => {
         const user = await User.findByPk(req.user.id);
         
         if (!amount || isNaN(amount) || amount <= 0) {
-            return res.status(400).json({ message: 'Invalid amount' });
+            return res.status(400).json({ success: false, message: 'Invalid amount' });
         }
 
         const paymentInfo = await paymentGatewayService.initializePayment(user, parseFloat(amount), {
@@ -74,8 +75,8 @@ const initializeFunding = async (req, res) => {
             data: paymentInfo
         });
     } catch (error) {
-        console.error('Funding Initialization Error:', error);
-        res.status(500).json({ message: error.message || 'Failed to initialize funding' });
+        logger.error('Funding Initialization Error:', { error: error.message, stack: error.stack, userId: req.user.id });
+        res.status(500).json({ success: false, message: error.message || 'Failed to initialize funding' });
     }
 };
 
@@ -85,21 +86,20 @@ const initializeFunding = async (req, res) => {
 const fundWallet = async (req, res) => {
     const { amount, reference } = req.body;
     const userId = req.user.id;
-
-    const t = await sequelize.transaction();
+    let t;
 
     try {
         const user = await User.findByPk(userId);
         if (!user) {
-            await t.rollback();
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         const value = parseFloat(amount);
         if (isNaN(value) || value <= 0) {
-            await t.rollback();
-            return res.status(400).json({ message: 'Invalid amount' });
+            return res.status(400).json({ success: false, message: 'Invalid amount' });
         }
+
+        t = await sequelize.transaction();
 
         // Use WalletService
         const newTransaction = await walletService.credit(
@@ -123,14 +123,15 @@ const fundWallet = async (req, res) => {
         const updatedWallet = await walletService.getBalance(user);
 
         res.json({
+            success: true,
             message: 'Wallet funded successfully',
             balance: updatedWallet,
             transaction: newTransaction
         });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Funding Error:', { error: error.message, stack: error.stack, userId, reference });
+        res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
 };
 
@@ -140,29 +141,31 @@ const fundWallet = async (req, res) => {
 const buyData = async (req, res) => {
     const { network, planId, phone, amount, planName } = req.body;
     const userId = req.user.id;
+    let t;
 
     try {
         const user = await User.findByPk(userId);
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         // Check Transaction Limits
         const limitCheck = await transactionLimitService.canTransact(user);
         if (!limitCheck.allowed) {
             return res.status(403).json({ 
+                success: false,
                 message: limitCheck.reason,
                 details: limitCheck 
             });
         }
 
-        const t = await sequelize.transaction();
+        t = await sequelize.transaction();
 
         // Fetch Data Plan
         const plan = await DataPlan.findByPk(planId);
         if (!plan || !plan.is_active) {
-            await t.rollback();
-            return res.status(404).json({ message: 'Data plan not found or inactive' });
+            if (t) await t.rollback();
+            return res.status(404).json({ success: false, message: 'Data plan not found or inactive' });
         }
 
         const cost = parseFloat(await plan.getPriceForUser(user));
@@ -199,7 +202,7 @@ const buyData = async (req, res) => {
                         simResponse = simResult;
                     }
                 } catch (simError) {
-                    console.error('Local SIM transaction failed, falling back to API:', simError);
+                    logger.error('Local SIM transaction failed, falling back to API:', { error: simError.message, phone });
                     // Continue to API fallback
                 }
             }
@@ -239,14 +242,15 @@ const buyData = async (req, res) => {
         const updatedWallet = await walletService.getBalance(user);
 
         res.json({
+            success: true,
             message: 'Data purchase successful',
             balance: updatedWallet,
             transaction: newTransaction
         });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: error.message || 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Data Purchase Error:', { error: error.message, stack: error.stack, userId, phone });
+        res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
 };
 
@@ -256,23 +260,25 @@ const buyData = async (req, res) => {
 const buyAirtime = async (req, res) => {
     const { network, phone, amount } = req.body;
     const userId = req.user.id;
+    let t;
 
     try {
         const user = await User.findByPk(userId);
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         // Check Transaction Limits
         const limitCheck = await transactionLimitService.canTransact(user);
         if (!limitCheck.allowed) {
             return res.status(403).json({ 
+                success: false,
                 message: limitCheck.reason,
                 details: limitCheck 
             });
         }
 
-        const t = await sequelize.transaction();
+        t = await sequelize.transaction();
 
         const faceValue = parseFloat(amount);
         const discount = 0.02; // 2%
@@ -311,14 +317,15 @@ const buyAirtime = async (req, res) => {
         const updatedWallet = await walletService.getBalance(user);
 
         res.json({
+            success: true,
             message: 'Airtime purchase successful',
             balance: updatedWallet,
             transaction: newTransaction
         });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: error.message || 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Airtime Purchase Error:', { error: error.message, stack: error.stack, userId, phone });
+        res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
 };
 
@@ -328,23 +335,25 @@ const buyAirtime = async (req, res) => {
 const payBill = async (req, res) => {
     const { billType, provider, smartCardNumber, amount, phone, meterType, plan } = req.body;
     const userId = req.user.id;
+    let t;
 
     try {
         const user = await User.findByPk(userId);
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         // Check Transaction Limits
         const limitCheck = await transactionLimitService.canTransact(user);
         if (!limitCheck.allowed) {
             return res.status(403).json({ 
+                success: false,
                 message: limitCheck.reason,
                 details: limitCheck 
             });
         }
 
-        const t = await sequelize.transaction();
+        t = await sequelize.transaction();
 
         const cost = parseFloat(amount);
 
@@ -372,14 +381,15 @@ const payBill = async (req, res) => {
         const updatedWallet = await walletService.getBalance(user);
 
         res.json({
+            success: true,
             message: 'Bill payment successful',
             balance: updatedWallet,
             transaction: newTransaction
         });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: error.message || 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Bill Payment Error:', { error: error.message, stack: error.stack, userId, smartCardNumber });
+        res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
 };
 
@@ -415,36 +425,56 @@ const validateCustomer = async (req, res) => {
 const withdrawFunds = async (req, res) => {
     const { amount, accountNumber, bankName, accountName } = req.body;
     const userId = req.user.id;
-    
-    const t = await sequelize.transaction();
+    let t;
 
     try {
         const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
         const withdrawAmount = parseFloat(amount);
+        if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+            return res.status(400).json({ success: false, message: 'Invalid amount' });
+        }
+
+        t = await sequelize.transaction();
         
         // Debit Wallet
         const newTransaction = await walletService.debit(
             user,
             withdrawAmount,
             'withdrawal',
-            `Withdrawal to ${bankName} - ${accountNumber}`,
-            { bankName, accountNumber, accountName },
+            `Withdrawal to ${bankName} (${accountNumber})`,
+            { accountNumber, bankName, accountName },
             t
         );
 
-        // Update status to pending as it requires manual approval usually
-        // But walletService.debit sets to completed. 
-        // We should update it to pending.
-        await newTransaction.update({ status: 'pending' }, { transaction: t });
+        // Process actual withdrawal via payment gateway
+        const result = await paymentGatewayService.processWithdrawal({
+            user,
+            amount: withdrawAmount,
+            accountNumber,
+            bankName,
+            accountName
+        });
+
+        if (!result.success) {
+            throw new Error(result.error || 'Withdrawal failed at gateway');
+        }
 
         await t.commit();
         await sendTransactionNotification(user, newTransaction);
 
-        res.json({ message: 'Withdrawal request submitted', transaction: newTransaction });
+        res.json({
+            success: true,
+            message: 'Withdrawal successful',
+            transaction: newTransaction
+        });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: error.message || 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Withdrawal Error:', { error: error.message, stack: error.stack, userId, accountNumber });
+        res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
 };
 
@@ -576,8 +606,8 @@ const checkResult = async (req, res) => {
 const transferFunds = async (req, res) => {
     const { recipientEmail, amount, pin } = req.body;
     const userId = req.user.id;
-    
-    const t = await sequelize.transaction();
+    let t;
+
     try {
         const sender = await User.findByPk(userId);
         const recipient = await User.findOne({ 
@@ -585,11 +615,15 @@ const transferFunds = async (req, res) => {
         });
 
         if (!recipient) {
-            await t.rollback();
-            return res.status(404).json({ message: 'Recipient not found' });
+            return res.status(404).json({ success: false, message: 'Recipient not found' });
         }
 
         const transferAmount = parseFloat(amount);
+        if (isNaN(transferAmount) || transferAmount <= 0) {
+            return res.status(400).json({ success: false, message: 'Invalid amount' });
+        }
+
+        t = await sequelize.transaction();
         
         // Use WalletService Transfer
         // Note: walletService.transfer returns { debit_transaction, credit_transaction }
@@ -607,11 +641,11 @@ const transferFunds = async (req, res) => {
         // await sendTransactionNotification(sender, result.debit_transaction);
         // await sendTransactionNotification(recipient, result.credit_transaction);
 
-        res.json({ message: 'Transfer successful' });
+        res.json({ success: true, message: 'Transfer successful' });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: error.message || 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Transfer Error:', { error: error.message, stack: error.stack, userId, recipientEmail });
+        res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
 };
 
@@ -621,23 +655,25 @@ const transferFunds = async (req, res) => {
 const sendBulkSMS = async (req, res) => {
     const { senderId, message, recipients } = req.body; // recipients is array or comma separated string
     const userId = req.user.id;
-    
+    let t;
+
     try {
         const user = await User.findByPk(userId);
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
         // Check Transaction Limits
         const limitCheck = await transactionLimitService.canTransact(user);
         if (!limitCheck.allowed) {
             return res.status(403).json({ 
+                success: false,
                 message: limitCheck.reason,
                 details: limitCheck 
             });
         }
 
-        const t = await sequelize.transaction();
+        t = await sequelize.transaction();
         
         // Calculate cost (Mock: 4 naira per page per number)
         const recipientList = (Array.isArray(recipients) ? recipients : recipients.split(',')).map(r => r.trim()).filter(r => r.length > 0);
@@ -664,16 +700,16 @@ const sendBulkSMS = async (req, res) => {
         Promise.allSettled(recipientList.map(recipient => 
             sendSMS(recipient, message)
         )).then(results => {
-            console.log(`Bulk SMS Processed: ${results.length} messages`);
+            logger.info(`Bulk SMS Processed: ${results.length} messages`);
         }).catch(err => {
-            console.error('Bulk SMS Error:', err);
+            logger.error('Bulk SMS Error:', err);
         });
         
-        res.json({ message: 'SMS sent successfully', cost });
+        res.json({ success: true, message: 'SMS sent successfully', cost });
     } catch (error) {
-        await t.rollback();
-        console.error(error);
-        res.status(500).json({ message: error.message || 'Server Error' });
+        if (t) await t.rollback();
+        logger.error('Bulk SMS Error:', { error: error.message, stack: error.stack, userId });
+        res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
 };
 
