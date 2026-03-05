@@ -29,48 +29,56 @@ class SmeplugService {
   }
 
   /**
-   * Purchase data (simplified)
+   * Purchase data
    * @param {string} provider
    * @param {string} phone
    * @param {string} plan_id
    * @param {string} [mode='wallet']
+   * @param {Object} [options={}] - Additional options like sim_number
    */
-  async purchaseData(provider, phone, plan_id, mode = 'wallet') {
+  async purchaseData(provider, phone, plan_id, mode = 'wallet', options = {}) {
     const data = {
       network_id: this.getNetworkId(provider),
       plan_id,
       phone,
-      mode
+      mode,
+      ...options
     };
     return this.makeRequest('POST', '/api/v1/data/purchase', data);
   }
 
   /**
-   * Purchase airtime (using /api/v1/airtime/purchase or /api/v1/vtu)
+   * Purchase airtime
    * @param {string} provider
    * @param {string} phone
    * @param {number} amount
    * @param {string} [mode='wallet']
+   * @param {Object} [options={}] - Additional options like sim_number
    */
-  async purchaseAirtime(provider, phone, amount, mode = 'wallet') {
-    // Some SMEPlug docs show /api/v1/vtu for airtime as well
+  async purchaseAirtime(provider, phone, amount, mode = 'wallet', options = {}) {
     const data = {
       network_id: this.getNetworkId(provider),
       amount,
       phone,
-      mode
+      mode,
+      ...options
     };
     return this.makeRequest('POST', '/api/v1/airtime/purchase', data);
   }
 
   /**
-   * VTU Airtime Purchase (Specifically /api/v1/vtu)
+   * VTU Airtime Purchase
+   * @param {string} provider
+   * @param {string} phone
+   * @param {number} amount
+   * @param {Object} [options={}] - Additional options like mode, sim_number
    */
-  async purchaseVTU(provider, phone, amount) {
+  async purchaseVTU(provider, phone, amount, options = {}) {
     const data = {
       network_id: this.getNetworkId(provider),
       phone_number: phone,
-      amount
+      amount,
+      ...options
     };
     return this.makeRequest('POST', '/api/v1/vtu', data);
   }

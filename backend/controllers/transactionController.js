@@ -294,18 +294,45 @@ const buyAirtime = async (req, res) => {
             t
         );
 
-        // 2. Call Smeplug API for Airtime
+        // 2. Call Smeplug API or Local SIM for Airtime
         try {
-            const purchaseResult = await smeplugService.purchaseVTU(network, phone, faceValue);
+            let processedViaSim = false;
+            let simReference = null;
+            let simResponse = null;
 
-            if (!purchaseResult.success) {
-                throw new Error(purchaseResult.error || 'Airtime purchase failed at provider');
+            // Try to find a local SIM first (for airtime/VTU)
+            const optimalSim = await simManagementService.getOptimalSim(network, faceValue);
+            
+            if (optimalSim) {
+                try {
+                    const simResult = await simManagementService.processTransaction(optimalSim, { provider: network, amount: faceValue }, phone);
+                    if (simResult.success) {
+                        processedViaSim = true;
+                        simReference = simResult.reference;
+                        simResponse = simResult;
+                    }
+                } catch (simError) {
+                    logger.error('Local SIM Airtime transaction failed, falling back to API:', { error: simError.message, phone });
+                    // Continue to API fallback
+                }
             }
 
-            // Update transaction with provider reference
-            newTransaction.smeplug_reference = purchaseResult.data?.reference || purchaseResult.data?.transaction_id;
-            newTransaction.smeplug_response = purchaseResult.data;
-            await newTransaction.save({ transaction: t });
+            if (processedViaSim) {
+                newTransaction.smeplug_reference = simReference;
+                newTransaction.smeplug_response = simResponse;
+                await newTransaction.save({ transaction: t });
+            } else {
+                const purchaseResult = await smeplugService.purchaseVTU(network, phone, faceValue);
+
+                if (!purchaseResult.success) {
+                    throw new Error(purchaseResult.error || 'Airtime purchase failed at provider');
+                }
+
+                // Update transaction with provider reference
+                newTransaction.smeplug_reference = purchaseResult.data?.reference || purchaseResult.data?.transaction_id;
+                newTransaction.smeplug_response = purchaseResult.data;
+                await newTransaction.save({ transaction: t });
+            }
 
         } catch (apiError) {
             throw apiError; // Trigger rollback

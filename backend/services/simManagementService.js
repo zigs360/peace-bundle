@@ -332,17 +332,21 @@ class SimManagementService {
   }
 
   /**
-   * Process data purchase transaction via SIM
+   * Process transaction (Data or Airtime) via SIM
    * @param {Sim} sim
-   * @param {DataPlan} plan
+   * @param {Object} item - DataPlan object OR { provider, amount } for airtime
    * @param {string} recipientPhone
    * @returns {Promise<Object>}
    */
-  async processTransaction(sim, plan, recipientPhone) {
+  async processTransaction(sim, item, recipientPhone) {
     try {
-        if (!sim || !plan || !recipientPhone) {
+        if (!sim || !item || !recipientPhone) {
             throw new Error('Missing transaction details');
         }
+
+        // Determine if it's airtime or data
+        const isAirtime = !!item.amount; // Airtime has an amount, data has a plan object usually
+        const networkId = smeplugService.getNetworkId(sim.provider);
 
         // 1. Check if SIM can dispense
         if (!(await this.canDispense(sim))) {
@@ -352,54 +356,58 @@ class SimManagementService {
         let success = false;
         let response = null;
         let reference = null;
+        let costToSim = 0;
 
         // 2. Determine execution method based on SIM type
         if (sim.type === 'sim_system' || sim.type === 'device_based') {
             // Use SMEPlug API for hosted SIMs
-            // Map our plan to SMEPlug plan ID (use smeplug_plan_id or fallback to plan.id)
-            const smeplugPlanId = plan.smeplug_plan_id || plan.id;
-            const networkId = smeplugService.getNetworkId(plan.provider);
+            logger.info(`Processing ${isAirtime ? 'airtime' : 'data'} transaction via SMEPlug SIM ${sim.phoneNumber} for ${recipientPhone}`);
 
-            logger.info(`Processing transaction via SMEPlug SIM ${sim.phoneNumber} for ${recipientPhone}`);
-
-            const result = await smeplugService.purchaseData({
-                network_id: networkId,
-                plan_id: smeplugPlanId,
-                phone: recipientPhone,
-                mode: 'device_based', // Force device_based mode
-                sim_number: sim.phoneNumber // Specify the SIM to use
-            });
+            let result;
+            if (isAirtime) {
+                costToSim = parseFloat(item.amount);
+                result = await smeplugService.purchaseVTU(sim.provider, recipientPhone, costToSim, {
+                    mode: 'device_based',
+                    sim_number: sim.phoneNumber
+                });
+            } else {
+                // Map our plan to SMEPlug plan ID (use smeplug_plan_id or fallback to item.id)
+                const smeplugPlanId = item.smeplug_plan_id || item.id;
+                costToSim = item.api_cost || 0;
+                
+                result = await smeplugService.purchaseData(sim.provider, recipientPhone, smeplugPlanId, 'device_based', {
+                    sim_number: sim.phoneNumber
+                });
+            }
 
             if (result.success) {
                 success = true;
                 response = result.data;
-                reference = result.data?.reference;
-                
-                // Update local balance estimate if possible
-                // (Optional: depending on API response structure)
+                reference = result.data?.reference || result.data?.transaction_id;
             } else {
-                throw new Error(result.error || 'SMEPlug SIM transaction failed');
+                throw new Error(result.error || `SMEPlug SIM ${isAirtime ? 'airtime' : 'data'} transaction failed`);
             }
 
         } else {
-            // Legacy/Mock local USSD execution (for testing or direct hardware integration)
-            // ... existing mock logic ...
-            const ussdCode = `*123*${plan.size_mb}*${recipientPhone}#`; 
+            // Legacy/Mock local USSD execution
+            const ussdCode = isAirtime ? `*123*${item.amount}*${recipientPhone}#` : `*123*${item.size_mb}*${recipientPhone}#`; 
             logger.info(`Sending USSD ${ussdCode} via SIM ${sim.phoneNumber}`);
             
             // Mock Success
             success = true;
             reference = `SIM-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
             response = { message: 'USSD Sent successfully (Mock)' };
+            costToSim = isAirtime ? item.amount : (item.api_cost || 0);
         }
         
         if (success) {
             // Update SIM stats
             await this.incrementDispense(sim);
             
-            // Decrement local balance estimate (optional, but good for "automatic deduction" tracking)
-            if (plan.api_cost) {
-                await sim.decrement('airtimeBalance', { by: plan.api_cost });
+            // Decrement local balance estimate
+            if (costToSim > 0) {
+                await sim.decrement('airtimeBalance', { by: costToSim });
+                logger.info(`SIM ${sim.phoneNumber} balance decremented by ₦${costToSim}. Estimated balance: ₦${sim.airtimeBalance - costToSim}`);
             }
 
             return {
