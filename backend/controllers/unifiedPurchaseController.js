@@ -4,6 +4,7 @@ const Transaction = require('../models/Transaction');
 const DataPlan = require('../models/DataPlan');
 const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
+const simManagementService = require('../services/simManagementService');
 const transactionLimitService = require('../services/transactionLimitService');
 const logger = require('../utils/logger');
 const { sequelize } = require('../config/database');
