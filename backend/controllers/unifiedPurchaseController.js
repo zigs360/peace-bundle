@@ -55,15 +55,17 @@ const purchaseUnified = async (req, res) => {
       cleanPhone = '0' + cleanPhone.substring(3);
     }
     
+    // Normalize network to lowercase
+    const cleanNetwork = network.toLowerCase();
+    
     // Verify service capability
-    if (!networkServices[network] || !networkServices[network][serviceType]) {
+    if (!networkServices[cleanNetwork] || !networkServices[cleanNetwork][serviceType]) {
       return res.status(400).json({ success: false, message: `Service ${serviceType} not supported for ${network}` });
     }
 
     try {
       t = await sequelize.transaction();
 
-      let result;
       let transactionType;
       let description;
       let finalAmount = parseFloat(amount || 0);
@@ -78,7 +80,7 @@ const purchaseUnified = async (req, res) => {
           finalAmount,
           transactionType,
           description,
-          { network, phone: cleanPhone, amount: finalAmount, serviceType, planId },
+          { network: cleanNetwork, phone: cleanPhone, amount: finalAmount, serviceType, planId },
           t
         );
 
@@ -89,10 +91,10 @@ const purchaseUnified = async (req, res) => {
           let simResponse = null;
 
           // Try to find a local SIM first (for airtime/VTU)
-          const optimalSim = await simManagementService.getOptimalSim(network, finalAmount);
+          const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, finalAmount);
           if (optimalSim) {
             try {
-              const simResult = await simManagementService.processTransaction(optimalSim, { provider: network, amount: finalAmount }, cleanPhone);
+              const simResult = await simManagementService.processTransaction(optimalSim, { provider: cleanNetwork, amount: finalAmount }, cleanPhone);
               if (simResult.success) {
                 processedViaSim = true;
                 simReference = simResult.reference;
@@ -109,7 +111,7 @@ const purchaseUnified = async (req, res) => {
             await newTransaction.save({ transaction: t });
           } else {
             // Call SMEPlug API for airtime as fallback
-            const providerResponse = await smeplugService.purchaseVTU(network, cleanPhone, finalAmount);
+            const providerResponse = await smeplugService.purchaseVTU(cleanNetwork, cleanPhone, finalAmount);
             
             if (!providerResponse.success) {
               logger.error('Smeplug Airtime Failure:', providerResponse);
@@ -151,7 +153,7 @@ const purchaseUnified = async (req, res) => {
           price,
           transactionType,
           `${network.toUpperCase()} ${plan.size} Data Purchase to ${cleanPhone}`,
-          { network, phone: cleanPhone, planId, amount: price, planName: plan.name },
+          { network: cleanNetwork, phone: cleanPhone, planId, amount: price, planName: plan.name },
           t
         );
 
@@ -162,7 +164,7 @@ const purchaseUnified = async (req, res) => {
           let simResponse = null;
 
           // Try to find a local SIM first
-          const optimalSim = await simManagementService.getOptimalSim(network, plan.api_cost || 0);
+          const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, plan.api_cost || 0);
           if (optimalSim) {
             try {
               const simResult = await simManagementService.processTransaction(optimalSim, plan, cleanPhone);
@@ -182,7 +184,7 @@ const purchaseUnified = async (req, res) => {
             await newTransaction.save({ transaction: t });
           } else {
             // Call SMEPlug API as fallback
-            const providerResponse = await smeplugService.purchaseData(network, cleanPhone, plan.smeplug_plan_id || plan.id, 'wallet');
+            const providerResponse = await smeplugService.purchaseData(cleanNetwork, cleanPhone, plan.smeplug_plan_id || plan.id, 'wallet');
             
             if (!providerResponse.success) {
               logger.error('Smeplug Data Failure:', providerResponse);
@@ -213,21 +215,40 @@ const purchaseUnified = async (req, res) => {
     } catch (error) {
       if (t) {
         try {
-          await t.rollback();
+          // Check if transaction is already committed or rolled back
+          // Sequelize transactions have an internal 'finished' property
+          if (!t.finished) {
+            await t.rollback();
+          }
         } catch (rbErr) {
-          // Ignore rollback errors if already finished
+          logger.error('Rollback Error during 500:', rbErr.message);
         }
       }
-      logger.error('Unified Purchase Inner Error:', { error: error.message, stack: error.stack, userId, phone });
-      return res.status(500).json({ 
+      
+      const isClientError = error.message.includes('selected') || 
+                           error.message.includes('limit') || 
+                           error.message.includes('balance');
+      
+      logger.error('Unified Purchase Error:', { 
+        message: error.message, 
+        stack: error.stack, 
+        userId, 
+        phone,
+        serviceType 
+      });
+
+      return res.status(isClientError ? 400 : 500).json({ 
         success: false, 
-        message: error.message || 'Processing failed' 
+        message: error.message || 'Internal Server Error' 
       });
     }
 
   } catch (error) {
     logger.error('Unified Purchase Outer Error:', { error: error.message, stack: error.stack, userId });
-    res.status(500).json({ success: false, message: 'Server Error' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Critical Server Error: ' + error.message 
+    });
   }
 };
 
