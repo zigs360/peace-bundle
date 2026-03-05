@@ -414,6 +414,9 @@ const getUsers = async (req, res) => {
         const { count, rows } = await User.findAndCountAll({
             where,
             include: [{ model: Wallet, as: 'wallet' }],
+            attributes: {
+                exclude: ['password', 'two_factor_secret'] // Exclude sensitive fields
+            },
             limit: parseInt(limit),
             offset: parseInt(offset),
             order: [['createdAt', 'DESC']]

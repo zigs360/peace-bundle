@@ -215,7 +215,7 @@ export default function AdminUsersPage() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Virtual Account</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Balance</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -232,13 +232,19 @@ export default function AdminUsersPage() {
                       </div>
                       <div className="ml-4">
                         <div className="text-sm font-medium text-gray-900">{user.fullName || user.name || 'Unknown'}</div>
-                        <div className="text-xs text-gray-500">{user.role}</div>
+                        <div className="text-xs text-gray-500">{user.email} / {user.phone}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{user.email}</div>
-                    <div className="text-sm text-gray-500">{user.phone}</div>
+                    {user.virtual_account_number ? (
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">{user.virtual_account_number}</div>
+                        <div className="text-xs text-gray-500">{user.virtual_account_bank}</div>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">Not Assigned</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="text-sm font-bold text-green-600">₦{Number(user.balance || user.wallet?.balance || 0).toLocaleString()}</span>
