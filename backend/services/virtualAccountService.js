@@ -4,10 +4,91 @@ const SystemSetting = require('../models/SystemSetting');
 const payvesselService = require('./payvesselService');
 const logger = require('../utils/logger');
 
+const { sendSMS, sendTransactionNotification } = require('./notificationService');
+
 class VirtualAccountService {
     constructor() {
         this.monnifyBaseUrl = process.env.MONNIFY_BASE_URL || 'https://sandbox.monnify.com';
         this.paystackBaseUrl = 'https://api.paystack.co';
+    }
+
+    /**
+     * Bulk provisioning for legacy users
+     * @param {number} limit - Number of users to process in this batch
+     * @returns {Promise<Object>} - Summary of the migration
+     */
+    async bulkMigrateLegacyUsers(limit = 50) {
+        logger.info(`[VirtualAccount] Starting bulk migration for up to ${limit} users.`);
+        const users = await User.findAll({
+            where: {
+                virtual_account_number: null,
+                account_status: 'active'
+            },
+            limit: limit
+        });
+
+        const summary = {
+            total_found: users.length,
+            success: 0,
+            failed: 0,
+            errors: []
+        };
+
+        for (const user of users) {
+            try {
+                // Use a dedicated transaction per user to ensure partial success doesn't block others
+                await sequelize.transaction(async (t) => {
+                    await this.assignVirtualAccount(user, { transaction: t });
+                    
+                    // Notify User
+                    try {
+                        await this.notifyUserOfNewAccount(user);
+                    } catch (notifErr) {
+                        logger.warn(`[VirtualAccount] Migration notification failed for ${user.email}: ${notifErr.message}`);
+                    }
+                });
+                summary.success++;
+            } catch (err) {
+                summary.failed++;
+                summary.errors.push({ userId: user.id, email: user.email, error: err.message });
+                logger.error(`[VirtualAccount] Migration failed for user ${user.id}: ${err.message}`);
+            }
+        }
+
+        logger.info(`[VirtualAccount] Migration complete: ${summary.success} succeeded, ${summary.failed} failed.`);
+        return summary;
+    }
+
+    /**
+     * Secure notification for new virtual accounts
+     * @param {User} user 
+     */
+    async notifyUserOfNewAccount(user) {
+        const message = `Hello ${user.name || 'User'}, your unique virtual account is now active! \nBank: ${user.virtual_account_bank}\nAccount No: ${user.virtual_account_number}\nName: ${user.virtual_account_name}\nYou can now fund your wallet instantly via bank transfer.`;
+        
+        // 1. Send SMS (if phone exists)
+        if (user.phone) {
+            try {
+                await sendSMS(user.phone, message);
+            } catch (smsErr) {
+                logger.error(`[VirtualAccount] SMS notification failed for ${user.id}: ${smsErr.message}`);
+            }
+        }
+
+        // 2. Send Email/Push via notification service
+        try {
+            await sendTransactionNotification(user, {
+                type: 'virtual_account_activation',
+                message: message,
+                details: {
+                    bank: user.virtual_account_bank,
+                    accountNumber: user.virtual_account_number,
+                    accountName: user.virtual_account_name
+                }
+            });
+        } catch (emailErr) {
+            logger.error(`[VirtualAccount] Email notification failed for ${user.id}: ${emailErr.message}`);
+        }
     }
 
     async getMonnifyToken() {

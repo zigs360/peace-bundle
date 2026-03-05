@@ -1237,46 +1237,27 @@ const sendAdminBulkSMS = async (req, res) => {
 // @route   POST /api/admin/users/:id/virtual-account
 // @access  Private (Admin)
 const generateMissingVirtualAccounts = async (req, res) => {
-    const VirtualAccountService = require('../services/virtualAccountService');
+    const virtualAccountService = require('../services/virtualAccountService');
+    const { limit = 50, notify = true } = req.body;
+    
     try {
-        const usersWithoutAccounts = await User.findAll({
-            where: {
-                [Op.or]: [
-                    { virtual_account_number: null },
-                    { virtual_account_number: '' }
-                ]
-            }
-        });
-
-        if (usersWithoutAccounts.length === 0) {
-            return res.json({ message: 'All users already have virtual accounts.' });
-        }
-
-        let successCount = 0;
-        let failureCount = 0;
-        const failures = [];
-
-        for (const user of usersWithoutAccounts) {
-            try {
-                await VirtualAccountService.assignVirtualAccount(user);
-                successCount++;
-            } catch (error) {
-                failureCount++;
-                failures.push({ userId: user.id, name: user.name, error: error.message });
-                logger.error(`Failed to generate virtual account for user ${user.id} during bulk generation: ${error.message}`);
-            }
-        }
+        logger.info(`[Admin] Initiating bulk virtual account migration. Limit: ${limit}, Notify: ${notify}`);
+        
+        const summary = await virtualAccountService.bulkMigrateLegacyUsers(parseInt(limit));
 
         res.json({
-            message: `Virtual account generation process completed. ${successCount} accounts created, ${failureCount} failed.`,
-            successCount,
-            failureCount,
-            failures
+            success: true,
+            message: `Migration process completed. ${summary.success} accounts created, ${summary.failed} failed.`,
+            data: summary
         });
 
     } catch (error) {
-        logger.error(`Error during bulk virtual account generation: ${error.message}`);
-        res.status(500).json({ message: 'An unexpected error occurred during the bulk generation process.' });
+        logger.error(`[Admin] Error during bulk virtual account generation: ${error.message}`);
+        res.status(500).json({ 
+            success: false, 
+            message: 'An unexpected error occurred during the bulk generation process.',
+            error: error.message 
+        });
     }
 };
 

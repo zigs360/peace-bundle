@@ -6,7 +6,8 @@ const {
     deleteBeneficiary, 
     getAffiliateStats,
     getApiKey,
-    regenerateApiKey
+    regenerateApiKey,
+    requestVirtualAccount
 } = require('../controllers/userController');
 const dataPurchaseController = require('../controllers/dataPurchaseController');
 const bulkDataController = require('../controllers/bulkDataController');
@@ -29,6 +30,7 @@ router.get('/data/bulk', protect, bulkDataController.index);
 router.post('/data/bulk/upload', protect, upload.single('file'), bulkDataController.upload);
 
 router.get('/affiliate-stats', protect, getAffiliateStats);
+router.post('/virtual-account/request', protect, requestVirtualAccount);
 router.get('/apikey', protect, getApiKey);
 router.post('/apikey/regenerate', protect, regenerateApiKey);
 router.get('/beneficiaries/:userId', protect, getBeneficiaries);

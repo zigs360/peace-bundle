@@ -5,6 +5,63 @@ const Wallet = require('../models/Wallet');
 const ApiKey = require('../models/ApiKey');
 const crypto = require('crypto');
 
+const virtualAccountService = require('../services/virtualAccountService');
+const logger = require('../utils/logger');
+
+// @desc    Request Virtual Account (Self-Service)
+// @route   POST /api/users/virtual-account/request
+// @access  Private
+const requestVirtualAccount = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const user = await User.findByPk(userId);
+        
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        if (user.virtual_account_number) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'You already have a virtual account assigned.',
+                data: {
+                    bank: user.virtual_account_bank,
+                    accountNumber: user.virtual_account_number,
+                    accountName: user.virtual_account_name
+                }
+            });
+        }
+
+        // Check if KYC is required for VA creation (some providers require BVN/KYC)
+        // If BVN is missing and required, we might need to prompt for it
+        if (!user.bvn && !user.is_bvn_verified) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'KYC/BVN verification is required to generate a virtual account. Please verify your identity first.' 
+            });
+        }
+
+        logger.info(`[VirtualAccount] Manual request initiated by user ${userId} (${user.email})`);
+        
+        const account = await virtualAccountService.assignVirtualAccount(user);
+        
+        // Notify user immediately
+        await virtualAccountService.notifyUserOfNewAccount(user);
+
+        res.json({
+            success: true,
+            message: 'Virtual account generated successfully!',
+            data: account
+        });
+    } catch (error) {
+        logger.error(`[VirtualAccount] Manual request failed for user ${userId}: ${error.message}`);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || 'Failed to generate virtual account. Please try again later.' 
+        });
+    }
+};
+
 // @desc    Get API Key
 // @route   GET /api/users/apikey
 // @access  Private
