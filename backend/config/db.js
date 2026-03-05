@@ -153,6 +153,20 @@ const connectDB = async () => {
     }
     
     console.log('Database Synced');
+
+    // FIX: Assign any Sims with NULL user_id to the admin user
+    if (process.env.NODE_ENV !== 'test') {
+      const adminUser = await User.findOne({ where: { role: 'admin' }, order: [['createdAt', 'ASC']] });
+      if (adminUser) {
+        const [updatedCount] = await Sim.update(
+          { userId: adminUser.id },
+          { where: { userId: null } }
+        );
+        if (updatedCount > 0) {
+          console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
+        }
+      }
+    }
     
     isConnected = true;
 

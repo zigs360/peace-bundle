@@ -10,7 +10,7 @@ const Sim = sequelize.define('Sim', {
 
   userId: {
     type: DataTypes.UUID,
-    allowNull: false,
+    allowNull: true,
     field: 'user_id'
   },
 
