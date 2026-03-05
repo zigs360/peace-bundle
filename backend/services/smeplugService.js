@@ -220,9 +220,24 @@ class SmeplugService {
         status: statusCode
       });
 
+      // Extract specific error messages if they exist in the response
+      let errorMessage = 'API request failed';
+      if (errorResponse && errorResponse.message) {
+        errorMessage = errorResponse.message;
+      } else if (errorResponse && errorResponse.error) {
+        errorMessage = errorResponse.error;
+      } else if (errorResponse && typeof errorResponse === 'string') {
+        errorMessage = errorResponse;
+      }
+
+      // Add hint if it's an authentication error
+      if (statusCode === 401 || statusCode === 403) {
+        errorMessage = `Authentication failed: ${errorMessage}. Please check SMEPlug API keys.`;
+      }
+
       return {
         success: false,
-        error: errorResponse.message || 'API request failed',
+        error: errorMessage,
         data: errorResponse,
         status_code: statusCode
       };
