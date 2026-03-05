@@ -1,6 +1,7 @@
 const { Sim } = require('../models');
 const simManagementService = require('../services/simManagementService');
 const { validationResult } = require('express-validator');
+const logger = require('../utils/logger');
 
 // @desc    Get all SIMs for the authenticated user
 // @route   GET /api/sims
