@@ -65,6 +65,30 @@ const Sim = sequelize.define('Sim', {
     allowNull: true,
     field: 'last_connected_at'
   },
+  signalStrength: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'signal_strength'
+  },
+  networkInfo: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'network_info'
+  },
+  deviceId: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'device_id'
+  },
+  imei: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  batteryLevel: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'battery_level'
+  },
   statusReason: {
     type: DataTypes.TEXT,
     allowNull: true,

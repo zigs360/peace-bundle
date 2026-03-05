@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../../services/api';
 import DataTable from '../../../components/Tables/DataTable';
-import { Smartphone, Plus, Power, PowerOff, RefreshCw, Trash2, RotateCw } from 'lucide-react';
+import { Smartphone, Plus, Power, PowerOff, RefreshCw, Trash2, RotateCw, Signal, Wifi, Battery } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
@@ -121,6 +121,30 @@ export default function SimsIndex() {
       render: (value: string) => <span className="uppercase font-bold">{value}</span>
     },
     { key: 'phoneNumber', header: 'Phone Number' },
+    {
+      key: 'networkInfo',
+      header: 'Signal/Network/Bat',
+      render: (_: any, row: any) => (
+        <div className="flex flex-col">
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center text-xs text-gray-600">
+              <Signal className="w-3 h-3 mr-1 text-primary-500" />
+              <span>{row.signalStrength || 'N/A'}%</span>
+            </div>
+            {row.batteryLevel !== null && (
+              <div className="flex items-center text-xs text-gray-600">
+                <Battery className={`w-3 h-3 mr-1 ${row.batteryLevel < 20 ? 'text-red-500' : 'text-green-500'}`} />
+                <span>{row.batteryLevel}%</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center text-[10px] text-gray-400 mt-0.5">
+            <Wifi className="w-2.5 h-2.5 mr-1" />
+            <span>{row.networkInfo || 'Unknown'}</span>
+          </div>
+        </div>
+      )
+    },
     { 
       key: 'connectionStatus', 
       header: 'Connection',

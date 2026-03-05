@@ -70,6 +70,11 @@ class SimManagementService {
               connectionStatus: device.status === 'online' ? 'connected' : 'disconnected',
               status: device.is_active ? 'active' : 'paused',
               lastConnectedAt: device.last_seen ? new Date(device.last_seen) : sim.lastConnectedAt,
+              signalStrength: device.signal_strength || device.signal,
+              networkInfo: device.network_type || device.network,
+              deviceId: device.device_id || device.id,
+              imei: device.imei,
+              batteryLevel: device.battery_level || device.battery,
               type: 'sim_system', // Mark as Smeplug system SIM
               lastBalanceCheck: new Date()
             });
@@ -86,6 +91,11 @@ class SimManagementService {
               connectionStatus: device.status === 'online' ? 'connected' : 'disconnected',
               status: device.is_active ? 'active' : 'paused',
               lastConnectedAt: device.last_seen ? new Date(device.last_seen) : null,
+              signalStrength: device.signal_strength || device.signal,
+              networkInfo: device.network_type || device.network,
+              deviceId: device.device_id || device.id,
+              imei: device.imei,
+              batteryLevel: device.battery_level || device.battery,
               isVerified: true,
               verifiedAt: new Date(),
               lastBalanceCheck: new Date()
