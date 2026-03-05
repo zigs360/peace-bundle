@@ -289,5 +289,6 @@ module.exports = {
     deleteBeneficiary,
     getAffiliateStats,
     getApiKey,
-    regenerateApiKey
+    regenerateApiKey,
+    requestVirtualAccount
 };
