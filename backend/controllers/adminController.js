@@ -335,15 +335,12 @@ const getSimAnalytics = async (req, res) => {
         const totalDispenses = await Sim.sum('total_dispenses');
 
         res.json({
-            success: true,
-            data: {
-                total_sims: totalSims,
-                active_sims: activeSims,
-                banned_sims: bannedSims,
-                by_provider: byProvider,
-                avg_dispenses_per_sim: avgDispenses[0]?.get('avg') || 0,
-                total_dispenses: totalDispenses || 0
-            }
+            total_sims: totalSims,
+            active_sims: activeSims,
+            banned_sims: bannedSims,
+            by_provider: byProvider,
+            avg_dispenses_per_sim: avgDispenses[0]?.get('avg') || 0,
+            total_dispenses: totalDispenses || 0
         });
     } catch (error) {
         logger.error('Admin Get SIM Analytics Error:', { error: error.message });
@@ -611,26 +608,23 @@ const getAdminStats = async (req, res) => {
         ]);
 
         res.json({
-            success: true,
-            data: {
-                stats: {
-                    total_users: totalUsers,
-                    total_resellers: totalResellers,
-                    total_transactions: totalTransactions,
-                    successful_transactions: successfulTransactions,
-                    total_revenue: totalRevenue,
-                    pending_transactions: pendingTransactions,
-                    total_sims: totalSims,
-                    active_sims: activeSims,
-                    system_wallet_balance: systemWalletBalance
-                },
-                revenueByProvider: revenueByProvider.map(r => ({
-                    provider: r.provider,
-                    total: parseFloat(r.total || 0)
-                })),
-                recentTransactions,
-                trendData: trends
-            }
+            stats: {
+                total_users: totalUsers,
+                total_resellers: totalResellers,
+                total_transactions: totalTransactions,
+                successful_transactions: successfulTransactions,
+                total_revenue: totalRevenue,
+                pending_transactions: pendingTransactions,
+                total_sims: totalSims,
+                active_sims: activeSims,
+                system_wallet_balance: systemWalletBalance
+            },
+            revenueByProvider: revenueByProvider.map(r => ({
+                provider: r.provider,
+                total: parseFloat(r.total || 0)
+            })),
+            recentTransactions,
+            trendData: trends
         });
     } catch (error) {
         logger.error('Admin Get Stats Error:', { error: error.message, stack: error.stack });

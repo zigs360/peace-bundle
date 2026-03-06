@@ -73,15 +73,12 @@ const getSystemStats = async (req, res) => {
         const avgResponseTime = (Math.random() * 0.5 + 0.3).toFixed(2);
 
         res.json({
-            success: true,
-            data: {
-                totalTransactions,
-                successRate: parseFloat(successRate),
-                totalVolume: parseFloat(totalVolume || 0),
-                totalProfit: parseFloat(dataProfit),
-                activeUsers: activeUsersCount,
-                avgResponseTime: parseFloat(avgResponseTime)
-            }
+            totalTransactions,
+            successRate: parseFloat(successRate),
+            totalVolume: parseFloat(totalVolume || 0),
+            totalProfit: parseFloat(dataProfit),
+            activeUsers: activeUsersCount,
+            avgResponseTime: parseFloat(avgResponseTime)
         });
     } catch (error) {
         logger.error(`[Report] System stats error: ${error.message}`);
