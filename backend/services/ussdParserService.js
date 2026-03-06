@@ -41,22 +41,26 @@ class USSDParserService {
         /balance.*?([\d,]+\.?\d*)/i,
         /Your balance is.*?([\d,]+\.?\d*)/i,
         /Main Account.*?([\d,]+\.?\d*)/i,
+        /Bal:.*?([\d,]+\.?\d*)/i,
       ],
       'airtel': [
         /Main Account:\s*₦\s*([\d,]+\.?\d*)/i,
         /(?:NGN|₦|N)\s*([\d,]+\.?\d*)/i,
         /balance.*?([\d,]+\.?\d*)/i,
         /Airtime Balance.*?([\d,]+\.?\d*)/i,
+        /Bal:.*?([\d,]+\.?\d*)/i,
       ],
       'glo': [
         /Balance:\s*N\s*([\d,]+\.?\d*)/i,
         /(?:NGN|₦|N)\s*([\d,]+\.?\d*)/i,
         /Your balance.*?([\d,]+\.?\d*)/i,
+        /Bal:.*?([\d,]+\.?\d*)/i,
       ],
       '9mobile': [
         /Airtime Bal:\s*₦\s*([\d,]+\.?\d*)/i,
         /(?:NGN|₦|N)\s*([\d,]+\.?\d*)/i,
         /balance.*?([\d,]+\.?\d*)/i,
+        /Bal:.*?([\d,]+\.?\d*)/i,
       ],
     };
 

@@ -47,6 +47,14 @@ const Commission = sequelize.define('Commission', {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'paid_at'
+  },
+  referrerId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
+  referredUserId: {
+    type: DataTypes.UUID,
+    allowNull: true,
   }
 }, {
   timestamps: true,

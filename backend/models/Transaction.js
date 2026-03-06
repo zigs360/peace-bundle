@@ -105,6 +105,26 @@ const Transaction = sequelize.define('Transaction', {
     defaultValue: 0,
   },
 
+  userId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
+
+  walletId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
+
+  dataPlanId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
+
+  simId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
+
   // Virtual field for frontend compatibility
   date: {
     type: DataTypes.VIRTUAL,

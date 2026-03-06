@@ -1,6 +1,6 @@
 const { Commission, Referral, SystemSetting, User } = require('../models');
 const walletService = require('./walletService');
-const { sequelize } = require('../config/database');
+const { sequelize } = require('../config/db'); // Fix import to use associations
 const logger = require('../utils/logger');
 
 class AffiliateService {

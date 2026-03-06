@@ -1,5 +1,5 @@
 const { User, Wallet, Transaction } = require('../models');
-const { sequelize } = require('../config/database');
+const { sequelize } = require('../config/db'); // Fix import to use associations
 const crypto = require('crypto');
 
 class ReferralService {

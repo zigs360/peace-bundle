@@ -2,7 +2,7 @@ const { Sim, SystemSetting, User } = require('../models');
 const ussdParserService = require('./ussdParserService');
 const smeplugService = require('./smeplugService');
 const logger = require('../utils/logger');
-const { sequelize } = require('../config/database');
+const { sequelize } = require('../config/db'); // Use associations-enabled config
 
 class SimManagementService {
   /**

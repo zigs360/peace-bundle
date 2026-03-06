@@ -34,7 +34,10 @@ const requestVirtualAccount = async (req, res) => {
 
         // Check if KYC is required for VA creation (some providers require BVN/KYC)
         // If BVN is missing and required, we might need to prompt for it
-        if (!user.bvn && !user.is_bvn_verified) {
+        // Note: For PayVessel, some business models allow initial creation without full BVN, 
+        // but it's safer to have it if required by your settings.
+        const allowMockBvn = await virtualAccountService.getSetting('allow_mock_bvn') === 'true';
+        if (!user.bvn && !user.is_bvn_verified && !allowMockBvn) {
             return res.status(400).json({ 
                 success: false, 
                 message: 'KYC/BVN verification is required to generate a virtual account. Please verify your identity first.' 

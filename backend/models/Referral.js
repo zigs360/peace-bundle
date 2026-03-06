@@ -25,6 +25,14 @@ const Referral = sequelize.define('Referral', {
     type: DataTypes.INTEGER,
     defaultValue: 0,
     field: 'total_transactions'
+  },
+  referrerId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
+  referredUserId: {
+    type: DataTypes.UUID,
+    allowNull: true,
   }
 }, {
   timestamps: true,

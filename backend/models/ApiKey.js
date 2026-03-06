@@ -32,6 +32,10 @@ const ApiKey = sequelize.define('ApiKey', {
     type: DataTypes.DATE,
     allowNull: true,
     field: 'last_used_at'
+  },
+  userId: {
+    type: DataTypes.UUID,
+    allowNull: true,
   }
 }, {
   timestamps: true,

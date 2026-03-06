@@ -38,6 +38,11 @@ const Wallet = sequelize.define('Wallet', {
   last_transaction_at: {
     type: DataTypes.DATE,
     allowNull: true,
+  },
+  userId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    unique: true
   }
 }, {
   timestamps: true,

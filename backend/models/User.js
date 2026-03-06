@@ -142,7 +142,15 @@ User.afterCreate(async (user, options) => {
     // We make this non-blocking for registration to ensure the user can at least register 
     // even if the virtual account provider is temporarily down or keys are misconfigured.
     VirtualAccountService.assignVirtualAccount(user)
-      .then(() => logger.info(`[AUDIT] Virtual account assigned successfully for user: ${user.email}`))
+      .then(async (accountDetails) => {
+        logger.info(`[AUDIT] Virtual account assigned successfully for user: ${user.email}`);
+        // Send notification to user about their new virtual account
+        try {
+          await VirtualAccountService.notifyUserOfNewAccount(user);
+        } catch (notifErr) {
+          logger.warn(`[AUDIT] Failed to notify user ${user.email} of new account: ${notifErr.message}`);
+        }
+      })
       .catch((err) => logger.error(`[AUDIT] Virtual account assignment FAILED for user: ${user.email}. Error: ${err.message}`));
 
   } catch (error) {
