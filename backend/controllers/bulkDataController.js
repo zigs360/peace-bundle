@@ -7,7 +7,7 @@ class BulkDataController {
     
     // GET /api/user/data/bulk
     async index(req, res) {
-        res.json({ success: true, message: 'Ready for upload' });
+        res.json([]);
     }
 
     // POST /api/user/data/bulk/upload

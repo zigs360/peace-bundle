@@ -108,10 +108,7 @@ const getChartData = async (req, res) => {
             order: [[sequelize.fn('DATE', sequelize.col('createdAt')), 'ASC']]
         });
 
-        res.json({
-            success: true,
-            data: transactions
-        });
+        res.json(transactions);
     } catch (error) {
         logger.error(`[Report] Chart data error: ${error.message}`);
         res.status(500).json({ 

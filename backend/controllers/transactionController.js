@@ -777,13 +777,7 @@ const index = async (req, res) => {
 
         const user = await User.findByPk(req.user.id, { include: [{ model: Wallet, as: 'wallet' }] });
         if (!user || !user.wallet) {
-            return res.json({
-                data: [],
-                current_page: parseInt(page),
-                total: 0,
-                per_page: parseInt(limit),
-                last_page: 1
-            });
+            return res.json([]);
         }
 
         where.walletId = user.wallet.id;

@@ -19,18 +19,7 @@ exports.getSims = async (req, res) => {
             offset
         });
 
-        res.json({
-            success: true,
-            data: {
-                sims: rows,
-                pagination: {
-                    current_page: page,
-                    total: count,
-                    per_page: limit,
-                    last_page: Math.ceil(count / limit)
-                }
-            }
-        });
+        res.json(rows);
     } catch (error) {
         logger.error('Get Sims Error:', { error: error.message, userId: req.user.id });
         res.status(500).json({ success: false, message: 'Failed to fetch SIMs' });

@@ -36,11 +36,7 @@ class DataPurchaseController {
             // Get Wallet Balance
             const wallet = await Wallet.findOne({ where: { userId: user.id } });
 
-            res.json({
-                plans,
-                sims,
-                walletBalance: wallet ? wallet.balance : 0
-            });
+            res.json(activePlans);
 
         } catch (error) {
             logger.error('DataPurchaseController.index error:', { error: error.message, userId: req.user.id });
