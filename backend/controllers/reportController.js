@@ -47,6 +47,19 @@ const getSystemStats = async (req, res) => {
             }
         });
 
+        // Profit estimation (Admin Price - API Cost for completed data transactions)
+        // Note: This requires the DataPlan model to be associated and api_cost to be present
+        const dataProfit = await Transaction.sum(
+            sequelize.literal('amount - (SELECT api_cost FROM data_plans WHERE data_plans.id = transactions.data_plan_id)'),
+            {
+                where: {
+                    source: 'data_purchase',
+                    status: 'completed',
+                    createdAt: { [Op.gte]: startDate }
+                }
+            }
+        ) || 0;
+
         // Active Users (Users who made a transaction in range)
         const activeUsersCount = await Transaction.count({
             distinct: true,
@@ -65,6 +78,7 @@ const getSystemStats = async (req, res) => {
                 totalTransactions,
                 successRate: parseFloat(successRate),
                 totalVolume: parseFloat(totalVolume || 0),
+                totalProfit: parseFloat(dataProfit),
                 activeUsers: activeUsersCount,
                 avgResponseTime: parseFloat(avgResponseTime)
             }

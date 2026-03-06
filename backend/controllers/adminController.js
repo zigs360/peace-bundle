@@ -556,6 +556,9 @@ const refundTransaction = async (req, res) => {
 // @access  Private (Admin)
 const getAdminStats = async (req, res) => {
     try {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
         const [
             totalUsers,
             totalResellers,
@@ -567,13 +570,19 @@ const getAdminStats = async (req, res) => {
             activeSims,
             revenueByProvider,
             recentTransactions,
-            trends
+            trends,
+            systemWalletBalance
         ] = await Promise.all([
             User.count(),
             User.count({ where: { role: 'reseller' } }),
             Transaction.count(),
             Transaction.count({ where: { status: 'completed' } }),
-            Transaction.sum('amount', { where: { status: 'completed' } }).then(sum => sum || 0),
+            Transaction.sum('amount', { 
+                where: { 
+                    status: 'completed',
+                    type: 'debit' // Real revenue is from debits (purchases)
+                } 
+            }).then(sum => parseFloat(sum || 0)),
             Transaction.count({ where: { status: 'pending' } }),
             Sim.count(),
             Sim.count({ where: { status: 'active' } }),
@@ -582,8 +591,13 @@ const getAdminStats = async (req, res) => {
                     'provider',
                     [sequelize.fn('SUM', sequelize.col('amount')), 'total']
                 ],
-                where: { status: 'completed', provider: { [Op.not]: null } },
-                group: ['provider']
+                where: { 
+                    status: 'completed', 
+                    type: 'debit',
+                    provider: { [Op.not]: null } 
+                },
+                group: ['provider'],
+                raw: true
             }),
             Transaction.findAll({
                 include: [
@@ -592,7 +606,8 @@ const getAdminStats = async (req, res) => {
                 order: [['createdAt', 'DESC']],
                 limit: 10
             }),
-            getTransactionTrends()
+            getTransactionTrends(),
+            Wallet.sum('balance').then(sum => parseFloat(sum || 0))
         ]);
 
         res.json({
@@ -606,15 +621,19 @@ const getAdminStats = async (req, res) => {
                     total_revenue: totalRevenue,
                     pending_transactions: pendingTransactions,
                     total_sims: totalSims,
-                    active_sims: activeSims
+                    active_sims: activeSims,
+                    system_wallet_balance: systemWalletBalance
                 },
-                revenueByProvider,
+                revenueByProvider: revenueByProvider.map(r => ({
+                    provider: r.provider,
+                    total: parseFloat(r.total || 0)
+                })),
                 recentTransactions,
                 trendData: trends
             }
         });
     } catch (error) {
-        logger.error('Admin Get Stats Error:', { error: error.message });
+        logger.error('Admin Get Stats Error:', { error: error.message, stack: error.stack });
         res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
