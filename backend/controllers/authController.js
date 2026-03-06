@@ -296,13 +296,13 @@ const getAllUsers = async (req, res) => {
             role: user.role,
             createdAt: user.createdAt,
             kycStatus: user.kyc_status,
-            avatar: user.avatar
+            avatar: user.avatar,
+            account_status: user.account_status,
+            virtual_account_number: user.virtual_account_number,
+            virtual_account_bank: user.virtual_account_bank
         }));
         
-        res.json({
-            success: true,
-            data: formattedUsers
-        });
+        res.json(formattedUsers);
     } catch (error) {
         logger.error(`[Auth] Admin fetch users error: ${error.message}`);
         res.status(500).json({ 

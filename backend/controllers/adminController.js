@@ -484,7 +484,12 @@ const getTransactions = async (req, res) => {
             offset: parseInt(offset)
         });
 
-        res.json(rows);
+        res.json({
+            transactions: rows,
+            total: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
     } catch (error) {
         logger.error('Admin Get Transactions Error:', { error: error.message });
         res.status(500).json({ success: false, message: 'Server Error' });
@@ -925,7 +930,12 @@ const getKycRequests = async (req, res) => {
             offset: parseInt(offset)
         });
 
-        res.json(rows);
+        res.json({
+            data: rows,
+            total: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
