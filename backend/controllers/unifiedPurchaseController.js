@@ -213,33 +213,36 @@ const purchaseUnified = async (req, res) => {
       }
 
     } catch (error) {
-      if (t) {
+      if (t && !t.finished) {
         try {
-          // Check if transaction is already committed or rolled back
-          // Sequelize transactions have an internal 'finished' property
-          if (!t.finished) {
-            await t.rollback();
-          }
+          await t.rollback();
         } catch (rbErr) {
-          logger.error('Rollback Error during 500:', rbErr.message);
+          logger.error('Rollback Error:', rbErr.message);
         }
       }
       
-      const isClientError = error.message.includes('selected') || 
-                           error.message.includes('limit') || 
-                           error.message.includes('balance');
+      const errorMessage = error.message || 'Internal Server Error';
+      const isClientError = errorMessage.includes('selected') || 
+                           errorMessage.includes('limit') || 
+                           errorMessage.includes('balance') ||
+                           errorMessage.includes('failed') ||
+                           errorMessage.includes('provider') ||
+                           errorMessage.includes('supported') ||
+                           errorMessage.includes('Insufficient');
       
       logger.error('Unified Purchase Error:', { 
-        message: error.message, 
-        stack: error.stack, 
+        message: errorMessage, 
         userId, 
         phone,
         serviceType 
       });
 
-      return res.status(isClientError ? 400 : 500).json({ 
+      // Map API errors to 400 if they are validation or balance related
+      const statusCode = isClientError ? 400 : 500;
+
+      return res.status(statusCode).json({ 
         success: false, 
-        message: error.message || 'Internal Server Error' 
+        message: errorMessage 
       });
     }
 

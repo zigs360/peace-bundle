@@ -76,11 +76,16 @@ class SmeplugService {
   async purchaseVTU(provider, phone, amount, options = {}) {
     const data = {
       network_id: this.getNetworkId(provider),
-      phone_number: phone,
-      amount,
+      phone: phone,
+      phone_number: phone, // Send both to be safe
+      amount: Math.round(amount),
+      mode: options.mode || 'wallet',
       ...options
     };
-    return this.makeRequest('POST', '/api/v1/vtu', data);
+    
+    // Some SMEPlug versions use /api/v1/airtime/purchase for everything airtime-related
+    // Fallback to /api/v1/vtu if needed, but airtime/purchase is more standard
+    return this.makeRequest('POST', '/api/v1/airtime/purchase', data);
   }
 
   /**
