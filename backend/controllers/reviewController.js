@@ -48,7 +48,7 @@ const submitReview = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Thank you! Your review has been submitted and is awaiting moderation.',
+      message: 'Review submitted successfully and is awaiting moderation',
       data: review
     });
   } catch (error) {
@@ -92,6 +92,7 @@ const getApprovedReviews = async (req, res) => {
       data: rows,
       pagination: {
         total: count,
+        limit: parseInt(limit),
         page: parseInt(page),
         pages: Math.ceil(count / parseInt(limit))
       }

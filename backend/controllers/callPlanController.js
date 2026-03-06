@@ -24,10 +24,7 @@ const getVoiceBundles = async (req, res) => {
       order: [['amount', 'ASC']],
     });
 
-    res.json({
-      success: true,
-      data: bundles,
-    });
+    res.json(bundles);
   } catch (error) {
     logger.error(`[CallPlan] Voice bundle fetch error: ${error.message}`);
     res.status(500).json({ 
@@ -98,10 +95,7 @@ const getCallPlans = async (req, res) => {
       order: [['price', 'ASC']],
     });
 
-    res.json({
-      success: true,
-      data: callPlans,
-    });
+    res.json(callPlans);
   } catch (error) {
     logger.error(`[CallPlan] Fetch error: ${error.message}`);
     res.status(500).json({ 

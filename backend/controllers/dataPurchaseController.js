@@ -37,12 +37,9 @@ class DataPurchaseController {
             const wallet = await Wallet.findOne({ where: { userId: user.id } });
 
             res.json({
-                success: true,
-                data: {
-                    plans,
-                    sims,
-                    walletBalance: wallet ? wallet.balance : 0
-                }
+                plans,
+                sims,
+                walletBalance: wallet ? wallet.balance : 0
             });
 
         } catch (error) {
@@ -104,7 +101,7 @@ class DataPurchaseController {
             res.json({
                 success: true,
                 message: 'Data purchase initiated successfully!',
-                data: transaction
+                transaction: transaction
             });
 
         } catch (error) {

@@ -998,7 +998,7 @@ const getDashboardStats = async (req, res) => {
             balance: user.wallet.balance,
             commission: user.wallet.commission_balance,
             bonus: user.wallet.bonus_balance,
-            transactions: recentTransactions
+            recentTransactions
         });
     } catch (error) {
         console.error(error);

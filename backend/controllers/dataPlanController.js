@@ -19,10 +19,7 @@ const getDataPlans = async (req, res) => {
             order: [['sort_order', 'ASC'], ['admin_price', 'ASC']]
         });
         
-        res.json({
-            success: true,
-            data: plans
-        });
+        res.json(plans);
     } catch (error) {
         logger.error(`[DataPlan] Fetch error: ${error.message}`);
         res.status(500).json({ 
@@ -41,10 +38,7 @@ const getAdminDataPlans = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
         
-        res.json({
-            success: true,
-            data: plans
-        });
+        res.json(plans);
     } catch (error) {
         logger.error(`[DataPlan] Admin fetch error: ${error.message}`);
         res.status(500).json({ 

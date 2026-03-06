@@ -49,9 +49,8 @@ const requestVirtualAccount = async (req, res) => {
         await virtualAccountService.notifyUserOfNewAccount(user);
 
         res.json({
-            success: true,
             message: 'Virtual account generated successfully!',
-            data: account
+            ...account
         });
     } catch (error) {
         logger.error(`[VirtualAccount] Manual request failed for user ${userId}: ${error.message}`);
@@ -84,23 +83,17 @@ const getApiKey = async (req, res) => {
             logger.info(`[APIKey] New key generated for user ${userId}`);
 
             return res.json({
-                success: true,
-                message: 'API Key generated successfully. Please save your secret key securely.',
-                data: {
-                    key: apiKey.key,
-                    secret: apiKey.secret,
-                    isActive: apiKey.is_active
-                }
+                key: apiKey.key,
+                secret: apiKey.secret,
+                isActive: apiKey.is_active,
+                message: 'API Key generated successfully. Please save your secret key securely.'
             });
         }
         
         res.json({
-            success: true,
-            data: {
-                key: apiKey.key,
-                secret: '********************', // Masked
-                isActive: apiKey.is_active
-            }
+            key: apiKey.key,
+            secret: '********************', // Masked
+            isActive: apiKey.is_active
         });
     } catch (error) {
         logger.error(`[APIKey] Fetch error for user ${userId}: ${error.message}`);
@@ -138,13 +131,10 @@ const regenerateApiKey = async (req, res) => {
         logger.info(`[APIKey] Key regenerated for user ${userId}`);
 
         res.json({
-            success: true,
-            message: 'New API Key generated successfully. Previous keys are now invalid.',
-            data: {
-                key: apiKey.key,
-                secret: apiKey.secret,
-                isActive: apiKey.is_active
-            }
+            key: apiKey.key,
+            secret: apiKey.secret,
+            isActive: apiKey.is_active,
+            message: 'New API Key generated successfully. Previous keys are now invalid.'
         });
     } catch (error) {
         logger.error(`[APIKey] Regeneration error for user ${userId}: ${error.message}`);
@@ -193,14 +183,11 @@ const getAffiliateStats = async (req, res) => {
         }));
 
         res.json({
-            success: true,
-            data: {
-                referralCode: user.referral_code,
-                referralLink: `https://peacebundlle.com/register?ref=${user.referral_code}`,
-                totalEarnings,
-                referredUsersCount: referrals.length,
-                recentReferrals
-            }
+            referralCode: user.referral_code,
+            referralLink: `https://peacebundlle.com/register?ref=${user.referral_code}`,
+            totalEarnings,
+            referredUsersCount: referrals.length,
+            recentReferrals
         });
     } catch (error) {
         logger.error(`[Affiliate] Stats fetch error for user ${userId}: ${error.message}`);
@@ -222,10 +209,7 @@ const getBeneficiaries = async (req, res) => {
             where: { userId },
             order: [['createdAt', 'DESC']]
         });
-        res.json({
-            success: true,
-            data: beneficiaries
-        });
+        res.json(beneficiaries);
     } catch (error) {
         logger.error(`[Beneficiary] Fetch error for user ${userId}: ${error.message}`);
         res.status(500).json({ 
@@ -267,12 +251,9 @@ const addBeneficiary = async (req, res) => {
         logger.info(`[Beneficiary] Added for user ${userId}: ${name}`);
 
         res.status(201).json({
-            success: true,
             message: 'Beneficiary added successfully',
-            data: {
-                beneficiary: newBeneficiary,
-                beneficiaries
-            }
+            beneficiary: newBeneficiary,
+            beneficiaries
         });
     } catch (error) {
         logger.error(`[Beneficiary] Add error for user ${userId}: ${error.message}`);
@@ -307,13 +288,11 @@ const deleteBeneficiary = async (req, res) => {
             logger.info(`[Beneficiary] Deleted for user ${userId}: ID ${beneficiaryId}`);
 
             res.json({
-                success: true,
                 message: 'Beneficiary removed successfully',
-                data: beneficiaries
+                beneficiaries
             });
         } else {
             res.status(404).json({ 
-                success: false,
                 message: 'Beneficiary not found or unauthorized' 
             });
         }

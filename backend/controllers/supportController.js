@@ -25,11 +25,7 @@ const createTicket = async (req, res) => {
 
         logger.info(`[Support] New ticket created by user ${req.user.id}: ${subject}`);
 
-        res.status(201).json({
-            success: true,
-            message: 'Support ticket created successfully. Our team will get back to you soon.',
-            data: ticket
-        });
+        res.status(201).json(ticket);
     } catch (error) {
         logger.error(`[Support] Ticket creation error for user ${req.user.id}: ${error.message}`);
         res.status(500).json({ 
@@ -49,10 +45,7 @@ const getUserTickets = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
         
-        res.json({
-            success: true,
-            data: tickets
-        });
+        res.json(tickets);
     } catch (error) {
         logger.error(`[Support] User fetch error for user ${req.user.id}: ${error.message}`);
         res.status(500).json({ 
@@ -72,10 +65,7 @@ const getAllTickets = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
         
-        res.json({
-            success: true,
-            data: tickets
-        });
+        res.json(tickets);
     } catch (error) {
         logger.error(`[Support] Admin fetch all error: ${error.message}`);
         res.status(500).json({ 
@@ -109,10 +99,7 @@ const getTicketById = async (req, res) => {
             });
         }
 
-        res.json({
-            success: true,
-            data: ticket
-        });
+        res.json(ticket);
     } catch (error) {
         logger.error(`[Support] Fetch by ID error (${req.params.id}): ${error.message}`);
         res.status(500).json({ 
@@ -154,11 +141,7 @@ const replyToTicket = async (req, res) => {
             await ticket.save();
             logger.info(`[Support] Admin ${req.user.id} replied to ticket ${req.params.id}`);
 
-            res.json({
-                success: true,
-                message: 'Ticket updated successfully',
-                data: ticket
-            });
+            res.json(ticket);
         } else {
             // Currently only admins can reply via this endpoint
             return res.status(403).json({ 

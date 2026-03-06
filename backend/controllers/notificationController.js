@@ -19,10 +19,7 @@ const getNotifications = async (req, res) => {
       limit: 50
     });
 
-    res.json({
-      success: true,
-      data: notifications
-    });
+    res.json(notifications);
   } catch (error) {
     logger.error(`[Notification] Fetch error for user ${req.user.id}: ${error.message}`);
     res.status(500).json({ 

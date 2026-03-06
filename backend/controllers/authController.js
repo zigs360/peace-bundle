@@ -102,22 +102,19 @@ const registerUser = async (req, res) => {
         }
 
         res.status(201).json({
-            success: true,
-            message: 'Registration successful',
-            data: {
-                token: generateToken(user.id),
-                user: {
-                    id: user.id,
-                    fullName: user.name,
-                    email: user.email,
-                    phone: user.phone,
-                    balance: 0.00,
-                    package: user.package,
-                    referralCode: user.referral_code,
-                    role: user.role,
-                    kycStatus: user.kyc_status
-                }
-            }
+            token: generateToken(user.id),
+            user: {
+                id: user.id,
+                fullName: user.name,
+                email: user.email,
+                phone: user.phone,
+                balance: 0.00,
+                package: user.package,
+                referralCode: user.referral_code,
+                role: user.role,
+                kycStatus: user.kyc_status
+            },
+            message: 'Registration successful'
         });
     } catch (error) {
         if (t && !t.finished) await t.rollback();
@@ -184,23 +181,20 @@ const loginUser = async (req, res) => {
             logger.info(`[Auth] User logged in: ${user.email} (${user.id})`);
 
             res.json({
-                success: true,
-                message: 'Login successful',
-                data: {
-                    token: generateToken(user.id),
-                    user: {
-                        id: user.id,
-                        fullName: user.name,
-                        email: user.email,
-                        phone: user.phone,
-                        balance: user.wallet ? user.wallet.balance : 0,
-                        package: user.package,
-                        referralCode: user.referral_code,
-                        role: user.role,
-                        kycStatus: user.kyc_status,
-                        avatar: user.avatar
-                    }
-                }
+                token: generateToken(user.id),
+                user: {
+                    id: user.id,
+                    fullName: user.name,
+                    email: user.email,
+                    phone: user.phone,
+                    balance: user.wallet ? user.wallet.balance : 0,
+                    package: user.package,
+                    referralCode: user.referral_code,
+                    role: user.role,
+                    kycStatus: user.kyc_status,
+                    avatar: user.avatar
+                },
+                message: 'Login successful'
             });
         } else {
             // Increment failed attempts
@@ -272,10 +266,7 @@ const getMe = async (req, res) => {
         const userResponse = user.toJSON();
         userResponse.balance = user.wallet ? user.wallet.balance : 0;
         
-        res.json({
-            success: true,
-            data: userResponse
-        });
+        res.json(userResponse);
     } catch (error) {
         logger.error(`[Auth] Profile fetch error: ${error.message}`);
         res.status(500).json({ 
@@ -349,21 +340,17 @@ const updateProfile = async (req, res) => {
         logger.info(`[Auth] Profile updated for user ${user.id}`);
 
         res.json({
-            success: true,
-            message: 'Profile updated successfully',
-            data: {
-                id: updatedUser.id,
-                fullName: updatedUser.name,
-                email: updatedUser.email,
-                phone: updatedUser.phone,
-                balance: updatedUser.wallet ? updatedUser.wallet.balance : 0,
-                package: updatedUser.package,
-                referralCode: updatedUser.referral_code,
-                role: updatedUser.role,
-                kycStatus: updatedUser.kyc_status,
-                avatar: updatedUser.avatar,
-                token: generateToken(updatedUser.id)
-            }
+            id: updatedUser.id,
+            fullName: updatedUser.name,
+            email: updatedUser.email,
+            phone: updatedUser.phone,
+            balance: updatedUser.wallet ? updatedUser.wallet.balance : 0,
+            package: updatedUser.package,
+            referralCode: updatedUser.referral_code,
+            role: updatedUser.role,
+            kycStatus: updatedUser.kyc_status,
+            avatar: updatedUser.avatar,
+            token: generateToken(updatedUser.id)
         });
     } catch (error) {
         logger.error(`[Auth] Profile update error: ${error.message}`);

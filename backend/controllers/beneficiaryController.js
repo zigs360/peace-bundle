@@ -10,10 +10,7 @@ const getBeneficiaries = async (req, res) => {
             where: { userId: req.user.id },
             order: [['createdAt', 'DESC']]
         });
-        res.json({
-            success: true,
-            data: beneficiaries
-        });
+        res.json(beneficiaries);
     } catch (error) {
         logger.error('Get Beneficiaries Error:', { error: error.message, userId: req.user.id });
         res.status(500).json({ success: false, message: 'Failed to fetch beneficiaries' });
@@ -40,11 +37,7 @@ const createBeneficiary = async (req, res) => {
             bankName
         });
 
-        res.status(201).json({
-            success: true,
-            message: 'Beneficiary created successfully',
-            data: beneficiary
-        });
+        res.status(201).json(beneficiary);
     } catch (error) {
         logger.error('Create Beneficiary Error:', { error: error.message, userId: req.user.id });
         res.status(500).json({ success: false, message: 'Failed to create beneficiary' });
@@ -68,7 +61,7 @@ const deleteBeneficiary = async (req, res) => {
         }
 
         await beneficiary.destroy();
-        res.json({ success: true, message: 'Beneficiary removed' });
+        res.json({ message: 'Beneficiary removed' });
     } catch (error) {
         logger.error('Delete Beneficiary Error:', { error: error.message, userId: req.user.id, id: req.params.id });
         res.status(500).json({ success: false, message: 'Failed to delete beneficiary' });
