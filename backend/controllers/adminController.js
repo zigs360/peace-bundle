@@ -34,17 +34,7 @@ const getDataPlans = async (req, res) => {
             ]
         });
 
-        res.json({
-            success: true,
-            data: {
-                plans: rows,
-                pagination: {
-                    total: count,
-                    totalPages: Math.ceil(count / limit),
-                    currentPage: parseInt(page)
-                }
-            }
-        });
+        res.json(rows);
     } catch (error) {
         logger.error('Admin Get Data Plans Error:', { error: error.message });
         res.status(500).json({ success: false, message: 'Server Error' });
@@ -181,17 +171,7 @@ const getSims = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
-        res.json({
-            success: true,
-            data: {
-                sims: rows,
-                pagination: {
-                    total: count,
-                    totalPages: Math.ceil(count / limit),
-                    currentPage: parseInt(page)
-                }
-            }
-        });
+        res.json(rows);
     } catch (error) {
         logger.error('Admin Get Sims Error:', { error: error.message });
         res.status(500).json({ success: false, message: 'Server Error' });
@@ -430,17 +410,7 @@ const getUsers = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
-        res.json({
-            success: true,
-            data: {
-                users: rows,
-                pagination: {
-                    total: count,
-                    totalPages: Math.ceil(count / limit),
-                    currentPage: parseInt(page)
-                }
-            }
-        });
+        res.json(rows);
     } catch (error) {
         logger.error('Admin Get Users Error:', { error: error.message });
         res.status(500).json({ success: false, message: 'Server Error' });
@@ -517,18 +487,7 @@ const getTransactions = async (req, res) => {
             offset: parseInt(offset)
         });
 
-        res.json({
-            success: true,
-            data: {
-                transactions: rows,
-                pagination: {
-                    total: count,
-                    totalPages: Math.ceil(count / limit),
-                    currentPage: parseInt(page)
-                },
-                filters: { status, provider, user_id, date_from, date_to }
-            }
-        });
+        res.json(rows);
     } catch (error) {
         logger.error('Admin Get Transactions Error:', { error: error.message });
         res.status(500).json({ success: false, message: 'Server Error' });
@@ -953,12 +912,7 @@ const getKycRequests = async (req, res) => {
             offset: parseInt(offset)
         });
 
-        res.json({
-            data: rows,
-            total: count,
-            totalPages: Math.ceil(count / limit),
-            currentPage: parseInt(page)
-        });
+        res.json(rows);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });

@@ -10,10 +10,7 @@ const getSubscriptionPlans = async (req, res) => {
             where: { is_active: true },
             order: [['sort_order', 'ASC']]
         });
-        res.json({
-            success: true,
-            data: plans
-        });
+        res.json(plans);
     } catch (error) {
         logger.error(`[SubscriptionPlan] Fetch error: ${error.message}`);
         res.status(500).json({ 
@@ -31,10 +28,7 @@ const adminGetSubscriptionPlans = async (req, res) => {
         const plans = await SubscriptionPlan.findAll({
             order: [['sort_order', 'ASC']]
         });
-        res.json({
-            success: true,
-            data: plans
-        });
+        res.json(plans);
     } catch (error) {
         logger.error(`[SubscriptionPlan] Admin fetch error: ${error.message}`);
         res.status(500).json({ 

@@ -821,16 +821,7 @@ const index = async (req, res) => {
             offset: parseInt(offset)
         });
 
-        res.json({
-            transactions: {
-                data: rows,
-                current_page: parseInt(page),
-                total: count,
-                per_page: parseInt(limit),
-                last_page: Math.ceil(count / limit)
-            },
-            filters: { status, provider, date_from, date_to }
-        });
+        res.json(rows);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });

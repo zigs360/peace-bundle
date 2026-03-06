@@ -16,10 +16,7 @@ const getBanks = async (req, res) => {
   try {
     const result = await smeplugService.getBanks();
     if (result.success) {
-      return res.json({ 
-        success: true, 
-        data: result.data.data || result.data 
-      });
+      return res.json(result.data.data || result.data);
     } else {
       logger.error(`[Transfer] Bank list fetch error: ${result.error}`);
       return res.status(500).json({ 
@@ -53,10 +50,7 @@ const resolveAccount = async (req, res) => {
   try {
     const result = await smeplugService.resolveAccount(bank_code, account_number);
     if (result.success) {
-      return res.json({ 
-        success: true, 
-        data: result.data.data || result.data 
-      });
+      return res.json(result.data.data || result.data);
     } else {
       logger.warn(`[Transfer] Account resolution failed: ${result.error} for account ${account_number}`);
       return res.status(400).json({ 

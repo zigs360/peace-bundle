@@ -87,16 +87,7 @@ const getApprovedReviews = async (req, res) => {
       offset: parseInt(offset)
     });
 
-    res.json({
-      success: true,
-      data: rows,
-      pagination: {
-        total: count,
-        limit: parseInt(limit),
-        page: parseInt(page),
-        pages: Math.ceil(count / parseInt(limit))
-      }
-    });
+    res.json(rows);
   } catch (error) {
     logger.error(`[Review] Public fetch error: ${error.message}`);
     res.status(500).json({ 
@@ -158,15 +149,7 @@ const getAllReviewsAdmin = async (req, res) => {
       offset: parseInt(offset)
     });
 
-    res.json({
-      success: true,
-      data: rows,
-      pagination: {
-        total: count,
-        page: parseInt(page),
-        pages: Math.ceil(count / parseInt(limit))
-      }
-    });
+    res.json(rows);
   } catch (error) {
     logger.error(`[Review] Admin fetch error: ${error.message}`);
     res.status(500).json({ 
