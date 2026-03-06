@@ -7,57 +7,115 @@ class PayVesselService {
         this.apiKey = process.env.PAYVESSEL_API_KEY;
         this.secretKey = process.env.PAYVESSEL_SECRET_KEY;
         this.businessId = process.env.PAYVESSEL_BUSINESS_ID;
-        this.baseUrl = 'https://api.payvessel.com/pms/api/external/request/virtual-account';
+        // The standard endpoint for v2 is /pms/api/external/request/customerReservedAccount/
+        this.baseUrl = process.env.PAYVESSEL_BASE_URL || 'https://api.payvessel.com/pms/api/external/request/customerReservedAccount/';
     }
 
     /**
      * Create/Register Virtual Account for a user
-     * @param {Object} user - Sequelize User instance
+     * @param {Object} user - User instance (email, name, phone)
+     * @param {number} retryCount - Current retry attempt
      * @returns {Promise<Object>} - Account details
      */
-    async createVirtualAccount(user) {
+    async createVirtualAccount(user, retryCount = 0) {
         try {
             if (!user.email || !user.name || !user.phone) {
                 throw new Error('User details (email, name, phone) are required for virtual account creation');
             }
 
+            // Ensure name is properly formatted
+            const fullName = (user.name || '').trim();
+            
+            // Normalize phone number to 11 digits (080...) as seen in PayVessel docs
+            let phone = user.phone.trim();
+            if (phone.startsWith('234')) {
+                phone = '0' + phone.substring(3);
+            } else if (!phone.startsWith('0')) {
+                phone = '0' + phone;
+            }
+
             const payload = {
                 email: user.email,
-                name: user.name,
-                phoneNumber: user.phone,
-                bankCode: ["120001", "000014", "100004"], // 9PSB, Fidelity, Opay (Example list)
-                account_type: "STATIC"
+                name: fullName.toUpperCase(),
+                phoneNumber: phone,
+                bankcode: ["120001", "000014", "100004"], // 9PSB, Fidelity, Opay
+                account_type: "STATIC",
+                businessid: this.businessId // Changed back to businessid
             };
 
+            // Add BVN if present
+            if (user.bvn) {
+                payload.bvn = user.bvn;
+            }
+
+            logger.info(`[PayVessel] Initiating virtual account creation for ${user.email}`, {
+                url: this.baseUrl,
+                payload: { ...payload, businessid: '***', bvn: payload.bvn ? '***' : undefined }
+            });
+
             const response = await axios.post(
-                `${this.baseUrl}/register`,
+                this.baseUrl,
                 payload,
                 {
                     headers: {
                         'api-key': this.apiKey,
-                        'api-secret': this.secretKey, // Most likely raw secret key
+                        'api-secret': `Bearer ${this.secretKey}`,
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    timeout: 30000
                 }
             );
 
-            if (response.data && response.data.status) {
-                const banks = response.data.banks;
-                // For simplicity, we pick the first available bank
+            logger.info(`[PayVessel] Response received for ${user.email}:`, response.data);
+
+            if (response.data && (response.data.status === true || response.data.status === 'success' || response.data.code === 200)) {
+                // Response can have banks at top level or under data.banks
+                const banks = response.data.banks || response.data.data?.banks;
+                
+                if (!banks || (Array.isArray(banks) && banks.length === 0)) {
+                    // Sometimes it's a single bank object instead of an array
+                    if (response.data.accountNumber) {
+                        return {
+                            accountNumber: response.data.accountNumber,
+                            bankName: response.data.bankName,
+                            accountName: response.data.accountName,
+                            trackingReference: response.data.trackingReference
+                        };
+                    }
+                    throw new Error('PayVessel: Success response but no bank accounts returned');
+                }
+
                 const primaryBank = Array.isArray(banks) ? banks[0] : banks;
                 
                 return {
-                    accountNumber: primaryBank.accountNumber,
-                    bankName: primaryBank.bankName,
-                    accountName: primaryBank.accountName,
-                    trackingReference: primaryBank.trackingReference
+                    accountNumber: primaryBank.accountNumber || primaryBank.account_number,
+                    bankName: primaryBank.bankName || primaryBank.bank_name,
+                    accountName: primaryBank.accountName || primaryBank.account_name,
+                    trackingReference: primaryBank.trackingReference || primaryBank.tracking_reference
                 };
             } else {
-                throw new Error(response.data.message || 'Failed to create virtual account with PayVessel');
+                const errorMsg = response.data.message || response.data.error || 'Unknown error from PayVessel';
+                throw new Error(errorMsg);
             }
         } catch (error) {
-            logger.error('PayVessel Create Account Error:', error.response?.data || error.message);
-            throw error;
+            const errorData = error.response?.data;
+            const status = error.response?.status;
+            
+            logger.error(`[PayVessel] Virtual Account Creation Failed for ${user.email}:`, {
+                status,
+                data: errorData,
+                message: error.message
+            });
+
+            // Retry for transient errors (5xx, timeouts, or 503 Service Unavailable)
+            if (retryCount < 3 && (!status || status >= 500)) {
+                const delay = Math.pow(2, retryCount) * 1500; // Exponential backoff: 1.5s, 3s, 4.5s
+                logger.info(`[PayVessel] Transient failure, retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this.createVirtualAccount(user, retryCount + 1);
+            }
+
+            throw new Error(`PayVessel Error: ${errorData?.message || error.message}`);
         }
     }
 
@@ -69,15 +127,16 @@ class PayVesselService {
      */
     async updateAccountBvn(trackingReference, bvn) {
         try {
-            const url = `${this.baseUrl}/${this.businessId}/${trackingReference}/`;
+            const base = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
+            const url = `${base}/virtual-account/update-bvn/${trackingReference}`;
             
             const response = await axios.post(
                 url,
-                { bvn },
+                { bvn, business_id: this.businessId },
                 {
                     headers: {
                         'api-key': this.apiKey,
-                        'api-secret': this.secretKey,
+                        'api-secret': `Bearer ${this.secretKey}`,
                         'Content-Type': 'application/json'
                     }
                 }
