@@ -172,17 +172,17 @@ const Transaction = sequelize.define('Transaction', {
 });
 
 // Instance Methods
-Transaction.prototype.markAsCompleted = async function(smeplugResponse = []) {
+Transaction.prototype.markAsCompleted = async function(smeplugResponse = [], transaction = null) {
   this.status = 'completed';
   this.completed_at = new Date();
   this.smeplug_response = smeplugResponse;
-  await this.save();
+  await this.save({ transaction });
 };
 
-Transaction.prototype.markAsFailed = async function(reason) {
+Transaction.prototype.markAsFailed = async function(reason, transaction = null) {
   this.status = 'failed';
   this.failure_reason = reason;
-  await this.save();
+  await this.save({ transaction });
 };
 
 module.exports = Transaction;

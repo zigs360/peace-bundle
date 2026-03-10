@@ -15,7 +15,7 @@ class AffiliateService {
       try {
         // 1. Check if user has a referrer
         const referral = await Referral.findOne({
-          where: { referred_user_id: user.id },
+          where: { referredUserId: user.id },
           transaction: transactionScope
         });
 
@@ -23,7 +23,7 @@ class AffiliateService {
           return; // No referrer, no commission
         }
 
-        const referrer = await User.findByPk(referral.referrer_id, { transaction: transactionScope });
+        const referrer = await User.findByPk(referral.referrerId, { transaction: transactionScope });
         if (!referrer) {
           return;
         }
@@ -62,9 +62,10 @@ class AffiliateService {
 
         // 4. Record Commission
         await Commission.create({
-          referrer_id: referrer.id,
-          referred_user_id: user.id,
-          transaction_id: transaction.id,
+          referrerId: referrer.id,
+          referredUserId: user.id,
+          commissionableId: transaction.id,
+          commissionableType: 'Transaction',
           amount: commissionAmount,
           status: 'paid', // Since we credited wallet immediately
           type: 'transaction_commission'

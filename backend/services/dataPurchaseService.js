@@ -64,7 +64,8 @@ class DataPurchaseService {
         sim_id: sim ? sim.id : null,
         recipient_phone: recipientPhone,
         provider: plan.provider,
-        plan_name: plan.name
+        plan_name: plan.name,
+        smeplug_plan_id: plan.smeplug_plan_id
       };
 
       // Perform Debit
@@ -83,7 +84,9 @@ class DataPurchaseService {
         reference: this.generateReference(), // Use TXN- prefix as per requirement
         recipient_phone: recipientPhone,
         provider: plan.provider,
-        status: 'pending'
+        status: 'pending',
+        dataPlanId: plan.id,
+        simId: sim ? sim.id : null
       }, { transaction: t });
 
       // Note: Our Transaction model comment says:
@@ -111,9 +114,21 @@ class DataPurchaseService {
    */
   async dispenseData(transaction, sim = null, t = null) {
     try {
+      // Ensure we have the plan_id
+      let smeplugPlanId = transaction.metadata?.smeplug_plan_id;
+      
+      if (!smeplugPlanId) {
+          // Fallback: Fetch plan if missing from metadata
+          const planId = transaction.dataPlanId || transaction.metadata?.data_plan_id;
+          if (planId) {
+              const plan = await DataPlan.findByPk(planId, { transaction: t });
+              if (plan) smeplugPlanId = plan.smeplug_plan_id;
+          }
+      }
+
       const data = {
         network_id: smeplugService.getNetworkId(transaction.provider),
-        plan_id: transaction.smeplug_plan_id || '1', // fallback? logic from PHP
+        plan_id: smeplugPlanId || '1',
         phone: transaction.recipient_phone,
         mode: sim ? 'sim_system' : 'wallet'
       };
@@ -122,54 +137,14 @@ class DataPurchaseService {
         data.sim_number = sim.phoneNumber;
       }
 
-      // Check if plan has smeplug_plan_id (fetched via association or we need to fetch plan)
-      // Transaction model doesn't include Plan data by default unless eager loaded.
-      // But in `purchase` we passed `plan`.
-      // In `retry`, we just pass `transaction`.
-      // So we need to ensure we have `smeplug_plan_id`.
-      // If `transaction` doesn't have it, we might need to fetch it.
-      // However, `purchase` sets `smeplug_plan_id` in metadata? No, column?
-      // Transaction model has `smeplug_reference` but not `smeplug_plan_id` column explicitly in Read output, 
-      // but it might be in `metadata`.
-      // Let's check `purchase` implementation again.
-      // It sets `metadata: { data_plan_id: plan.id ... }`.
-      // It does NOT set `smeplug_plan_id` on transaction.
-      // PHP code: `$transaction->dataPlan->smeplug_plan_id`. It assumes relationship.
-      
-      // We need to fetch the plan if not available.
-      let smeplugPlanId = null;
-      if (transaction.DataPlan) {
-          smeplugPlanId = transaction.DataPlan.smeplug_plan_id;
-      } else {
-          // Fetch from DB using data_plan_id from metadata or association
-          // Our Transaction model comment said "data_plan_id will be added by association".
-          // If we rely on `transaction.data_plan_id`, we need to fetch DataPlan.
-          if (transaction.data_plan_id) {
-             const plan = await DataPlan.findByPk(transaction.data_plan_id, { transaction: t });
-             if (plan) smeplugPlanId = plan.smeplug_plan_id;
-          } else if (transaction.metadata && transaction.metadata.data_plan_id) {
-             const plan = await DataPlan.findByPk(transaction.metadata.data_plan_id, { transaction: t });
-             if (plan) smeplugPlanId = plan.smeplug_plan_id;
-          }
-      }
-      
-      if (smeplugPlanId) {
-          data.plan_id = smeplugPlanId;
-      }
-
       const response = await smeplugService.purchaseData(data);
 
       if (response.success) {
-        await transaction.update({
-          status: 'processing', // PHP says processing
-          smeplug_reference: response.data.reference || null,
-          smeplug_response: response.data,
-          completed_at: new Date() // Maybe? processing usually implies not yet complete
-        }, { transaction: t });
+        await transaction.markAsCompleted(response.data, t);
 
         // Increment SIM dispense count
         if (sim) {
-          await sim.incrementDispenses(); // This method exists in Sim model
+          await sim.incrementDispenses();
         }
       } else {
         // Mark as failed and refund
@@ -189,30 +164,21 @@ class DataPurchaseService {
    */
   async handleFailedTransaction(transaction, reason, sim, t) {
     // Mark as failed
-    await transaction.markAsFailed(reason); // This saves internally, but we are in transaction t?
-    // Transaction.markAsFailed does `await this.save()`. 
-    // If we are in `t`, we should probably pass `t` to `markAsFailed` or update manually.
-    // Let's check `Transaction.markAsFailed` implementation.
-    // It does `this.save()`. It doesn't take options.
-    // We should update it manually here to be safe with `t`.
-    await transaction.update({
-        status: 'failed',
-        failure_reason: reason
-    }, { transaction: t });
-
-    // Refund wallet
-    // We need to fetch user if not loaded
-    const user = await User.findByPk(transaction.userId || transaction.user_id, { transaction: t });
+    await transaction.markAsFailed(reason, t);
     
-    if (user) {
-        await walletService.credit(
-            user,
-            transaction.amount,
-            'refund',
-            `Refund for failed transaction: ${transaction.reference}`,
-            {},
-            t
-        );
+    // Refund user (if it was a debit)
+    if (transaction.type === 'debit') {
+        const user = await User.findByPk(transaction.userId || transaction.user_id, { transaction: t });
+        if (user) {
+            await walletService.credit(
+                user,
+                transaction.amount,
+                'refund',
+                `Refund for failed data purchase: ${transaction.reference}`,
+                { original_transaction_reference: transaction.reference },
+                t
+            );
+        }
     }
 
     // Increment SIM failed count
