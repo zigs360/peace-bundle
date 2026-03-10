@@ -58,7 +58,8 @@ const sendSMS = async (phone, message) => {
                 api_key: process.env.SMS_API_KEY,
             };
 
-            const response = await axios.post(process.env.SMS_BASE_URL, payload);
+            const url = `${process.env.SMS_BASE_URL}/api/sms/send`;
+            const response = await axios.post(url, payload);
             console.log(`[Termii SMS] Sent to ${formattedPhone}. Status: ${response.data.message}`);
         } else {
             // Fallback to mock log if credentials are missing

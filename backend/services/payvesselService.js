@@ -23,8 +23,9 @@ class PayVesselService {
                 throw new Error('User details (email, name, phone) are required for virtual account creation');
             }
 
-            // Ensure name is properly formatted
-            const fullName = (user.name || '').trim();
+            // Sanitise Name: Only ASCII characters, convert to UPPERCASE as required by PayVessel
+            // Remove any characters that are not letters, spaces, or hyphens
+            const fullName = (user.name || '').trim().replace(/[^a-zA-Z\s-]/g, '').replace(/\s+/g, ' ').trim().substring(0, 50);
             
             // Normalize phone number to 11 digits (080...) as seen in PayVessel docs
             let phone = user.phone.trim();
@@ -40,7 +41,7 @@ class PayVesselService {
                 phoneNumber: phone,
                 bankcode: ["120001", "000014", "100004"], // 9PSB, Fidelity, Opay
                 account_type: "STATIC",
-                businessid: this.businessId // Changed back to businessid
+                businessid: this.businessId
             };
 
             // Add BVN if present

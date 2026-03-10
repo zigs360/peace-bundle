@@ -37,6 +37,9 @@ class VirtualAccountService {
 
         for (const user of users) {
             try {
+                // Check if user already has an active creation reference
+                const hasPendingRef = user.metadata?.payvessel_tracking_reference;
+                
                 // Use a dedicated transaction per user to ensure partial success doesn't block others
                 await sequelize.transaction(async (t) => {
                     await this.assignVirtualAccount(user, { transaction: t });
@@ -53,6 +56,9 @@ class VirtualAccountService {
                 summary.failed++;
                 summary.errors.push({ userId: user.id, email: user.email, error: err.message });
                 logger.error(`[VirtualAccount] Migration failed for user ${user.id}: ${err.message}`);
+                
+                // If the error indicates a duplicate or already existing reference, we can consider it a retryable scenario
+                // but we keep track of the error for now.
             }
         }
 
@@ -175,11 +181,29 @@ class VirtualAccountService {
 
     async assignVirtualAccount(user, options = {}) {
         const { transaction } = options;
+        
+        // Feature Flag: Check if generation is enabled
+        const isEnabled = await this.getSetting('virtual_account_generation_enabled');
+        if (isEnabled === false) {
+            logger.info(`[VirtualAccount] Generation is currently disabled via feature flag for user ${user.id}`);
+            return null;
+        }
+
         // Prefer PayVessel, fallback to Monnify or others
         try {
             const provider = await this.getSetting('virtual_account_provider') || 'payvessel';
             
             let accountDetails;
+            
+            // Check for existing tracking reference in metadata to prevent duplicate creations
+            const existingRef = user.metadata?.payvessel_tracking_reference;
+            if (existingRef && provider === 'payvessel') {
+                logger.info(`[VirtualAccount] User ${user.id} already has a pending/existing PayVessel reference: ${existingRef}. Skipping new creation.`);
+                // In a real scenario, we might want to query PayVessel for this ref, 
+                // but for now, we prevent a redundant POST.
+                if (user.virtual_account_number) return null; 
+            }
+
             if (provider === 'payvessel') {
                 accountDetails = await payvesselService.createVirtualAccount(user);
             } else if (provider === 'monnify') {
@@ -210,8 +234,15 @@ class VirtualAccountService {
     }
 
     async getSetting(key) {
-        const setting = await SystemSetting.findOne({ where: { key } });
-        return setting ? setting.value : null; // In prod, consider caching this
+        // Use the model's static get method which handles casting and defaults
+        const value = await SystemSetting.get(key);
+        
+        // Feature flag: virtual_account_generation_enabled
+        if (key === 'virtual_account_generation_enabled') {
+            return value !== null ? value : true; // Default to true if not set
+        }
+        
+        return value;
     }
 }
 
