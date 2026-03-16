@@ -498,8 +498,8 @@ const submitKyc = async (req, res) => {
         await user.save();
 
         // 3. Update External Providers
-        if (isBvnVerified && user.metadata && user.metadata.payvessel_tracking_reference) {
-            payvesselService.updateAccountBvn(user.metadata.payvessel_tracking_reference, bvn).catch(err => {
+        if (isBvnVerified && user.virtual_account_number) {
+            payvesselService.updateAccountBvn(user.virtual_account_number, bvn).catch(err => {
                 logger.error(`[PayVessel] BVN update failed for user ${user.id}: ${err.message}`);
             });
         }

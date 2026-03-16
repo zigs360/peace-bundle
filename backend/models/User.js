@@ -65,6 +65,14 @@ const User = sequelize.define('User', {
       len: [11, 11], // BVN is always 11 digits
     },
   },
+  nin: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true,
+    validate: {
+      len: [11, 11], // NIN is usually 11 digits
+    },
+  },
   is_bvn_verified: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,

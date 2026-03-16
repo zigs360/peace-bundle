@@ -7,8 +7,8 @@ class PayVesselService {
         this.apiKey = process.env.PAYVESSEL_API_KEY;
         this.secretKey = process.env.PAYVESSEL_SECRET_KEY;
         this.businessId = process.env.PAYVESSEL_BUSINESS_ID;
-        // The standard endpoint for v2 is /pms/api/external/request/customerReservedAccount/
-        this.baseUrl = process.env.PAYVESSEL_BASE_URL || 'https://api.payvessel.com/pms/api/external/request/customerReservedAccount/';
+        // Base URL for PayVessel External API
+        this.baseUrl = process.env.PAYVESSEL_BASE_URL || 'https://api.payvessel.com/pms/api/external/request';
     }
 
     /**
@@ -35,27 +35,32 @@ class PayVesselService {
                 phone = '0' + phone;
             }
 
+            const url = `${this.baseUrl}/customerReservedAccount/`;
+            
             const payload = {
                 email: user.email,
                 name: fullName.toUpperCase(),
                 phoneNumber: phone,
-                bankcode: ["120001", "000014", "100004"], // 9PSB, Fidelity, Opay
+                bankcode: ["999991", "120001"], // PalmPay, 9PSB
                 account_type: "STATIC",
                 businessid: this.businessId
             };
 
-            // Add BVN if present
+            // Add BVN or NIN if present (Required for STATIC accounts)
             if (user.bvn) {
                 payload.bvn = user.bvn;
             }
+            if (user.nin) {
+                payload.nin = user.nin;
+            }
 
             logger.info(`[PayVessel] Initiating virtual account creation for ${user.email}`, {
-                url: this.baseUrl,
-                payload: { ...payload, businessid: '***', bvn: payload.bvn ? '***' : undefined }
+                url,
+                payload: { ...payload, bvn: payload.bvn ? '***' : undefined, nin: payload.nin ? '***' : undefined }
             });
 
             const response = await axios.post(
-                this.baseUrl,
+                url,
                 payload,
                 {
                     headers: {
@@ -122,18 +127,17 @@ class PayVesselService {
 
     /**
      * Update Virtual Account with BVN
-     * @param {string} trackingReference - The tracking reference from creation
+     * @param {string} accountNumber - The virtual account number to update
      * @param {string} bvn - User BVN
      * @returns {Promise<Object>} - Updated account details
      */
-    async updateAccountBvn(trackingReference, bvn) {
+    async updateAccountBvn(accountNumber, bvn) {
         try {
-            const base = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
-            const url = `${base}/virtual-account/update-bvn/${trackingReference}`;
+            const url = `${this.baseUrl}/virtual-account/${this.businessId}/${accountNumber}/`;
             
             const response = await axios.post(
                 url,
-                { bvn, business_id: this.businessId },
+                { bvn },
                 {
                     headers: {
                         'api-key': this.apiKey,
@@ -149,7 +153,7 @@ class PayVesselService {
                 throw new Error(response.data.message || 'Failed to update BVN with PayVessel');
             }
         } catch (error) {
-            logger.error('PayVessel Update BVN Error:', error.response?.data || error.message);
+            logger.error(`[PayVessel] Update BVN Error for account ${accountNumber}:`, error.response?.data || error.message);
             throw error;
         }
     }
