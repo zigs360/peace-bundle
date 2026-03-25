@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database'); // Import the instance directly
 const crypto = require('crypto');
 
 const SupportTicket = sequelize.define('SupportTicket', {

@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
+const sequelize = require('../config/database');
 const basename = path.basename(__filename);
 const db = {};
+
+db.sequelize = sequelize;
 
 // Read all files in current directory
 fs

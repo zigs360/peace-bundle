@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const logger = require('../utils/logger');
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
 
 // @desc    Handle Paystack Webhook
 // @route   POST /api/webhooks/paystack

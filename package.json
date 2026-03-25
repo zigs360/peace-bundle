@@ -6,5 +6,8 @@
     "build": "cd frontend && npm install && npm run build",
     "install": "cd frontend && npm install && cd ../backend && npm install",
     "start": "cd backend && node server.js"
+  },
+  "dependencies": {
+    "axios-retry": "^4.5.0"
   }
 }

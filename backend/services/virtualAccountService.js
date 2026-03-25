@@ -3,7 +3,7 @@ const User = require('../models/User');
 const SystemSetting = require('../models/SystemSetting');
 const payvesselService = require('./payvesselService');
 const logger = require('../utils/logger');
-const { sequelize } = require('../config/database'); // Added sequelize import
+const sequelize = require('../config/database'); // Added sequelize import
 
 const { sendSMS, sendTransactionNotification } = require('./notificationService');
 

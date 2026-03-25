@@ -1,5 +1,5 @@
 process.env.NODE_ENV = 'test';
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
 require('../config/db'); // Load associations
 const { User, Wallet, Transaction } = require('../models');
 const referralService = require('../services/referralService');

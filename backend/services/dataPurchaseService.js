@@ -1,7 +1,8 @@
 const { User, DataPlan, Transaction, Sim, Wallet } = require('../models');
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
 const walletService = require('./walletService');
 const smeplugService = require('./smeplugService');
+const ogdamsService = require('./ogdamsService');
 const affiliateService = require('./affiliateService');
 const logger = require('../utils/logger');
 
@@ -302,6 +303,56 @@ class DataPurchaseService {
       'glo': 4
     };
     return map[provider.toLowerCase()] || 1;
+  }
+
+  async purchaseAirtime(user, network, amount, phoneNumber) {
+    return sequelize.transaction(async (t) => {
+      const hasBalance = await walletService.hasSufficientBalance(user, amount, t);
+      if (!hasBalance) {
+        throw new Error('Insufficient wallet balance');
+      }
+
+      const description = `Airtime purchase: ${network} ${amount} to ${phoneNumber}`;
+      const reference = this.generateReference();
+      const metadata = {
+        recipient_phone: phoneNumber,
+        provider: network,
+        amount,
+        type: 'airtime',
+        reference,
+      };
+
+      const transaction = await walletService.debit(
+        user,
+        amount,
+        'airtime_purchase',
+        description,
+        metadata,
+        t
+      );
+
+      await transaction.update({ reference, status: 'pending' }, { transaction: t });
+
+      try {
+        const response = await ogdamsService.purchaseAirtime({
+          networkId: this.getNetworkId(network),
+          amount,
+          phoneNumber,
+          type: 'VTU',
+          reference,
+        });
+
+        if (response.status === 'success') {
+          await transaction.markAsCompleted(response, t);
+        } else {
+          await this.handleFailedTransaction(transaction, response.message || 'Unknown error', null, t);
+        }
+      } catch (error) {
+        await this.handleFailedTransaction(transaction, error.message, null, t);
+      }
+
+      return transaction;
+    });
   }
 }
 

@@ -1,5 +1,6 @@
-const { sequelize } = require('../config/database');
-const { User, Wallet, Sim, Transaction } = require('../models');
+const { User, Wallet, Transaction, Sim } = require('../models');
+const sequelize = require('../config/database');
+const dataPurchaseService = require('../services/dataPurchaseService');
 const simManagementService = require('../services/simManagementService');
 const walletService = require('../services/walletService');
 const logger = require('../utils/logger');

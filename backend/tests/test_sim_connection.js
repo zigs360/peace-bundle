@@ -1,6 +1,6 @@
 process.env.NODE_ENV = 'test';
-const { sequelize } = require('../config/database');
-const { User, Sim } = require('../models');
+const sequelize = require('../config/database');
+const { User, Sim, Wallet } = require('../models');
 const simManagementService = require('../services/simManagementService');
 
 async function runTest() {

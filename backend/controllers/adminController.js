@@ -1,6 +1,7 @@
 const { User, Transaction, Wallet, Sim, DataPlan, SystemSetting, SupportTicket } = require('../models');
 const { Op } = require('sequelize');
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
+const walletService = require('../services/walletService');
 const fs = require('fs');
 const path = require('path');
 const { decrypt } = require('../utils/cryptoUtils');

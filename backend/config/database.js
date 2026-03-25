@@ -30,4 +30,4 @@ if (process.env.NODE_ENV === 'test') {
   });
 }
 
-module.exports = { sequelize };
+module.exports = sequelize; // Export the instance directly

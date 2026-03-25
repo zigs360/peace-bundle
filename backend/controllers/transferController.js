@@ -1,10 +1,8 @@
-const User = require('../models/User');
-const Wallet = require('../models/Wallet');
-const Transaction = require('../models/Transaction');
+const { User, Wallet, Transaction } = require('../models');
 const smeplugService = require('../services/smeplugService');
 const walletService = require('../services/walletService');
 const logger = require('../utils/logger');
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
 /**

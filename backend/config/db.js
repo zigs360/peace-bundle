@@ -1,5 +1,7 @@
-const { sequelize } = require('./database');
+const sequelize = require('./database'); // Correct import of instance
 const bcrypt = require('bcryptjs');
+
+let isConnected = false;
 
 // Import models (Top Level)
 const User = require('../models/User');
@@ -117,11 +119,6 @@ try {
   console.error('Error defining associations:', error);
 }
 
-// EXPORT SEQUELIZE IMMEDIATELY
-module.exports.sequelize = sequelize;
-
-let isConnected = false;
-
 const connectDB = async () => {
   if (isConnected) {
     console.log('PostgreSQL already connected via Sequelize');
@@ -136,9 +133,6 @@ const connectDB = async () => {
     console.log('PostgreSQL Connected via Sequelize');
 
     // Sync models
-    // In test environment, we might want to be careful with sync
-    // Use force: false to avoid wiping data if not intended, or alter: false if schema is stable
-    // If tests hang, try skipping sync or using force: true once
     if (process.env.NODE_ENV === 'test') {
       console.log('Syncing models (test mode)...');
       try {
@@ -154,60 +148,38 @@ const connectDB = async () => {
     
     console.log('Database Synced');
 
-    // FIX: Assign any Sims with NULL user_id to the admin user
+    // Seed System Settings and Admin if not in test mode
     if (process.env.NODE_ENV !== 'test') {
-      const adminUser = await User.findOne({ where: { role: 'admin' }, order: [['createdAt', 'ASC']] });
-      if (adminUser) {
-        const [updatedCount] = await Sim.update(
-          { userId: adminUser.id },
-          { where: { userId: null } }
-        );
-        if (updatedCount > 0) {
-          console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
-        }
+      // Seed System Settings if empty
+      const settingsCount = await SystemSetting.count();
+      if (settingsCount === 0) {
+        await SystemSetting.bulkCreate([
+          { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
+          { key: 'site_url', value: 'https://peacebundlle.com', type: 'string', group: 'general' },
+          { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
+          { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
+          { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },
+          { key: 'allow_mock_bvn', value: 'true', type: 'boolean', group: 'api' },
+          { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
+        ]);
+        console.log('Default System Settings Seeded');
+      }
+
+      // Seed Requested Admin
+      const adminUser = await seedAdmin();
+
+      // FIX: Assign any Sims with NULL userId to the admin user
+      // We do this after ensuring adminUser exists
+      const [updatedCount] = await Sim.update(
+        { userId: adminUser.id },
+        { where: { userId: null } }
+      );
+      if (updatedCount > 0) {
+        console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
       }
     }
     
     isConnected = true;
-
-    // Seed System Settings if empty
-    if (process.env.NODE_ENV !== 'test') {
-      const settingsCount = await SystemSetting.count();
-      if (settingsCount === 0) {
-          await SystemSetting.bulkCreate([
-            { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
-            { key: 'site_url', value: 'https://peacebundlle.com', type: 'string', group: 'general' },
-            { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
-            { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
-            { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },
-            { key: 'allow_mock_bvn', value: 'true', type: 'boolean', group: 'api' },
-            { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
-          ]);
-          console.log('Default System Settings Seeded');
-      }
-
-      // Seed Requested Admin (ADMIN/Alamin0336)
-      const adminUsername = 'ADMIN';
-      const adminExists = await User.findOne({ where: { name: adminUsername } });
-      if (!adminExists) {
-          const salt = await bcrypt.genSalt(10);
-          const hashedPassword = await bcrypt.hash('Alamin0336', salt);
-          await User.create({
-              name: adminUsername,
-              email: 'admin@peacebundlle.com',
-              phone: '08000000000',
-              password: hashedPassword,
-              role: 'admin',
-              account_status: 'active'
-          });
-          console.log('Requested Admin user (ADMIN/Alamin0336) Seeded');
-      } else {
-          // Update password to ensure it matches
-          const salt = await bcrypt.genSalt(10);
-          const hashedPassword = await bcrypt.hash('Alamin0336', salt);
-          await adminExists.update({ password: hashedPassword });
-      }
-    }
 
   } catch (error) {
     console.error(`Error: ${error.message}`);
@@ -218,4 +190,52 @@ const connectDB = async () => {
   }
 };
 
-module.exports.connectDB = connectDB;
+// Seed Requested Admin (ADMIN/Alamin0336)
+const seedAdmin = async () => {
+  const adminUsername = 'ADMIN';
+  let adminUser = await User.findOne({ where: { name: adminUsername } });
+  
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash('Alamin0336', salt);
+
+  if (!adminUser) {
+    adminUser = await User.create({
+      name: adminUsername,
+      email: 'admin@peacebundlle.com',
+      phone: '08000000000',
+      password: hashedPassword,
+      role: 'admin',
+      account_status: 'active'
+    });
+    console.log('Requested Admin user (ADMIN/Alamin0336) Seeded');
+  } else {
+    // Update password to ensure it matches
+    await adminUser.update({ password: hashedPassword });
+  }
+  return adminUser;
+};
+
+module.exports = {
+  sequelize,
+  connectDB,
+  seedAdmin,
+  User,
+  Wallet,
+  Beneficiary,
+  Transaction,
+  Sim,
+  DataPlan,
+  ResellerPlanPricing,
+  Commission,
+  Referral,
+  ApiKey,
+  SystemSetting,
+  WalletTransaction,
+  SubscriptionPlan,
+  Role,
+  Permission,
+  SupportTicket,
+  Notification,
+  Review,
+  CallPlan
+};

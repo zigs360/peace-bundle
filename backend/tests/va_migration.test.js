@@ -1,5 +1,5 @@
 process.env.NODE_ENV = 'test'; // Force in-memory SQLite for testing
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
 const db = require('../config/db');
 const { User, Wallet } = require('../models');
 const virtualAccountService = require('../services/virtualAccountService');

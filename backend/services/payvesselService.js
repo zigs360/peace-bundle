@@ -49,9 +49,16 @@ class PayVesselService {
             // Add BVN or NIN if present (Required for STATIC accounts)
             if (user.bvn) {
                 payload.bvn = user.bvn;
-            }
-            if (user.nin) {
+            } else if (user.nin) {
                 payload.nin = user.nin;
+            } else {
+                // Check if we should provide a mock BVN for development
+                const SystemSetting = require('../models/SystemSetting');
+                const allowMock = await SystemSetting.get('allow_mock_bvn');
+                if (allowMock) {
+                    payload.bvn = '22222222222'; // Standard mock BVN for PayVessel sandbox
+                    logger.info(`[PayVessel] Using mock BVN for ${user.email} as allowed by system settings`);
+                }
             }
 
             logger.info(`[PayVessel] Initiating virtual account creation for ${user.email}`, {

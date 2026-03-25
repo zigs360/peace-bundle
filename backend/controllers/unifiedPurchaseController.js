@@ -7,7 +7,7 @@ const smeplugService = require('../services/smeplugService');
 const simManagementService = require('../services/simManagementService');
 const transactionLimitService = require('../services/transactionLimitService');
 const logger = require('../utils/logger');
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
 
 const networkServices = {
   airtel: { airtime: true, data: true, talkmore: true },

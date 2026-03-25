@@ -1,5 +1,5 @@
 process.env.NODE_ENV = 'test'; // Force in-memory SQLite for E2E testing
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
 const db = require('../config/db'); // Ensure models are loaded and associations defined
 const { User, Wallet, Sim, Transaction, DataPlan } = require('../models');
 const simManagementService = require('../services/simManagementService');

@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database'); // Import the instance directly
 
 const User = sequelize.define('User', {
   id: {
@@ -97,6 +97,11 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true,
   },
+  metadata: {
+    type: DataTypes.JSON,
+    defaultValue: {},
+    allowNull: true,
+  },
   account_status: {
     type: DataTypes.ENUM('active', 'suspended', 'banned'),
     defaultValue: 'active',
@@ -134,7 +139,6 @@ const User = sequelize.define('User', {
 // Auto-create wallet and virtual account on user creation
 User.afterCreate(async (user, options) => {
   const Wallet = require('./Wallet');
-  const VirtualAccountService = require('../services/virtualAccountService');
   const logger = require('../utils/logger');
   
   const { transaction } = options;
@@ -143,23 +147,35 @@ User.afterCreate(async (user, options) => {
     logger.info(`[AUDIT] Starting automated setup for new user: ${user.email} (${user.id})`);
 
     // 1. Create Wallet
-    await Wallet.create({ userId: user.id }, { transaction });
-    logger.info(`[AUDIT] Wallet created successfully for user: ${user.email}`);
+    // Ensure Wallet model is loaded and we have a valid reference
+    const wallet = await Wallet.create({ userId: user.id }, { transaction });
+    logger.info(`[AUDIT] Wallet created successfully for user: ${user.email} (Wallet ID: ${wallet.id})`);
 
     // 2. Assign Virtual Account (Non-blocking)
     // We make this non-blocking for registration to ensure the user can at least register 
     // even if the virtual account provider is temporarily down or keys are misconfigured.
-    VirtualAccountService.assignVirtualAccount(user)
-      .then(async (accountDetails) => {
-        logger.info(`[AUDIT] Virtual account assigned successfully for user: ${user.email}`);
-        // Send notification to user about their new virtual account
-        try {
-          await VirtualAccountService.notifyUserOfNewAccount(user);
-        } catch (notifErr) {
-          logger.warn(`[AUDIT] Failed to notify user ${user.email} of new account: ${notifErr.message}`);
+    
+    // Use a small delay to ensure transaction is committed before external service tries to update user
+    setTimeout(async () => {
+      try {
+        const VirtualAccountService = require('../services/virtualAccountService');
+        const accountDetails = await VirtualAccountService.assignVirtualAccount(user);
+        
+        if (accountDetails) {
+          logger.info(`[AUDIT] Virtual account assigned successfully for user: ${user.email}`);
+          // Send notification to user about their new virtual account
+          try {
+            await VirtualAccountService.notifyUserOfNewAccount(user);
+          } catch (notifErr) {
+            logger.warn(`[AUDIT] Failed to notify user ${user.email} of new account: ${notifErr.message}`);
+          }
+        } else {
+          logger.warn(`[AUDIT] Virtual account assignment returned no details for user: ${user.email}`);
         }
-      })
-      .catch((err) => logger.error(`[AUDIT] Virtual account assignment FAILED for user: ${user.email}. Error: ${err.message}`));
+      } catch (err) {
+        logger.error(`[AUDIT] Virtual account assignment FAILED for user: ${user.email}. Error: ${err.message}`);
+      }
+    }, 2000); // 2 second delay to ensure DB transaction is finalized
 
   } catch (error) {
     logger.error(`[AUDIT] Automated setup FAILED for user: ${user.email}. Error: ${error.message}`);

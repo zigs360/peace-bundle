@@ -1,8 +1,6 @@
-const Transaction = require('../models/Transaction');
-const User = require('../models/User');
-const Wallet = require('../models/Wallet');
+const { Transaction, User, Wallet, Sim, Commission } = require('../models');
 const { Op } = require('sequelize');
-const { sequelize } = require('../config/database');
+const sequelize = require('../config/database');
 const logger = require('../utils/logger');
 
 // @desc    Get System Stats (Admin)
