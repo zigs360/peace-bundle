@@ -155,6 +155,12 @@ User.afterCreate(async (user, options) => {
     // We make this non-blocking for registration to ensure the user can at least register 
     // even if the virtual account provider is temporarily down or keys are misconfigured.
     
+    // In test environment, skip background assignment to avoid Jest teardown errors
+    if (process.env.NODE_ENV === 'test') {
+      logger.info(`[AUDIT] Skipping background VA assignment in test mode for user: ${user.email}`);
+      return;
+    }
+
     // Use a small delay to ensure transaction is committed before external service tries to update user
     setTimeout(async () => {
       try {

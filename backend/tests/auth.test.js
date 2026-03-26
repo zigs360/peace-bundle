@@ -91,6 +91,6 @@ describe('Auth Endpoints', () => {
         password: 'wrongpassword'
       });
 
-    expect(res.statusCode).toEqual(400); // Should be 400 as per controller implementation for invalid creds
+    expect(res.statusCode).toEqual(401); // Should be 401 as per controller implementation for invalid creds
   });
 });

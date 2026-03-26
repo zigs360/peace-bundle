@@ -1,4 +1,4 @@
-const { sequelize } = require('../config/db'); // Fix import to use associations
+const sequelize = require('../config/database');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const crypto = require('crypto');

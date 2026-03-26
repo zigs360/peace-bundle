@@ -140,7 +140,11 @@ const Sim = sequelize.define('Sim', {
     {
       unique: true,
       fields: ['phone_number']
-    }
+    },
+    { fields: ['user_id'] },
+    { fields: ['provider'] },
+    { fields: ['status'] },
+    { fields: ['connection_status'] }
   ],
   scopes: {
     active: {

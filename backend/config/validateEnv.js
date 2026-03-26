@@ -11,7 +11,8 @@ const serviceEnvVars = [
   'PAYVESSEL_BUSINESS_ID',
   'SMEPLUG_API_KEY',
   'SMEPLUG_SECRET_KEY',
-  'SMEPLUG_BASE_URL'
+  'SMEPLUG_BASE_URL',
+  'OGDAMS_API_KEY'
 ];
 
 const validateEnv = () => {

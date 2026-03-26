@@ -135,6 +135,14 @@ const Transaction = sequelize.define('Transaction', {
 }, {
   timestamps: true,
   tableName: 'transactions',
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['walletId'] },
+    { fields: ['status'] },
+    { fields: ['type'] },
+    { fields: ['source'] },
+    { fields: ['createdAt'] }
+  ],
   scopes: {
     pending: {
       where: {
