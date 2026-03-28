@@ -31,7 +31,7 @@ describe('Home Page', () => {
         <Home />
       </BrowserRouter>
     );
-    expect(screen.getByText(/Airtime Top-up/i)).toBeInTheDocument();
-    expect(screen.getByText(/Data Bundles/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Airtime Top-up/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Data Bundles/i })).toBeInTheDocument();
   });
 });

@@ -18,7 +18,7 @@ router.post('/', [
         .notEmpty().withMessage('Phone number is required')
         .custom((value) => {
             // Remove spaces, dashes, and +234
-            let clean = value.replace(/[\s\-\+]/g, '');
+            let clean = value.replace(/[\s\-+]/g, '');
             if (clean.startsWith('234')) {
                 clean = '0' + clean.slice(3);
             } else if (clean.length === 10 && !clean.startsWith('0')) {

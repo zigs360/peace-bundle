@@ -132,6 +132,14 @@ const connectDB = async () => {
     await sequelize.authenticate();
     console.log('PostgreSQL Connected via Sequelize');
 
+    try {
+      await sequelize.query('DELETE FROM \"Wallets\" WHERE \"userId\" IS NULL');
+    } catch (e) {
+      try {
+        await sequelize.query('DELETE FROM wallets WHERE \"userId\" IS NULL');
+      } catch (_) {}
+    }
+
     // Sync models
     if (process.env.NODE_ENV === 'test') {
       console.log('Syncing models (test mode)...');

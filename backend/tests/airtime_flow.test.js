@@ -1,6 +1,4 @@
-const { User, Wallet, Transaction, Sim } = require('../models');
-const sequelize = require('../config/database');
-const dataPurchaseService = require('../services/dataPurchaseService');
+const { connectDB, User, Wallet, Sim, sequelize } = require('../config/db');
 const simManagementService = require('../services/simManagementService');
 const walletService = require('../services/walletService');
 const logger = require('../utils/logger');
@@ -16,6 +14,7 @@ const logger = require('../utils/logger');
 
 async function runTests() {
   try {
+    await connectDB();
     await sequelize.authenticate();
     logger.info('Database connected for airtime flow testing.');
 
@@ -98,9 +97,12 @@ async function runTests() {
     logger.info('Tests completed.');
   } catch (error) {
     logger.error('Test Runner Failed:', error);
-  } finally {
-    await sequelize.close();
+    throw error;
   }
 }
 
-runTests();
+describe('Airtime Purchase Flow', () => {
+  it('runs core airtime purchase scenarios', async () => {
+    await runTests();
+  });
+});

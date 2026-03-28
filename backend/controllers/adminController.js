@@ -1049,7 +1049,7 @@ const approveKyc = async (req, res) => {
 // @route   PUT /api/admin/users/:id/kyc/reject
 // @access  Private (Admin)
 const rejectKyc = async (req, res) => {
-    const { sendEmail } = require('../services/notificationService');
+    const { sendEmail, sendSMS } = require('../services/notificationService');
     try {
         const { reason } = req.body;
         const user = await User.findByPk(req.params.id);
@@ -1204,6 +1204,7 @@ const getBulkSMSHistory = async (req, res) => {
 // @access  Private (Admin)
 const sendAdminBulkSMS = async (req, res) => {
     const { senderId, message, recipients, targetGroup } = req.body;
+    const { sendSMS } = require('../services/notificationService');
     
     try {
         let recipientList = [];

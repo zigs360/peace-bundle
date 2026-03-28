@@ -11,7 +11,6 @@ const Sim = sequelize.define('Sim', {
   userId: {
     type: DataTypes.UUID,
     allowNull: true,
-    field: 'user_id'
   },
 
   phoneNumber: {
@@ -141,7 +140,7 @@ const Sim = sequelize.define('Sim', {
       unique: true,
       fields: ['phone_number']
     },
-    { fields: ['user_id'] },
+    { fields: ['userId'] },
     { fields: ['provider'] },
     { fields: ['status'] },
     { fields: ['connection_status'] }

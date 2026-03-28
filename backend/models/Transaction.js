@@ -135,14 +135,6 @@ const Transaction = sequelize.define('Transaction', {
 }, {
   timestamps: true,
   tableName: 'transactions',
-  indexes: [
-    { fields: ['userId'] },
-    { fields: ['walletId'] },
-    { fields: ['status'] },
-    { fields: ['type'] },
-    { fields: ['source'] },
-    { fields: ['createdAt'] }
-  ],
   scopes: {
     pending: {
       where: {
@@ -168,14 +160,15 @@ const Transaction = sequelize.define('Transaction', {
     }
   },
   indexes: [
-      {
-          fields: ['status', 'createdAt'] // Indexing status + created_at
-      },
-      {
-          fields: ['recipient_phone', 'createdAt'] // Indexing recipient + created_at
-      },
-      { fields: ['reference'] },
-      { fields: ['type'] }
+    { fields: ['userId'] },
+    { fields: ['walletId'] },
+    { fields: ['status'] },
+    { fields: ['type'] },
+    { fields: ['source'] },
+    { fields: ['createdAt'] },
+    { fields: ['status', 'createdAt'] },
+    { fields: ['recipient_phone', 'createdAt'] },
+    { fields: ['reference'] }
   ]
 });
 

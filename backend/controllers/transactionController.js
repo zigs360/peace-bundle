@@ -5,6 +5,7 @@ const Commission = require('../models/Commission');
 const Referral = require('../models/Referral');
 const SystemSetting = require('../models/SystemSetting');
 const DataPlan = require('../models/DataPlan');
+const Sim = require('../models/Sim');
 const { sendTransactionNotification, sendSMS } = require('../services/notificationService');
 const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
@@ -181,59 +182,53 @@ const buyData = async (req, res) => {
         );
 
         // 2. Process Purchase (Local SIM or API)
-        try {
-            const networkId = smeplugService.getNetworkId(plan.provider);
-            
-            // Determine routing: Local SIM or API (Smeplug)
-            let processedViaSim = false;
-            let simReference = null;
-            let simResponse = null;
+        const networkId = smeplugService.getNetworkId(plan.provider);
+        
+        // Determine routing: Local SIM or API (Smeplug)
+        let processedViaSim = false;
+        let simReference = null;
+        let simResponse = null;
 
-            // Try to find a local SIM first (if enabled/applicable)
-            // Passing plan.api_cost to check if SIM has enough balance
-            const optimalSim = await simManagementService.getOptimalSim(plan.provider, plan.api_cost || 0);
-            
-            if (optimalSim) {
-                try {
-                    const simResult = await simManagementService.processTransaction(optimalSim, plan, phone);
-                    if (simResult.success) {
-                        processedViaSim = true;
-                        simReference = simResult.reference;
-                        simResponse = simResult;
-                    }
-                } catch (simError) {
-                    logger.error('Local SIM transaction failed, falling back to API:', { error: simError.message, phone });
-                    // Continue to API fallback
+        // Try to find a local SIM first (if enabled/applicable)
+        // Passing plan.api_cost to check if SIM has enough balance
+        const optimalSim = await simManagementService.getOptimalSim(plan.provider, plan.api_cost || 0);
+        
+        if (optimalSim) {
+            try {
+                const simResult = await simManagementService.processTransaction(optimalSim, plan, phone);
+                if (simResult.success) {
+                    processedViaSim = true;
+                    simReference = simResult.reference;
+                    simResponse = simResult;
                 }
+            } catch (simError) {
+                logger.error('Local SIM transaction failed, falling back to API:', { error: simError.message, phone });
+            }
+        }
+
+        if (processedViaSim) {
+            newTransaction.smeplug_reference = simReference;
+            newTransaction.smeplug_response = simResponse;
+            await newTransaction.save({ transaction: t });
+        } else {
+            // Use plan.smeplug_plan_id if available, otherwise assume mapping exists
+            const smeplugPlanId = plan.smeplug_plan_id || planId;
+
+            const purchaseResult = await smeplugService.purchaseData(
+                plan.provider,
+                phone,
+                smeplugPlanId,
+                'wallet'
+            );
+
+            if (!purchaseResult.success) {
+                throw new Error(purchaseResult.error || 'Data purchase failed at provider');
             }
 
-            if (processedViaSim) {
-                newTransaction.smeplug_reference = simReference;
-                newTransaction.smeplug_response = simResponse;
-                await newTransaction.save({ transaction: t });
-            } else {
-                // Use plan.smeplug_plan_id if available, otherwise assume mapping exists
-                const smeplugPlanId = plan.smeplug_plan_id || planId;
-
-                const purchaseResult = await smeplugService.purchaseData(
-                    plan.provider,
-                    phone,
-                    smeplugPlanId,
-                    'wallet'
-                );
-
-                if (!purchaseResult.success) {
-                    throw new Error(purchaseResult.error || 'Data purchase failed at provider');
-                }
-
-                // Update transaction with provider reference
-                newTransaction.smeplug_reference = purchaseResult.data?.reference;
-                newTransaction.smeplug_response = purchaseResult.data;
-                await newTransaction.save({ transaction: t });
-            }
-
-        } catch (apiError) {
-            throw apiError; // Trigger rollback
+            // Update transaction with provider reference
+            newTransaction.smeplug_reference = purchaseResult.data?.reference;
+            newTransaction.smeplug_response = purchaseResult.data;
+            await newTransaction.save({ transaction: t });
         }
 
         await t.commit();
@@ -295,47 +290,41 @@ const buyAirtime = async (req, res) => {
         );
 
         // 2. Call Smeplug API or Local SIM for Airtime
-        try {
-            let processedViaSim = false;
-            let simReference = null;
-            let simResponse = null;
+        let processedViaSim = false;
+        let simReference = null;
+        let simResponse = null;
 
-            // Try to find a local SIM first (for airtime/VTU)
-            const optimalSim = await simManagementService.getOptimalSim(network, faceValue);
-            
-            if (optimalSim) {
-                try {
-                    const simResult = await simManagementService.processTransaction(optimalSim, { provider: network, amount: faceValue }, phone);
-                    if (simResult.success) {
-                        processedViaSim = true;
-                        simReference = simResult.reference;
-                        simResponse = simResult;
-                    }
-                } catch (simError) {
-                    logger.error('Local SIM Airtime transaction failed, falling back to API:', { error: simError.message, phone });
-                    // Continue to API fallback
+        // Try to find a local SIM first (for airtime/VTU)
+        const optimalSim = await simManagementService.getOptimalSim(network, faceValue);
+        
+        if (optimalSim) {
+            try {
+                const simResult = await simManagementService.processTransaction(optimalSim, { provider: network, amount: faceValue }, phone);
+                if (simResult.success) {
+                    processedViaSim = true;
+                    simReference = simResult.reference;
+                    simResponse = simResult;
                 }
+            } catch (simError) {
+                logger.error('Local SIM Airtime transaction failed, falling back to API:', { error: simError.message, phone });
+            }
+        }
+
+        if (processedViaSim) {
+            newTransaction.smeplug_reference = simReference;
+            newTransaction.smeplug_response = simResponse;
+            await newTransaction.save({ transaction: t });
+        } else {
+            const purchaseResult = await smeplugService.purchaseVTU(network, phone, faceValue);
+
+            if (!purchaseResult.success) {
+                throw new Error(purchaseResult.error || 'Airtime purchase failed at provider');
             }
 
-            if (processedViaSim) {
-                newTransaction.smeplug_reference = simReference;
-                newTransaction.smeplug_response = simResponse;
-                await newTransaction.save({ transaction: t });
-            } else {
-                const purchaseResult = await smeplugService.purchaseVTU(network, phone, faceValue);
-
-                if (!purchaseResult.success) {
-                    throw new Error(purchaseResult.error || 'Airtime purchase failed at provider');
-                }
-
-                // Update transaction with provider reference
-                newTransaction.smeplug_reference = purchaseResult.data?.reference || purchaseResult.data?.transaction_id;
-                newTransaction.smeplug_response = purchaseResult.data;
-                await newTransaction.save({ transaction: t });
-            }
-
-        } catch (apiError) {
-            throw apiError; // Trigger rollback
+            // Update transaction with provider reference
+            newTransaction.smeplug_reference = purchaseResult.data?.reference || purchaseResult.data?.transaction_id;
+            newTransaction.smeplug_response = purchaseResult.data;
+            await newTransaction.save({ transaction: t });
         }
 
         await t.commit();

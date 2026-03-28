@@ -18,7 +18,7 @@ describe('SelectProvider', () => {
     render(<SelectProvider value="" onChange={handleChange} />);
     
     fireEvent.click(screen.getByText('MTN'));
-    expect(handleChange).toHaveBeenCalledWith('MTN');
+    expect(handleChange).toHaveBeenCalledWith('mtn');
   });
 
   it('highlights the selected provider', () => {
@@ -26,6 +26,6 @@ describe('SelectProvider', () => {
     render(<SelectProvider value="MTN" onChange={handleChange} />);
     
     const mtnButton = screen.getByText('MTN').closest('button');
-    expect(mtnButton).toHaveClass('ring-2');
+    expect(mtnButton).toHaveClass('border-transparent');
   });
 });

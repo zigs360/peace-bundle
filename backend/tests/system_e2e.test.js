@@ -1,12 +1,8 @@
-process.env.NODE_ENV = 'test'; // Force in-memory SQLite for E2E testing
-const sequelize = require('../config/database');
-const db = require('../config/db'); // Ensure models are loaded and associations defined
-const { User, Wallet, Sim, Transaction, DataPlan } = require('../models');
+const { connectDB, sequelize, User, Wallet, Sim, Transaction, DataPlan } = require('../config/db');
 const simManagementService = require('../services/simManagementService');
 const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
 const virtualAccountService = require('../services/virtualAccountService');
-const logger = require('../utils/logger');
 
 // MOCK EXTERNAL SERVICES FOR E2E TESTING
 virtualAccountService.assignVirtualAccount = async () => {
@@ -68,7 +64,7 @@ async function runE2E() {
     
     try {
         // Initialize Database and Models
-        await db.connectDB();
+        await connectDB();
         
         // 1. User & KYC Workflow
         const startTimeKyc = Date.now();
@@ -207,11 +203,15 @@ async function runE2E() {
             console.log('🌟 All critical workflows validated successfully!');
         }
 
+        return results;
     } catch (globalError) {
-        console.error('CRITICAL: E2E Test Runner failed to initialize:', globalError);
-    } finally {
-        await sequelize.close();
+        throw globalError;
     }
 }
 
-runE2E();
+describe('System E2E (mocked providers)', () => {
+  it('validates core workflows end-to-end', async () => {
+    const summary = await runE2E();
+    expect(summary.metrics.failed).toBe(0);
+  });
+});

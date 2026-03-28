@@ -5,7 +5,7 @@ const payvesselService = require('./payvesselService');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database'); // Added sequelize import
 
-const { sendSMS, sendTransactionNotification } = require('./notificationService');
+const notificationService = require('./notificationService');
 
 class VirtualAccountService {
     constructor() {
@@ -76,7 +76,7 @@ class VirtualAccountService {
         // 1. Send SMS (if phone exists)
         if (user.phone) {
             try {
-                await sendSMS(user.phone, message);
+                await notificationService.sendSMS(user.phone, message);
             } catch (smsErr) {
                 logger.error(`[VirtualAccount] SMS notification failed for ${user.id}: ${smsErr.message}`);
             }
@@ -84,7 +84,7 @@ class VirtualAccountService {
 
         // 2. Send Email/Push via notification service
         try {
-            await sendTransactionNotification(user, {
+            await notificationService.sendTransactionNotification(user, {
                 type: 'virtual_account_activation',
                 message: message,
                 details: {

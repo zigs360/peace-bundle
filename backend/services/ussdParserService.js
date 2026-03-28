@@ -70,7 +70,7 @@ class USSDParserService {
   formatPhoneNumber(phone) {
     if (!phone) return '';
     // Remove all non-numeric characters except +
-    let clean = phone.replace(/[^0-9\+]/g, '');
+    let clean = phone.replace(/[^0-9+]/g, '');
     
     // Handle +234
     if (clean.startsWith('+234')) {

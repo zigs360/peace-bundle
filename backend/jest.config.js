@@ -4,7 +4,6 @@ module.exports = {
   verbose: true,
   forceExit: true,
   clearMocks: true,
-  resetMocks: true,
-  restoreMocks: true,
   setupFilesAfterEnv: ['./tests/setup.js'],
+  globalTeardown: './tests/globalTeardown.js',
 };
