@@ -3,5 +3,6 @@ module.exports = async () => {
     const { sequelize } = require('../config/db');
     await sequelize.close();
   } catch (e) {
+    void e;
   }
 };

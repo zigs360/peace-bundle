@@ -47,7 +47,9 @@ async function run() {
     console.error('VA smoke test failed:', e.message);
     try {
       await sequelize.close();
-    } catch (_) {}
+    } catch (e2) {
+      void e2;
+    }
     process.exit(1);
   }
 }

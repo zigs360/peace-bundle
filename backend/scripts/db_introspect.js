@@ -32,10 +32,11 @@ async function run() {
     console.error('Introspect failed:', e.message);
     try {
       await sequelize.close();
-    } catch (_) {}
+    } catch (e2) {
+      void e2;
+    }
     process.exit(1);
   }
 }
 
 run();
-

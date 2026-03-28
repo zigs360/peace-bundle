@@ -133,11 +133,14 @@ const connectDB = async () => {
     console.log('PostgreSQL Connected via Sequelize');
 
     try {
-      await sequelize.query('DELETE FROM \"Wallets\" WHERE \"userId\" IS NULL');
+      await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL');
     } catch (e) {
+      void e;
       try {
-        await sequelize.query('DELETE FROM wallets WHERE \"userId\" IS NULL');
-      } catch (_) {}
+        await sequelize.query('DELETE FROM wallets WHERE "userId" IS NULL');
+      } catch (e2) {
+        void e2;
+      }
     }
 
     // Sync models

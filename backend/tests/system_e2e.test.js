@@ -62,9 +62,8 @@ async function logResult(name, success, details = {}, duration = 0) {
 async function runE2E() {
     console.log('🚀 Starting Comprehensive E2E System Test...\n');
     
-    try {
-        // Initialize Database and Models
-        await connectDB();
+    // Initialize Database and Models
+    await connectDB();
         
         // 1. User & KYC Workflow
         const startTimeKyc = Date.now();
@@ -203,10 +202,7 @@ async function runE2E() {
             console.log('🌟 All critical workflows validated successfully!');
         }
 
-        return results;
-    } catch (globalError) {
-        throw globalError;
-    }
+    return results;
 }
 
 describe('System E2E (mocked providers)', () => {
