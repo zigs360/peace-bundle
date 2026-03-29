@@ -20,6 +20,27 @@ const requestVirtualAccount = async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
+        if (!user.email || !user.name) {
+            return res.status(400).json({
+                success: false,
+                message: 'Your profile is incomplete. Please update your name and email before requesting a virtual account.'
+            });
+        }
+
+        const rawPhone = String(user.phone || '').trim();
+        const phoneDigits = rawPhone.replace(/\D/g, '');
+        const isPhoneValid =
+            /^0\d{10}$/.test(rawPhone) ||
+            (phoneDigits.startsWith('234') && phoneDigits.length === 13) ||
+            (phoneDigits.startsWith('0') && phoneDigits.length === 11);
+
+        if (!rawPhone || !isPhoneValid) {
+            return res.status(400).json({
+                success: false,
+                message: 'A valid Nigerian phone number is required on your profile before requesting a virtual account.'
+            });
+        }
+
         if (user.virtual_account_number) {
             return res.status(400).json({ 
                 success: false, 
@@ -36,7 +57,12 @@ const requestVirtualAccount = async (req, res) => {
         // If BVN is missing and required, we might need to prompt for it
         // Note: For PayVessel, some business models allow initial creation without full BVN, 
         // but it's safer to have it if required by your settings.
-        const allowMockBvn = await virtualAccountService.getSetting('allow_mock_bvn') === 'true';
+        const allowMockBvnSetting = await virtualAccountService.getSetting('allow_mock_bvn');
+        const allowMockBvn =
+            allowMockBvnSetting === true ||
+            allowMockBvnSetting === 1 ||
+            allowMockBvnSetting === '1' ||
+            allowMockBvnSetting === 'true';
         if (!user.bvn && !user.is_bvn_verified && !allowMockBvn) {
             return res.status(400).json({ 
                 success: false, 

@@ -7,6 +7,31 @@ const sequelize = require('../config/database'); // Added sequelize import
 
 const notificationService = require('./notificationService');
 
+const { Op } = require('sequelize');
+
+const luhnCheckDigit = (input) => {
+    const digits = String(input).replace(/\D/g, '').split('').map(Number);
+    let sum = 0;
+    let doubleNext = true;
+    for (let i = digits.length - 1; i >= 0; i--) {
+        let d = digits[i];
+        if (doubleNext) {
+            d *= 2;
+            if (d > 9) d -= 9;
+        }
+        sum += d;
+        doubleNext = !doubleNext;
+    }
+    return (10 - (sum % 10)) % 10;
+};
+
+const toNumericFromUuid = (uuid, moduloDigits, nonce = 0) => {
+    const hex = String(uuid || '').replace(/-/g, '');
+    const mod = BigInt('1' + '0'.repeat(moduloDigits));
+    const n = (BigInt('0x' + hex) + BigInt(nonce)) % mod;
+    return n.toString().padStart(moduloDigits, '0');
+};
+
 class VirtualAccountService {
     constructor() {
         this.monnifyBaseUrl = process.env.MONNIFY_BASE_URL || 'https://sandbox.monnify.com';
@@ -19,51 +44,7 @@ class VirtualAccountService {
      * @returns {Promise<Object>} - Summary of the migration
      */
     async bulkMigrateLegacyUsers(limit = 50) {
-        logger.info(`[VirtualAccount] Starting bulk migration for up to ${limit} users.`);
-        const users = await User.findAll({
-            where: {
-                virtual_account_number: null,
-                account_status: 'active'
-            },
-            limit: limit
-        });
-
-        const summary = {
-            total_found: users.length,
-            success: 0,
-            failed: 0,
-            errors: []
-        };
-
-        for (const user of users) {
-            try {
-                // Check if user already has an active creation reference
-                const hasPendingRef = user.metadata?.payvessel_tracking_reference;
-                
-                // Use a dedicated transaction per user to ensure partial success doesn't block others
-                await sequelize.transaction(async (t) => {
-                    await this.assignVirtualAccount(user, { transaction: t });
-                    
-                    // Notify User
-                    try {
-                        await this.notifyUserOfNewAccount(user);
-                    } catch (notifErr) {
-                        logger.warn(`[VirtualAccount] Migration notification failed for ${user.email}: ${notifErr.message}`);
-                    }
-                });
-                summary.success++;
-            } catch (err) {
-                summary.failed++;
-                summary.errors.push({ userId: user.id, email: user.email, error: err.message });
-                logger.error(`[VirtualAccount] Migration failed for user ${user.id}: ${err.message}`);
-                
-                // If the error indicates a duplicate or already existing reference, we can consider it a retryable scenario
-                // but we keep track of the error for now.
-            }
-        }
-
-        logger.info(`[VirtualAccount] Migration complete: ${summary.success} succeeded, ${summary.failed} failed.`);
-        return summary;
+        return this.bulkAssignMissingVirtualAccounts({ maxUsers: limit, batchSize: limit, notify: true, includeInactive: false });
     }
 
     /**
@@ -96,6 +77,152 @@ class VirtualAccountService {
         } catch (emailErr) {
             logger.error(`[VirtualAccount] Email notification failed for ${user.id}: ${emailErr.message}`);
         }
+    }
+
+    async createLocalAccount(user, options = {}) {
+        const { transaction } = options;
+        const prefixSetting = await this.getSetting('local_virtual_account_prefix');
+        const prefix = String(prefixSetting || process.env.LOCAL_VA_PREFIX || '901').replace(/\D/g, '').slice(0, 4) || '901';
+        const moduloDigits = Math.max(1, 9 - prefix.length);
+        const maxAttempts = 50;
+
+        for (let nonce = 0; nonce < maxAttempts; nonce++) {
+            const body = toNumericFromUuid(user.id, moduloDigits, nonce);
+            const base = `${prefix}${body}`;
+            const check = luhnCheckDigit(base);
+            const accountNumber = `${base}${check}`;
+
+            const exists = await User.count({
+                where: { virtual_account_number: accountNumber },
+                transaction
+            });
+
+            if (exists === 0) {
+                const bankNameSetting = await this.getSetting('local_virtual_account_bank');
+                const bankName = String(bankNameSetting || 'Peace Bundlle');
+                const trackingReference = `LOCAL-${user.id}-${nonce}`;
+                user.metadata = {
+                    ...user.metadata,
+                    local_virtual_account: { scheme: 'prefix+uuid+checksum', prefix, nonce }
+                };
+                return { accountNumber, bankName, accountName: user.name, trackingReference };
+            }
+        }
+
+        throw new Error('Unable to generate a unique local virtual account number');
+    }
+
+    async bulkAssignMissingVirtualAccounts(options = {}) {
+        const batchSize = Math.max(1, parseInt(options.batchSize || 100, 10));
+        const maxUsers = options.maxUsers === undefined ? Infinity : Math.max(0, parseInt(options.maxUsers, 10));
+        const notify = options.notify !== false;
+        const includeInactive = options.includeInactive === true;
+        const dryRun = options.dryRun === true;
+
+        const summary = {
+            total_found: 0,
+            processed: 0,
+            created: 0,
+            skipped_inactive: 0,
+            skipped_existing: 0,
+            failed: 0,
+            errors: []
+        };
+
+        let lastCreatedAt = null;
+        let lastId = null;
+
+        while (summary.processed < maxUsers) {
+            const remaining = Number.isFinite(maxUsers) ? Math.max(0, maxUsers - summary.processed) : batchSize;
+            const limit = Math.min(batchSize, remaining || batchSize);
+
+            const where = {
+                virtual_account_number: null
+            };
+            if (!includeInactive) {
+                where.account_status = 'active';
+            }
+
+            if (lastCreatedAt && lastId) {
+                where[Op.or] = [
+                    { createdAt: { [Op.gt]: lastCreatedAt } },
+                    { createdAt: lastCreatedAt, id: { [Op.gt]: lastId } }
+                ];
+            }
+
+            const users = await User.findAll({
+                where,
+                order: [['createdAt', 'ASC'], ['id', 'ASC']],
+                limit
+            });
+
+            if (summary.total_found === 0) {
+                summary.total_found = users.length;
+            } else {
+                summary.total_found += users.length;
+            }
+
+            if (users.length === 0) break;
+
+            for (const row of users) {
+                if (summary.processed >= maxUsers) break;
+                summary.processed++;
+
+                if (!includeInactive && row.account_status !== 'active') {
+                    summary.skipped_inactive++;
+                    continue;
+                }
+
+                if (row.virtual_account_number) {
+                    summary.skipped_existing++;
+                    continue;
+                }
+
+                if (dryRun) {
+                    summary.created++;
+                    continue;
+                }
+
+                try {
+                    let createdForUser = false;
+                    await sequelize.transaction(async (t) => {
+                        const freshUser = await User.findByPk(row.id, { transaction: t, lock: t.LOCK.UPDATE });
+                        if (!freshUser) throw new Error('User not found');
+                        if (freshUser.virtual_account_number) {
+                            summary.skipped_existing++;
+                            return;
+                        }
+                        if (!includeInactive && freshUser.account_status !== 'active') {
+                            summary.skipped_inactive++;
+                            return;
+                        }
+
+                        const details = await this.assignVirtualAccount(freshUser, { transaction: t });
+                        if (!details) return;
+                        createdForUser = true;
+                        if (notify) {
+                            try {
+                                await this.notifyUserOfNewAccount(freshUser);
+                            } catch (notifErr) {
+                                logger.warn(`[VirtualAccount] Bulk notify failed for ${freshUser.email}: ${notifErr.message}`);
+                            }
+                        }
+                    });
+                    if (createdForUser) summary.created++;
+                } catch (err) {
+                    summary.failed++;
+                    summary.errors.push({ userId: row.id, email: row.email, error: err.message });
+                    logger.error(`[VirtualAccount] Bulk assignment failed for user ${row.id}: ${err.message}`);
+                }
+            }
+
+            const last = users[users.length - 1];
+            lastCreatedAt = last.createdAt;
+            lastId = last.id;
+        }
+
+        logger.info(`[VirtualAccount] Bulk assignment complete: ${summary.created} created, ${summary.failed} failed, ${summary.skipped_existing} skipped.`);
+        return summary;
     }
 
     async getMonnifyToken() {
@@ -182,6 +309,10 @@ class VirtualAccountService {
     async assignVirtualAccount(user, options = {}) {
         const { transaction } = options;
         
+        if (user.virtual_account_number) {
+            return null;
+        }
+
         // Feature Flag: Check if generation is enabled
         const isEnabled = await this.getSetting('virtual_account_generation_enabled');
         if (isEnabled === false) {
@@ -206,6 +337,8 @@ class VirtualAccountService {
 
             if (provider === 'payvessel') {
                 accountDetails = await payvesselService.createVirtualAccount(user);
+            } else if (provider === 'local') {
+                accountDetails = await this.createLocalAccount(user, { transaction });
             } else if (provider === 'monnify') {
                 accountDetails = await this.createMonnifyAccount(user);
             } else if (provider === 'paystack') {

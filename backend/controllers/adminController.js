@@ -1241,16 +1241,22 @@ const sendAdminBulkSMS = async (req, res) => {
 // @access  Private (Admin)
 const generateMissingVirtualAccounts = async (req, res) => {
     const virtualAccountService = require('../services/virtualAccountService');
-    const { limit = 50, notify = true } = req.body;
+    const { limit = 50, batchSize, notify = true, includeInactive = false, dryRun = false } = req.body;
     
     try {
         logger.info(`[Admin] Initiating bulk virtual account migration. Limit: ${limit}, Notify: ${notify}`);
         
-        const summary = await virtualAccountService.bulkMigrateLegacyUsers(parseInt(limit));
+        const summary = await virtualAccountService.bulkAssignMissingVirtualAccounts({
+            maxUsers: parseInt(limit),
+            batchSize: batchSize ? parseInt(batchSize) : parseInt(limit),
+            notify: notify !== false,
+            includeInactive: includeInactive === true,
+            dryRun: dryRun === true
+        });
 
         res.json({
             success: true,
-            message: `Migration process completed. ${summary.success} accounts created, ${summary.failed} failed.`,
+            message: `Migration process completed. ${summary.created} accounts created, ${summary.failed} failed.`,
             data: summary
         });
 

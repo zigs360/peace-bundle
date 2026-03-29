@@ -16,7 +16,6 @@ class IntersectionObserverMock {
   }
 }
 
-// @ts-expect-error - test environment polyfill
 globalThis.IntersectionObserver = IntersectionObserverMock;
 
 vi.mock('axios', () => {
