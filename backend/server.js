@@ -11,6 +11,7 @@ const logger = require('./utils/logger');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const validateEnv = require('./config/validateEnv');
 const notificationRealtimeService = require('./services/notificationRealtimeService');
+const { startVirtualAccountProvisioningJob } = require('./jobs/virtualAccountProvisioningJob');
 
 const path = require('path');
 const fs = require('fs');
@@ -37,13 +38,6 @@ try {
 } catch (error) {
   logger.error(`Environment validation failed: ${error.message}`);
   process.exit(1);
-}
-
-if (process.env.NODE_ENV !== 'test') {
-  connectDB().catch(err => {
-    logger.error(`Database connection failed: ${err.message}`);
-    process.exit(1);
-  });
 }
 
 const app = express();
@@ -146,9 +140,21 @@ const server = http.createServer(app);
 notificationRealtimeService.init(server);
 
 if (require.main === module) {
-  server.listen(PORT, () => {
-    logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-  });
+  (async () => {
+    if (process.env.NODE_ENV !== 'test') {
+      try {
+        await connectDB();
+      } catch (err) {
+        logger.error(`Database connection failed: ${err.message}`);
+        process.exit(1);
+      }
+    }
+
+    server.listen(PORT, () => {
+      logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+      startVirtualAccountProvisioningJob();
+    });
+  })();
 }
 
 module.exports = app;
