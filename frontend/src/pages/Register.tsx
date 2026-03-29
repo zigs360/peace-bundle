@@ -30,7 +30,11 @@ export default function Register() {
       const res = await api.post('/auth/register', formData);
       const data = res.data as { token: string; user: any };
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      const userForStorage = { ...data.user };
+      delete userForStorage.virtual_account_number;
+      delete userForStorage.virtual_account_bank;
+      delete userForStorage.virtual_account_name;
+      localStorage.setItem('user', JSON.stringify(userForStorage));
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Registration failed');

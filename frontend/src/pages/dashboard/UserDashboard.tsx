@@ -1,22 +1,75 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { Wallet, Wifi, Phone, Activity, Copy } from 'lucide-react';
+import { Wallet, Wifi, Phone, Activity, Copy, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
 import { User, DashboardStats } from '../../types';
 
-// New component for the virtual account display
-const VirtualAccountDisplay = ({ user }: { user: User }) => {
-  const [copied, setCopied] = useState(false);
+type VirtualAccountSummary =
+  | {
+      hasVirtualAccount: false;
+      message?: string;
+    }
+  | {
+      hasVirtualAccount: true;
+      bankName: string;
+      accountName: string;
+      accountNumberMasked: string;
+      last4: string;
+    };
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
+const VirtualAccountDisplay = ({
+  virtualAccount,
+  onReveal,
+  onCopy,
+}: {
+  virtualAccount: VirtualAccountSummary | null;
+  onReveal: () => Promise<string | null>;
+  onCopy: (accountNumber: string) => Promise<void>;
+}) => {
+  const [copied, setCopied] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [revealedNumber, setRevealedNumber] = useState<string | null>(null);
+  const [revealError, setRevealError] = useState<string | null>(null);
+
+  const handleCopy = async () => {
+    setRevealError(null);
+    if (!revealedNumber) {
+      setRevealError('Reveal the account number before copying.');
+      return;
+    }
+    navigator.clipboard.writeText(revealedNumber);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+    await onCopy(revealedNumber);
   };
 
-  if (!user.virtual_account_number) {
-    return null; // Don't render if no account number
+  const handleReveal = async () => {
+    setRevealError(null);
+    if (revealed && revealedNumber) {
+      setRevealed(false);
+      return;
+    }
+    const full = await onReveal();
+    if (!full) {
+      setRevealError('Unable to reveal account number right now. Please try again.');
+      return;
+    }
+    setRevealedNumber(full);
+    setRevealed(true);
+  };
+
+  if (!virtualAccount) return null;
+  if (virtualAccount.hasVirtualAccount === false) {
+    return (
+      <div className="mb-8 bg-gradient-to-r from-primary-600 to-primary-800 rounded-lg shadow-lg p-6 text-white">
+        <div className="flex items-center gap-2 mb-2">
+          <Wallet className="w-6 h-6 text-primary-200" />
+          <h2 className="text-xl font-bold">Virtual account not available yet</h2>
+        </div>
+        <p className="text-primary-100 max-w-md">{virtualAccount.message || 'Please check back later.'}</p>
+      </div>
+    );
   }
 
   return (
@@ -32,27 +85,45 @@ const VirtualAccountDisplay = ({ user }: { user: User }) => {
           </p>
         </div>
         <div className="bg-white/10 p-5 rounded-xl backdrop-blur-md border border-white/20 min-w-full md:min-w-[320px] shadow-inner">
+          <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-primary-200" />
+              <span className="text-sm text-primary-200">Verified Account</span>
+            </div>
+            <button
+              onClick={handleReveal}
+              className="flex items-center gap-2 px-3 py-1 rounded bg-white/10 hover:bg-white/20 transition-colors text-sm"
+              title={revealed ? 'Hide account number' : 'Reveal account number'}
+            >
+              {revealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {revealed ? 'Hide' : 'Reveal'}
+            </button>
+          </div>
           <div className="flex justify-between mb-3 border-b border-white/10 pb-2">
             <span className="text-sm text-primary-200">Bank Name</span>
-            <span className="font-bold tracking-wide">{user.virtual_account_bank}</span>
+            <span className="font-bold tracking-wide">{virtualAccount.bankName}</span>
           </div>
           <div className="flex justify-between mb-3 items-center">
             <span className="text-sm text-primary-200">Account Number</span>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-2xl font-bold tracking-wider">{user.virtual_account_number}</span>
+              <span className="font-mono text-2xl font-bold tracking-wider">
+                {revealed && revealedNumber ? revealedNumber : virtualAccount.accountNumberMasked}
+              </span>
               <button 
-                  onClick={() => handleCopy(user.virtual_account_number!)}
-                  className="p-1 hover:bg-white/20 rounded transition-colors relative"
+                  onClick={handleCopy}
+                  className="p-1 hover:bg-white/20 rounded transition-colors relative disabled:opacity-60 disabled:cursor-not-allowed"
                   title="Copy Account Number"
+                  disabled={!revealedNumber}
               >
                   <Copy className="w-4 h-4" />
                   {copied && <span className="absolute -top-7 right-0 bg-black text-white text-xs px-2 py-1 rounded">Copied!</span>}
               </button>
             </div>
           </div>
+          {revealError && <div className="text-xs text-red-100 bg-red-500/20 border border-red-500/30 rounded px-3 py-2 mb-3">{revealError}</div>}
           <div className="flex justify-between pt-1">
             <span className="text-sm text-primary-200">Account Name</span>
-            <span className="font-medium text-sm truncate max-w-[180px]">{user.virtual_account_name}</span>
+            <span className="font-medium text-sm truncate max-w-[180px]">{virtualAccount.accountName}</span>
           </div>
         </div>
       </div>
@@ -64,6 +135,7 @@ export default function UserDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [virtualAccount, setVirtualAccount] = useState<VirtualAccountSummary | null>(null);
 
   useEffect(() => {
     const initDashboard = async () => {
@@ -72,10 +144,15 @@ export default function UserDashboard() {
         const userRes = await api.get('/auth/me');
         const userData = userRes.data;
         setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData)); // Keep local storage in sync
+        const userForStorage = { ...userData };
+        delete userForStorage.virtual_account_number;
+        delete userForStorage.virtual_account_bank;
+        delete userForStorage.virtual_account_name;
+        localStorage.setItem('user', JSON.stringify(userForStorage));
         
         // 2. Fetch stats using the fresh user ID
         await fetchStats(userData.id);
+        await fetchVirtualAccountSummary();
       } catch (err) {
         console.error('Failed to refresh user data', err);
         // Fallback: use stored user if API fails
@@ -84,6 +161,7 @@ export default function UserDashboard() {
           const parsedUser = JSON.parse(storedUser);
           setUser(parsedUser);
           await fetchStats(parsedUser.id);
+          await fetchVirtualAccountSummary();
         } else {
             setLoading(false);
         }
@@ -92,6 +170,32 @@ export default function UserDashboard() {
 
     initDashboard();
   }, []);
+
+  const fetchVirtualAccountSummary = async () => {
+    try {
+      const res = await api.get('/users/virtual-account');
+      setVirtualAccount(res.data);
+    } catch (err) {
+      setVirtualAccount({ hasVirtualAccount: false, message: 'Unable to load virtual account details.' });
+    }
+  };
+
+  const revealVirtualAccountNumber = async () => {
+    try {
+      const res = await api.post('/users/virtual-account/reveal', {});
+      await api.post('/users/virtual-account/audit', { action: 'reveal_full' });
+      return res.data.accountNumber as string;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const auditCopy = async (accountNumber: string) => {
+    void accountNumber;
+    try {
+      await api.post('/users/virtual-account/audit', { action: 'copy_full' });
+    } catch (_) {}
+  };
 
   const fetchStats = async (userId: string) => {
     try {
@@ -114,7 +218,7 @@ export default function UserDashboard() {
       </div>
 
       {/* Virtual Account Section */}
-      {user && <VirtualAccountDisplay user={user} />}
+      <VirtualAccountDisplay virtualAccount={virtualAccount} onReveal={revealVirtualAccountNumber} onCopy={auditCopy} />
 
       <StaggerContainer className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         <StaggerItem>

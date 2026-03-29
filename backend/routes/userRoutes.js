@@ -7,7 +7,10 @@ const {
     getAffiliateStats,
     getApiKey,
     regenerateApiKey,
-    requestVirtualAccount
+    requestVirtualAccount,
+    getVirtualAccountSummary,
+    revealVirtualAccountNumber,
+    auditVirtualAccountAccess
 } = require('../controllers/userController');
 const dataPurchaseController = require('../controllers/dataPurchaseController');
 const bulkDataController = require('../controllers/bulkDataController');
@@ -31,6 +34,18 @@ router.post('/data/bulk/upload', protect, upload.single('file'), bulkDataControl
 
 router.get('/affiliate-stats', protect, getAffiliateStats);
 router.post('/virtual-account/request', protect, requestVirtualAccount);
+router.get('/virtual-account', protect, getVirtualAccountSummary);
+router.post('/virtual-account/reveal', protect, revealVirtualAccountNumber);
+router.post(
+  '/virtual-account/audit',
+  [
+    protect,
+    check('action')
+      .isIn(['view_masked', 'reveal_full', 'copy_full'])
+      .withMessage('Invalid action')
+  ],
+  auditVirtualAccountAccess
+);
 router.get('/apikey', protect, getApiKey);
 router.post('/apikey/regenerate', protect, regenerateApiKey);
 router.get('/beneficiaries/:userId', protect, getBeneficiaries);

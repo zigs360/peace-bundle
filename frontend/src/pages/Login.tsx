@@ -33,7 +33,11 @@ export default function Login() {
     try {
       const res = await api.post<AuthResponse>('/auth/login', { emailOrPhone, password });
       localStorage.setItem('token', res.data.token);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
+      const userForStorage = { ...res.data.user };
+      delete userForStorage.virtual_account_number;
+      delete userForStorage.virtual_account_bank;
+      delete userForStorage.virtual_account_name;
+      localStorage.setItem('user', JSON.stringify(userForStorage));
       if (res.data.user.role === 'admin') {
         navigate('/admin');
       } else {

@@ -8,6 +8,14 @@ const crypto = require('crypto');
 const virtualAccountService = require('../services/virtualAccountService');
 const logger = require('../utils/logger');
 
+const maskAccountNumber = (accountNumber) => {
+    const raw = String(accountNumber || '').trim();
+    if (!raw) return null;
+    const visible = 4;
+    if (raw.length <= visible) return raw;
+    return `${'*'.repeat(raw.length - visible)}${raw.slice(-visible)}`;
+};
+
 // @desc    Request Virtual Account (Self-Service)
 // @route   POST /api/users/virtual-account/request
 // @access  Private
@@ -87,6 +95,98 @@ const requestVirtualAccount = async (req, res) => {
             success: false, 
             message: error.message || 'Failed to generate virtual account. Please try again later.' 
         });
+    }
+};
+
+const getVirtualAccountSummary = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const user = await User.findByPk(userId);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        logger.info('[AUDIT] Virtual account summary viewed', {
+            userId: user.id,
+            ip: req.ip,
+            userAgent: req.headers['user-agent']
+        });
+
+        if (!user.virtual_account_number) {
+            return res.json({
+                success: true,
+                hasVirtualAccount: false,
+                message: 'No virtual account assigned yet.'
+            });
+        }
+
+        const masked = maskAccountNumber(user.virtual_account_number);
+
+        return res.json({
+            success: true,
+            hasVirtualAccount: true,
+            accountNumberMasked: masked,
+            last4: String(user.virtual_account_number).slice(-4),
+            bankName: user.virtual_account_bank,
+            accountName: user.virtual_account_name
+        });
+    } catch (error) {
+        logger.error(`[VirtualAccount] Failed to fetch summary for user ${userId}: ${error.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to load virtual account details' });
+    }
+};
+
+const revealVirtualAccountNumber = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const user = await User.findByPk(userId);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        if (!user.virtual_account_number) {
+            return res.status(404).json({ success: false, message: 'No virtual account assigned yet.' });
+        }
+
+        logger.info('[AUDIT] Virtual account revealed', {
+            userId: user.id,
+            ip: req.ip,
+            userAgent: req.headers['user-agent']
+        });
+
+        return res.json({
+            success: true,
+            accountNumber: user.virtual_account_number
+        });
+    } catch (error) {
+        logger.error(`[VirtualAccount] Reveal failed for user ${userId}: ${error.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to reveal account number' });
+    }
+};
+
+const auditVirtualAccountAccess = async (req, res) => {
+    const userId = req.user.id;
+    const { action } = req.body;
+
+    try {
+        const user = await User.findByPk(userId, { attributes: ['id'] });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        logger.info('[AUDIT] Virtual account access event', {
+            userId: user.id,
+            action,
+            ip: req.ip,
+            userAgent: req.headers['user-agent']
+        });
+
+        return res.json({ success: true });
+    } catch (error) {
+        logger.error(`[VirtualAccount] Audit log failed for user ${userId}: ${error.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to record audit event' });
     }
 };
 
@@ -341,5 +441,8 @@ module.exports = {
     getAffiliateStats,
     getApiKey,
     regenerateApiKey,
-    requestVirtualAccount
+    requestVirtualAccount,
+    getVirtualAccountSummary,
+    revealVirtualAccountNumber,
+    auditVirtualAccountAccess
 };
