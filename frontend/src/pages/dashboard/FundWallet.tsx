@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
-import { Wallet, CreditCard, Building2, Copy, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Wallet, CreditCard, Building2, Copy, RefreshCw, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
 import { FadeIn, StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 import { AnimatePresence, motion } from 'framer-motion';
 import { User } from '../../types';
 import toast from 'react-hot-toast';
+import { useVirtualAccount } from '../../hooks/useVirtualAccount';
+import VirtualAccountWidget from '../../components/VirtualAccountWidget';
 
 export default function FundWallet() {
   const [amount, setAmount] = useState('');
@@ -13,13 +15,17 @@ export default function FundWallet() {
   const [fetchingUser, setFetchingUser] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [virtualAccount, setVirtualAccount] = useState<any>(null);
-  const [revealed, setRevealed] = useState(false);
-  const [revealedNumber, setRevealedNumber] = useState<string | null>(null);
+  const { state: va, hasVirtualAccount, refresh: refreshVa, reveal: revealVa, auditCopy } = useVirtualAccount();
 
   useEffect(() => {
     fetchUserProfile();
   }, []);
+
+  useEffect(() => {
+    if (hasVirtualAccount) {
+      setMethod('virtual');
+    }
+  }, [hasVirtualAccount]);
 
   const fetchUserProfile = async () => {
     setFetchingUser(true);
@@ -32,16 +38,6 @@ export default function FundWallet() {
       delete userForStorage.virtual_account_bank;
       delete userForStorage.virtual_account_name;
       localStorage.setItem('user', JSON.stringify(userForStorage));
-
-      try {
-        const vaRes = await api.get('/users/virtual-account');
-        setVirtualAccount(vaRes.data);
-        if (vaRes.data?.hasVirtualAccount) {
-          setMethod('virtual');
-        }
-      } catch (_) {
-        setVirtualAccount({ hasVirtualAccount: false, message: 'Unable to load virtual account details.' });
-      }
     } catch (err) {
       console.error('Failed to fetch user profile', err);
       toast.error('Failed to load account details');
@@ -56,35 +52,6 @@ export default function FundWallet() {
     setCopiedField(field);
     toast.success(`${field} copied!`);
     setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  const handleReveal = async () => {
-    if (revealed && revealedNumber) {
-      setRevealed(false);
-      return;
-    }
-    try {
-      const res = await api.post('/users/virtual-account/reveal', {});
-      await api.post('/users/virtual-account/audit', { action: 'reveal_full' });
-      setRevealedNumber(res.data.accountNumber);
-      setRevealed(true);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Unable to reveal account number');
-    }
-  };
-
-  const handleCopyAccountNumber = async () => {
-    if (!revealedNumber) {
-      toast.error('Reveal the account number before copying');
-      return;
-    }
-    navigator.clipboard.writeText(revealedNumber);
-    setCopiedField('Account Number');
-    toast.success('Account Number copied!');
-    setTimeout(() => setCopiedField(null), 2000);
-    try {
-      await api.post('/users/virtual-account/audit', { action: 'copy_full' });
-    } catch (_) {}
   };
 
   const handleFund = async (e: React.FormEvent) => {
@@ -229,7 +196,10 @@ export default function FundWallet() {
                     <p className="text-gray-500">Payments sent here reflect in your wallet automatically.</p>
                 </div>
                 <button 
-                    onClick={fetchUserProfile}
+                    onClick={async () => {
+                        await fetchUserProfile();
+                        await refreshVa();
+                    }}
                     className="p-3 bg-gray-50 hover:bg-gray-100 rounded-2xl transition-all text-gray-500 hover:text-primary-600 active:scale-95"
                     title="Refresh Account"
                 >
@@ -237,91 +207,18 @@ export default function FundWallet() {
                 </button>
             </div>
 
-            {virtualAccount?.hasVirtualAccount ? (
-                <div className="space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                        <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 relative group transition-all hover:bg-gray-100">
-                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] block mb-2">Bank Name</span>
-                            <div className="flex justify-between items-center">
-                                <span className="text-xl font-black text-gray-900">{virtualAccount.bankName}</span>
-                                <button onClick={() => handleCopy(virtualAccount.bankName, 'Bank Name')} className="p-2 text-primary-600 hover:scale-110 transition-transform bg-white rounded-lg shadow-sm border border-gray-100">
-                                    <Copy className="w-4 h-4" />
-                                </button>
-                                {copiedField === 'Bank Name' && <span className="absolute -top-3 right-4 text-[10px] font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full border border-green-100 animate-bounce">Copied!</span>}
-                            </div>
-                        </div>
-                        <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 relative group transition-all hover:bg-gray-100">
-                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] block mb-2">Account Name</span>
-                            <div className="flex justify-between items-center">
-                                <span className="text-xl font-black text-gray-900 truncate pr-4">{virtualAccount.accountName}</span>
-                                <button onClick={() => handleCopy(virtualAccount.accountName, 'Account Name')} className="p-2 text-primary-600 hover:scale-110 transition-transform bg-white rounded-lg shadow-sm border border-gray-100 shrink-0">
-                                    <Copy className="w-4 h-4" />
-                                </button>
-                                {copiedField === 'Account Name' && <span className="absolute -top-3 right-4 text-[10px] font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full border border-green-100 animate-bounce">Copied!</span>}
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div className="bg-primary-600 p-10 rounded-[2rem] text-white shadow-2xl shadow-primary-200 flex flex-col items-center text-center relative overflow-hidden">
-                        <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
-                        <div className="absolute -left-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
-                        
-                        <div className="flex items-center justify-between w-full mb-4 relative z-10">
-                            <div className="flex items-center gap-2">
-                                <ShieldCheck className="w-4 h-4 text-primary-200" />
-                                <span className="text-xs font-bold text-primary-200 uppercase tracking-[0.3em]">Account Number</span>
-                            </div>
-                            <button
-                                onClick={handleReveal}
-                                className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/10 hover:bg-white/20 transition-colors text-sm font-bold"
-                            >
-                                {revealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                {revealed ? 'Hide' : 'Reveal'}
-                            </button>
-                        </div>
-                        <div className="flex items-center gap-5 mb-6 relative z-10">
-                            <span className="text-5xl md:text-6xl font-mono font-black tracking-tighter leading-none select-all">
-                                {revealed && revealedNumber ? revealedNumber : virtualAccount.accountNumberMasked}
-                            </span>
-                            <button 
-                                onClick={handleCopyAccountNumber} 
-                                className="p-4 bg-white/20 hover:bg-white/30 rounded-2xl transition-all active:scale-95 border border-white/20"
-                            >
-                                <Copy className="w-7 h-7" />
-                            </button>
-                            {copiedField === 'Account Number' && <span className="absolute -top-10 right-0 text-xs font-black text-white bg-green-500 px-3 py-1.5 rounded-xl shadow-lg animate-bounce z-20">COPIED!</span>}
-                        </div>
-                        <div className="inline-flex items-center px-5 py-2.5 bg-white/10 rounded-full text-xs font-bold backdrop-blur-md border border-white/20 relative z-10">
-                            <CheckCircle2 className="w-4 h-4 mr-2 text-primary-200" />
-                            Secure Automated Funding Active
-                        </div>
-                    </div>
-                    
-                    <div className="p-6 bg-amber-50 rounded-3xl border border-amber-100 flex items-start">
-                        <AlertCircle className="w-6 h-6 text-amber-600 mt-0.5 mr-4 shrink-0" />
-                        <div>
-                            <p className="text-sm text-amber-900 font-bold mb-1">Important Note</p>
-                            <p className="text-xs text-amber-800 leading-relaxed opacity-80">
-                                Standard processing fee of <span className="font-black">₦50</span> applies per transaction by our banking partners. Deposits below ₦100 may not be processed.
-                            </p>
-                        </div>
-                    </div>
+            <VirtualAccountWidget state={va} onReveal={revealVa} onCopy={auditCopy} onRetry={refreshVa} variant="fund" />
+
+            {va.status === 'ready' && (
+              <div className="mt-6 p-6 bg-amber-50 rounded-3xl border border-amber-100 flex items-start">
+                <AlertCircle className="w-6 h-6 text-amber-600 mt-0.5 mr-4 shrink-0" />
+                <div>
+                  <p className="text-sm text-amber-900 font-bold mb-1">Important Note</p>
+                  <p className="text-xs text-amber-800 leading-relaxed opacity-80">
+                    Standard processing fee of <span className="font-black">₦50</span> applies per transaction by our banking partners. Deposits below ₦100 may not be processed.
+                  </p>
                 </div>
-            ) : (
-                <div className="text-center py-16 px-6 bg-gray-50 rounded-[2rem] border-2 border-dashed border-gray-200">
-                    <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-gray-100">
-                        <Building2 className="w-10 h-10 text-gray-300" />
-                    </div>
-                    <h4 className="text-2xl font-black text-gray-900 mb-3">No Virtual Account Found</h4>
-                    <p className="text-gray-500 mb-8 max-w-sm mx-auto font-medium">{virtualAccount?.message || "We couldn't find a dedicated account for you. This could be because your KYC is pending or there's a connection delay."}</p>
-                    <button 
-                        onClick={fetchUserProfile}
-                        className="inline-flex items-center px-8 py-4 bg-primary-600 text-white font-black rounded-2xl hover:bg-primary-700 transition-all shadow-xl shadow-primary-100 active:scale-95"
-                    >
-                        <RefreshCw className="w-5 h-5 mr-3" />
-                        Refresh Account Details
-                    </button>
-                </div>
+              </div>
             )}
           </motion.div>
         ) : method === 'transfer' ? (
