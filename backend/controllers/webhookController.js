@@ -247,9 +247,83 @@ const handleSmeplugWebhook = async (req, res) => {
     }
 };
 
+const handleBillstackWebhook = async (req, res) => {
+    const walletService = require('../services/walletService');
+    const { Transaction, User } = require('../models');
+    try {
+        const payload = req.body;
+        const secret = process.env.BILLSTACK_WEBHOOK_SECRET;
+        const signature = req.headers['x-billstack-signature'];
+
+        if (secret) {
+            const computed = crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
+            if (!signature || computed !== signature) {
+                logger.warn('[Webhook] BillStack: Invalid signature');
+                return res.status(400).json({ message: 'Invalid signature' });
+            }
+        } else {
+            logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
+        }
+
+        const data = payload?.data;
+        const reference = data?.reference;
+        const amount = parseFloat(data?.amount);
+        const accountNumber = data?.account?.account_number;
+
+        if (!reference || !amount || !accountNumber) {
+            return res.status(400).json({ message: 'Invalid payload' });
+        }
+
+        const t = await sequelize.transaction();
+        try {
+            const existingTxn = await Transaction.findOne({ where: { reference } });
+            if (existingTxn) {
+                await t.rollback();
+                logger.info(`[Webhook] BillStack: Transaction ${reference} already processed`);
+                return res.status(200).json({ success: true, message: 'Transaction already exists' });
+            }
+
+            const user = await User.findOne({ where: { virtual_account_number: accountNumber } });
+            if (!user) {
+                await t.rollback();
+                logger.error(`[Webhook] BillStack: User not found for account ${accountNumber}`);
+                return res.status(404).json({ message: 'User not found' });
+            }
+
+            await walletService.credit(
+                user,
+                amount,
+                'funding',
+                `BillStack Funding: ${reference}`,
+                {
+                    reference,
+                    gateway: 'billstack',
+                    merchant_reference: data?.merchant_reference,
+                    inter_bank_reference: data?.wiaxy_ref,
+                    payer: data?.payer,
+                    account: data?.account
+                },
+                t
+            );
+
+            await t.commit();
+            logger.info(`[Webhook] BillStack: Wallet funded successfully for ${user.email} - ₦${amount}`);
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            if (t && !t.finished) await t.rollback();
+            logger.error(`[Webhook] BillStack processing error: ${error.message}`, { reference });
+            return res.status(500).json({ message: 'Processing failed' });
+        }
+    } catch (error) {
+        logger.error(`[Webhook] BillStack error: ${error.message}`);
+        return res.sendStatus(500);
+    }
+};
+
 module.exports = {
     handlePaystackWebhook,
     handlePayvesselWebhook,
     handleMonnifyWebhook,
-    handleSmeplugWebhook
+    handleSmeplugWebhook,
+    handleBillstackWebhook
 };

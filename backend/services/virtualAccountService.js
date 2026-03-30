@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const sequelize = require('../config/database'); // Added sequelize import
 
 const notificationService = require('./notificationService');
+const billstackVirtualAccountService = require('./billstackVirtualAccountService');
 
 const { Op } = require('sequelize');
 
@@ -326,17 +327,32 @@ class VirtualAccountService {
             
             let accountDetails;
             
-            // Check for existing tracking reference in metadata to prevent duplicate creations
-            const existingRef = user.metadata?.payvessel_tracking_reference;
-            if (existingRef && provider === 'payvessel') {
-                logger.info(`[VirtualAccount] User ${user.id} already has a pending/existing PayVessel reference: ${existingRef}. Skipping new creation.`);
+            const existingPayvesselRef = user.metadata?.payvessel_tracking_reference;
+            if (existingPayvesselRef && provider === 'payvessel') {
+                logger.info(`[VirtualAccount] User ${user.id} already has a pending/existing PayVessel reference: ${existingPayvesselRef}. Skipping new creation.`);
                 // In a real scenario, we might want to query PayVessel for this ref, 
                 // but for now, we prevent a redundant POST.
                 if (user.virtual_account_number) return null; 
             }
+            const existingBillstackRef = user.metadata?.billstack_reference;
+            if (existingBillstackRef && provider === 'billstack') {
+                logger.info(`[VirtualAccount] User ${user.id} already has a pending/existing BillStack reference: ${existingBillstackRef}. Skipping new creation.`);
+                if (user.virtual_account_number) return null;
+            }
 
             if (provider === 'payvessel') {
                 accountDetails = await payvesselService.createVirtualAccount(user);
+            } else if (provider === 'billstack') {
+                const bankSetting = await this.getSetting('billstack_bank');
+                const bank = bankSetting ? String(bankSetting) : process.env.BILLSTACK_BANK;
+                const billstack = await billstackVirtualAccountService.generateVirtualAccount(user, bank);
+                accountDetails = {
+                    accountNumber: billstack.accountNumber,
+                    bankName: billstack.bankName,
+                    accountName: billstack.accountName,
+                    trackingReference: billstack.trackingReference,
+                    raw: billstack.raw
+                };
             } else if (provider === 'local') {
                 accountDetails = await this.createLocalAccount(user, { transaction });
             } else if (provider === 'monnify') {
@@ -349,9 +365,15 @@ class VirtualAccountService {
                 user.virtual_account_number = accountDetails.accountNumber;
                 user.virtual_account_bank = accountDetails.bankName;
                 user.virtual_account_name = accountDetails.accountName;
-                // Store tracking reference for BVN updates if needed
                 if (accountDetails.trackingReference) {
-                    user.metadata = { ...user.metadata, payvessel_tracking_reference: accountDetails.trackingReference };
+                    user.metadata = {
+                        ...user.metadata,
+                        va_provider: provider,
+                        payvessel_tracking_reference: provider === 'payvessel' ? accountDetails.trackingReference : user.metadata?.payvessel_tracking_reference,
+                        billstack_reference: provider === 'billstack' ? accountDetails.trackingReference : user.metadata?.billstack_reference
+                    };
+                } else {
+                    user.metadata = { ...user.metadata, va_provider: provider };
                 }
                 await user.save({ transaction });
                 logger.info(`[VirtualAccount] Assigned ${provider} account for user ${user.id}`);
@@ -364,6 +386,38 @@ class VirtualAccountService {
             // Re-throw the error to ensure it's handled by the calling function (and triggers a rollback if in a transaction)
             throw error;
         }
+    }
+
+    async upgradeBillstackVirtualAccountIfEligible(user, options = {}) {
+        const { transaction } = options;
+        const provider = await this.getSetting('virtual_account_provider') || 'payvessel';
+        if (provider !== 'billstack') return null;
+
+        const bvn = user.bvn ? String(user.bvn).trim() : '';
+        if (!bvn) return null;
+
+        const alreadyUpgradedAt = user.metadata?.billstack_upgraded_at;
+        if (alreadyUpgradedAt) return null;
+
+        const response = await billstackVirtualAccountService.upgradeVirtualAccount(user.email, bvn);
+        const responseCode = response?.responseCode;
+        const ok =
+            response?.status === true ||
+            responseCode === 0 ||
+            String(responseCode) === '00';
+
+        user.metadata = {
+            ...user.metadata,
+            billstack_upgrade: {
+                status: ok ? 'success' : 'failed',
+                responseCode: responseCode ?? null,
+                message: response?.message ?? null
+            },
+            billstack_upgraded_at: ok ? new Date().toISOString() : user.metadata?.billstack_upgraded_at
+        };
+
+        await user.save({ transaction });
+        return { ok, response };
     }
 
     async getSetting(key) {

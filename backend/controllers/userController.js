@@ -114,10 +114,26 @@ const getVirtualAccountSummary = async (req, res) => {
         });
 
         if (!user.virtual_account_number) {
+            try {
+                const account = await virtualAccountService.assignVirtualAccount(user);
+                if (account) {
+                    const masked = maskAccountNumber(user.virtual_account_number);
+                    return res.json({
+                        success: true,
+                        hasVirtualAccount: true,
+                        accountNumberMasked: masked,
+                        last4: String(user.virtual_account_number).slice(-4),
+                        bankName: user.virtual_account_bank,
+                        accountName: user.virtual_account_name
+                    });
+                }
+            } catch (e) {
+                logger.warn(`[VirtualAccount] On-demand assignment failed for user ${user.id}: ${e.message}`);
+            }
             return res.json({
-                success: true,
-                hasVirtualAccount: false,
-                message: 'No virtual account assigned yet.'
+              success: true,
+              hasVirtualAccount: false,
+              message: 'No virtual account assigned yet.'
             });
         }
 

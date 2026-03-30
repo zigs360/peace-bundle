@@ -30,6 +30,7 @@ const {
     getBulkSMSHistory,
     sendAdminBulkSMS,
     generateMissingVirtualAccounts,
+    upgradeBillstackVirtualAccount,
     getReferralAnalytics,
     viewKycDocument
 } = require('../controllers/adminController');
@@ -67,6 +68,7 @@ router.post('/users/:id/fund', protect, admin, fundUserWallet);
 router.put('/users/:id/kyc/approve', protect, admin, approveKyc);
 router.put('/users/:id/kyc/reject', protect, admin, rejectKyc);
 router.post('/users/generate-virtual-accounts', protect, admin, generateMissingVirtualAccounts);
+router.post('/users/:id/virtual-account/billstack/upgrade', protect, admin, upgradeBillstackVirtualAccount);
 
 // System Settings Routes
 router.get('/settings', protect, admin, getSystemSettings);

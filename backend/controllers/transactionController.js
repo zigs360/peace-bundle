@@ -13,6 +13,7 @@ const simManagementService = require('../services/simManagementService');
 const transactionLimitService = require('../services/transactionLimitService');
 const affiliateService = require('../services/affiliateService');
 const paymentGatewayService = require('../services/paymentGatewayService');
+const billPaymentService = require('../services/billPaymentService');
 const sequelize = require('../config/database');
 const { Op } = require('sequelize');
 const PDFDocument = require('pdfkit');
@@ -389,7 +390,23 @@ const payBill = async (req, res) => {
             t
         );
 
-        // Call Provider API here
+        const providerResult = await billPaymentService.payBill(
+            billType,
+            provider,
+            smartCardNumber,
+            cost,
+            phone,
+            meterType,
+            plan
+        );
+
+        if (!providerResult || providerResult.success === false) {
+            throw new Error(providerResult?.error || 'Bill payment failed at provider');
+        }
+
+        newTransaction.smeplug_response = providerResult.data;
+        newTransaction.smeplug_reference = providerResult.data?.reference || providerResult.data?.data?.reference || providerResult.data?.transaction_reference || null;
+        await newTransaction.save({ transaction: t });
         
         await t.commit();
         await sendTransactionNotification(user, newTransaction);
@@ -416,11 +433,7 @@ const validateCustomer = async (req, res) => {
       return res.status(400).json({ message: 'Missing required parameters' });
     }
     let result;
-    if (billType === 'power') {
-      result = await smeplugService.validateElectricityCustomer(provider, account, meterType || 'Prepaid');
-    } else {
-      result = await smeplugService.validateCableCustomer(provider, account);
-    }
+    result = await billPaymentService.validateCustomer(billType, provider, account, meterType || 'Prepaid');
     if (!result.success) {
       return res.status(400).json({ message: result.error || 'Validation failed', data: result.data });
     }
@@ -431,7 +444,7 @@ const validateCustomer = async (req, res) => {
       details: data
     });
   } catch (err) {
-    console.error('Customer validation error:', err);
+    logger.error('Customer validation error:', { error: err.message, stack: err.stack });
     res.status(500).json({ message: 'Server Error' });
   }
 };

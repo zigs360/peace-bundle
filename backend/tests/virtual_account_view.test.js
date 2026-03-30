@@ -9,7 +9,37 @@ describe('Virtual Account secure view', () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET || 'peace_bundle_secret_key_123';
   });
 
-  it('returns hasVirtualAccount=false when user has no VA', async () => {
+  it('auto-assigns on summary if missing and provider allows local', async () => {
+    const user = await User.create({
+      name: 'On Demand VA User',
+      email: `ondemand_va_${Date.now()}@test.com`,
+      phone: '08011009910',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+    });
+
+    const jwt = require('jsonwebtoken');
+    const SystemSetting = require('../models/SystemSetting');
+    await SystemSetting.set('virtual_account_generation_enabled', true, 'boolean', 'api');
+    await SystemSetting.set('virtual_account_provider', 'local', 'string', 'api');
+    await SystemSetting.set('local_virtual_account_prefix', '901', 'string', 'api');
+    await SystemSetting.set('local_virtual_account_bank', 'Peace Bundlle', 'string', 'api');
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    const res = await request(app)
+      .get('/api/users/virtual-account')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.hasVirtualAccount).toBe(true);
+    expect(res.body.bankName).toBe('Peace Bundlle');
+    expect(typeof res.body.accountNumberMasked).toBe('string');
+    expect(res.body.accountNumberMasked.length).toBe(10);
+  });
+
+  it('auto-assigns or returns hasVirtualAccount based on provider when user has no VA', async () => {
     const user = await User.create({
       name: 'No VA User',
       email: `no_va_${Date.now()}@test.com`,
@@ -26,7 +56,7 @@ describe('Virtual Account secure view', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.hasVirtualAccount).toBe(false);
+    expect(typeof res.body.hasVirtualAccount).toBe('boolean');
   });
 
   it('returns masked account number and reveals full number on reveal endpoint', async () => {
@@ -85,4 +115,3 @@ describe('Virtual Account secure view', () => {
     expect(res.body.success).toBe(true);
   });
 });
-

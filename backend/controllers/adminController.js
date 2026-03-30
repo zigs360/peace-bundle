@@ -1038,6 +1038,15 @@ const approveKyc = async (req, res) => {
             // We don't block the response for this failure, just log it.
         }
 
+        try {
+            const upgrade = await VirtualAccountService.upgradeBillstackVirtualAccountIfEligible(user);
+            if (upgrade?.ok) {
+                logger.info(`BillStack virtual account upgraded for user ${user.id} after KYC approval.`);
+            }
+        } catch (error) {
+            logger.error(`Failed to upgrade BillStack virtual account for user ${user.id} after KYC approval: ${error.message}`);
+        }
+
         res.json({ message: 'User KYC approved', user });
     } catch (error) {
         console.error(error);
@@ -1270,6 +1279,21 @@ const generateMissingVirtualAccounts = async (req, res) => {
     }
 };
 
+const upgradeBillstackVirtualAccount = async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        const VirtualAccountService = require('../services/virtualAccountService');
+        const result = await VirtualAccountService.upgradeBillstackVirtualAccountIfEligible(user);
+        return res.json({ success: true, result, user: await User.findByPk(user.id) });
+    } catch (e) {
+        logger.error(`[Admin] BillStack upgrade failed for user ${req.params.id}: ${e.message}`);
+        return res.status(500).json({ success: false, message: 'Upgrade failed' });
+    }
+};
+
 module.exports = {
     getAdminStats,
     updateUser,
@@ -1301,5 +1325,6 @@ module.exports = {
     getReferralAnalytics,
     getBulkSMSHistory,
     sendAdminBulkSMS,
-    generateMissingVirtualAccounts
+    generateMissingVirtualAccounts,
+    upgradeBillstackVirtualAccount
 };
