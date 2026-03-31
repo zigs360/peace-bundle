@@ -858,33 +858,24 @@ const updateSystemSettings = async (req, res) => {
             return res.status(400).json({ message: 'Invalid settings format' });
         }
 
-        // Use Promise.all to update in parallel
-        await Promise.all(Object.keys(settings).map(async (key) => {
-            // Upsert logic matching PHP: SystemSetting::where('key', $key)->update(['value' => $value]);
-            // However, PHP assumes keys exist. We will do update if exists, or ignore/create?
-            // PHP code: SystemSetting::where('key', $key)->update(['value' => $value]);
-            // This implies only updating existing keys.
-            
-            const [setting] = await SystemSetting.findOrCreate({
-                where: { key },
-                defaults: { 
-                    value: String(settings[key]), 
-                    type: 'string', 
-                    group: 'general' 
-                }
-            });
+        const entries = Object.entries(settings);
+        await Promise.all(entries.map(async ([key, incomingValue]) => {
+            const existing = await SystemSetting.findOne({ where: { key } });
 
-            if (setting) {
-                 // Cast value to string for storage if it's not
-                 const valueToStore = typeof settings[key] === 'object' 
-                    ? JSON.stringify(settings[key]) 
-                    : String(settings[key]);
-                 
-                 if (setting.value !== valueToStore) {
-                     setting.value = valueToStore;
-                     await setting.save();
-                 }
+            let type = existing?.type || 'string';
+            if (!existing) {
+                if (typeof incomingValue === 'boolean') type = 'boolean';
+                else if (typeof incomingValue === 'number' && Number.isFinite(incomingValue)) type = 'integer';
+                else if (typeof incomingValue === 'object') type = 'json';
             }
+
+            await SystemSetting.set(
+                key,
+                incomingValue,
+                type,
+                existing?.group || 'general',
+                existing?.description || null
+            );
         }));
 
         res.json({ message: 'Settings updated successfully' });
