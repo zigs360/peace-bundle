@@ -31,6 +31,7 @@ const {
     sendAdminBulkSMS,
     generateMissingVirtualAccounts,
     upgradeBillstackVirtualAccount,
+    getVirtualAccountHealth,
     getReferralAnalytics,
     viewKycDocument
 } = require('../controllers/adminController');
@@ -93,5 +94,6 @@ router.post('/sims/:id/check-balance', protect, admin, checkSimBalance);
 
 // Referral Analytics Route
 router.get('/referrals/analytics', protect, admin, getReferralAnalytics);
+router.get('/virtual-accounts/health', protect, admin, getVirtualAccountHealth);
 
 module.exports = router;

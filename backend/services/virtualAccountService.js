@@ -39,6 +39,14 @@ class VirtualAccountService {
         this.paystackBaseUrl = 'https://api.paystack.co';
     }
 
+    isPayvesselConfigured() {
+        return Boolean(process.env.PAYVESSEL_API_KEY && process.env.PAYVESSEL_SECRET_KEY && process.env.PAYVESSEL_BUSINESS_ID);
+    }
+
+    isBillstackConfigured() {
+        return billstackVirtualAccountService.isConfigured();
+    }
+
     /**
      * Bulk provisioning for legacy users
      * @param {number} limit - Number of users to process in this batch
@@ -323,7 +331,16 @@ class VirtualAccountService {
 
         // Prefer PayVessel, fallback to Monnify or others
         try {
-            const provider = await this.getSetting('virtual_account_provider') || 'payvessel';
+            const requestedProvider = (await this.getSetting('virtual_account_provider')) || 'payvessel';
+            const normalizeProvider = (p) => String(p || '').trim().toLowerCase();
+            const configuredProviders = [];
+            if (this.isPayvesselConfigured()) configuredProviders.push('payvessel');
+            if (this.isBillstackConfigured()) configuredProviders.push('billstack');
+            configuredProviders.push('local', 'monnify', 'paystack');
+
+            const provider = configuredProviders.includes(normalizeProvider(requestedProvider))
+                ? normalizeProvider(requestedProvider)
+                : 'payvessel';
             
             let accountDetails;
             
@@ -340,26 +357,80 @@ class VirtualAccountService {
                 if (user.virtual_account_number) return null;
             }
 
-            if (provider === 'payvessel') {
-                accountDetails = await payvesselService.createVirtualAccount(user);
-            } else if (provider === 'billstack') {
+            const tryBillstack = async () => {
                 const bankSetting = await this.getSetting('billstack_bank');
                 const bank = bankSetting ? String(bankSetting) : process.env.BILLSTACK_BANK;
                 const billstack = await billstackVirtualAccountService.generateVirtualAccount(user, bank);
-                accountDetails = {
+                return {
                     accountNumber: billstack.accountNumber,
                     bankName: billstack.bankName,
                     accountName: billstack.accountName,
                     trackingReference: billstack.trackingReference,
                     raw: billstack.raw
                 };
-            } else if (provider === 'local') {
-                accountDetails = await this.createLocalAccount(user, { transaction });
-            } else if (provider === 'monnify') {
-                accountDetails = await this.createMonnifyAccount(user);
-            } else if (provider === 'paystack') {
-                accountDetails = await this.createPaystackAccount(user);
+            };
+
+            const tryPayvessel = async () => {
+                if (process.env.NODE_ENV !== 'test') {
+                    const allowMockBvnSetting = await this.getSetting('allow_mock_bvn');
+                    const allowMockBvn =
+                        allowMockBvnSetting === true ||
+                        allowMockBvnSetting === 1 ||
+                        allowMockBvnSetting === '1' ||
+                        allowMockBvnSetting === 'true';
+                    const hasKycId = Boolean(user.bvn || user.nin);
+                    if (!hasKycId && !allowMockBvn) {
+                        throw new Error('KYC/BVN verification is required to generate a PayVessel virtual account');
+                    }
+                }
+                return payvesselService.createVirtualAccount(user);
+            };
+
+            const shouldTryRemote = provider === 'payvessel' || provider === 'billstack';
+            const fallbacks = shouldTryRemote ? (provider === 'billstack' ? ['billstack', 'payvessel'] : ['payvessel', 'billstack']) : [];
+            for (const p of fallbacks) {
+                if (p === 'payvessel' && !this.isPayvesselConfigured()) {
+                    logger.warn('[VirtualAccount] PayVessel not configured; skipping', { userId: user.id });
+                    continue;
+                }
+                if (p === 'billstack' && !this.isBillstackConfigured()) {
+                    logger.warn('[VirtualAccount] BillStack not configured; skipping', { userId: user.id });
+                    continue;
+                }
+                try {
+                    if (p === 'payvessel') accountDetails = await tryPayvessel();
+                    if (p === 'billstack') accountDetails = await tryBillstack();
+                    if (accountDetails) {
+                        user.metadata = { ...user.metadata, va_provider: p };
+                        break;
+                    }
+                } catch (e) {
+                    logger.warn(`[VirtualAccount] Provider attempt failed (${p}) for user ${user.id}: ${e.message}`);
+                }
             }
+
+            if (!accountDetails) {
+                if (provider === 'local') {
+                    accountDetails = await this.createLocalAccount(user, { transaction });
+                } else if (provider === 'monnify') {
+                    accountDetails = await this.createMonnifyAccount(user);
+                } else if (provider === 'paystack') {
+                    accountDetails = await this.createPaystackAccount(user);
+                }
+            }
+
+            if (!accountDetails && (provider === 'payvessel' || provider === 'billstack')) {
+                const missing = [];
+                if (!this.isPayvesselConfigured()) missing.push('PAYVESSEL_API_KEY/PAYVESSEL_SECRET_KEY/PAYVESSEL_BUSINESS_ID');
+                if (!this.isBillstackConfigured()) missing.push('BILLSTACK_BASE_URL/BILLSTACK_SECRET_KEY');
+                throw new Error(`No virtual account provider is properly configured (${missing.join(', ')})`);
+            }
+
+            if (!accountDetails) {
+                throw new Error(`Provider ${provider} returned no account details`);
+            }
+
+            const effectiveProvider = user.metadata?.va_provider || provider;
 
             if (accountDetails) {
                 user.virtual_account_number = accountDetails.accountNumber;
@@ -368,22 +439,21 @@ class VirtualAccountService {
                 if (accountDetails.trackingReference) {
                     user.metadata = {
                         ...user.metadata,
-                        va_provider: provider,
-                        payvessel_tracking_reference: provider === 'payvessel' ? accountDetails.trackingReference : user.metadata?.payvessel_tracking_reference,
-                        billstack_reference: provider === 'billstack' ? accountDetails.trackingReference : user.metadata?.billstack_reference
+                        va_provider: effectiveProvider,
+                        payvessel_tracking_reference: effectiveProvider === 'payvessel' ? accountDetails.trackingReference : user.metadata?.payvessel_tracking_reference,
+                        billstack_reference: effectiveProvider === 'billstack' ? accountDetails.trackingReference : user.metadata?.billstack_reference
                     };
                 } else {
-                    user.metadata = { ...user.metadata, va_provider: provider };
+                    user.metadata = { ...user.metadata, va_provider: effectiveProvider };
                 }
                 await user.save({ transaction });
-                logger.info(`[VirtualAccount] Assigned ${provider} account for user ${user.id}`);
+                logger.info(`[VirtualAccount] Assigned ${effectiveProvider} account for user ${user.id}`);
                 return accountDetails;
             } else {
                 throw new Error(`Provider ${provider} returned no account details`);
             }
         } catch (error) {
             logger.error(`[VirtualAccount] Failed to assign virtual account for user ${user.id}:`, error.message);
-            // Re-throw the error to ensure it's handled by the calling function (and triggers a rollback if in a transaction)
             throw error;
         }
     }
@@ -421,12 +491,10 @@ class VirtualAccountService {
     }
 
     async getSetting(key) {
-        // Use the model's static get method which handles casting and defaults
         const value = await SystemSetting.get(key);
         
-        // Feature flag: virtual_account_generation_enabled
         if (key === 'virtual_account_generation_enabled') {
-            return value !== null ? value : true; // Default to true if not set
+            return value !== null ? value : true;
         }
         
         return value;

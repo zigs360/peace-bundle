@@ -28,15 +28,25 @@ class PayVesselService {
             const fullName = (user.name || '').trim().replace(/[^a-zA-Z\s-]/g, '').replace(/\s+/g, ' ').trim().substring(0, 50);
             
             // Normalize phone number to 11 digits (080...) as seen in PayVessel docs
-            let phone = user.phone.trim();
-            if (phone.startsWith('234')) {
-                phone = '0' + phone.substring(3);
-            } else if (!phone.startsWith('0')) {
-                phone = '0' + phone;
+            const rawPhone = String(user.phone || '').trim();
+            const digits = rawPhone.replace(/\D/g, '');
+            let phone = digits;
+            if (phone.startsWith('234') && phone.length === 13) {
+                phone = `0${phone.slice(3)}`;
+            }
+            if (phone.length === 10 && !phone.startsWith('0')) {
+                phone = `0${phone}`;
+            }
+            if (!/^0\d{10}$/.test(phone)) {
+                throw new Error('Invalid Nigerian phone number for PayVessel');
             }
 
             const url = `${this.baseUrl}/customerReservedAccount/`;
             
+            if (!this.apiKey || !this.secretKey || !this.businessId) {
+                throw new Error('PayVessel credentials are not configured');
+            }
+
             const payload = {
                 email: user.email,
                 name: fullName.toUpperCase(),

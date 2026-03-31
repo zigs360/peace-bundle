@@ -1294,6 +1294,53 @@ const upgradeBillstackVirtualAccount = async (req, res) => {
     }
 };
 
+const getVirtualAccountHealth = async (req, res) => {
+    try {
+        const enabled = await SystemSetting.get('virtual_account_generation_enabled');
+        const provider = await SystemSetting.get('virtual_account_provider');
+        const allowMockBvn = await SystemSetting.get('allow_mock_bvn');
+
+        const billstackBaseUrl = process.env.BILLSTACK_BASE_URL || process.env.BILL_STACK_BASE_URL || null;
+        let billstackHost = null;
+        try {
+            billstackHost = billstackBaseUrl ? new URL(billstackBaseUrl).host : null;
+        } catch (e) {
+            billstackHost = null;
+        }
+
+        const payvesselBaseUrl = process.env.PAYVESSEL_BASE_URL || null;
+        let payvesselHost = null;
+        try {
+            payvesselHost = payvesselBaseUrl ? new URL(payvesselBaseUrl).host : null;
+        } catch (e) {
+            payvesselHost = null;
+        }
+
+        return res.json({
+            success: true,
+            settings: {
+                virtual_account_generation_enabled: enabled,
+                virtual_account_provider: provider,
+                allow_mock_bvn: allowMockBvn
+            },
+            providers: {
+                billstack: {
+                    configured: Boolean((process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY) && billstackBaseUrl),
+                    baseUrlHost: billstackHost
+                },
+                payvessel: {
+                    configured: Boolean(process.env.PAYVESSEL_API_KEY && process.env.PAYVESSEL_SECRET_KEY && process.env.PAYVESSEL_BUSINESS_ID),
+                    baseUrlHost: payvesselHost,
+                    businessIdSet: Boolean(process.env.PAYVESSEL_BUSINESS_ID)
+                }
+            }
+        });
+    } catch (e) {
+        logger.error(`[Admin] Virtual account health failed: ${e.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to load virtual account health' });
+    }
+};
+
 module.exports = {
     getAdminStats,
     updateUser,
@@ -1326,5 +1373,6 @@ module.exports = {
     getBulkSMSHistory,
     sendAdminBulkSMS,
     generateMissingVirtualAccounts,
-    upgradeBillstackVirtualAccount
+    upgradeBillstackVirtualAccount,
+    getVirtualAccountHealth
 };

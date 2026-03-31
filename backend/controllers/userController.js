@@ -128,14 +128,25 @@ const getVirtualAccountSummary = async (req, res) => {
                         accountName: user.virtual_account_name
                     });
                 }
+                return res.json({
+                  success: true,
+                  hasVirtualAccount: false,
+                  message: 'No virtual account assigned yet.'
+                });
             } catch (e) {
                 logger.warn(`[VirtualAccount] On-demand assignment failed for user ${user.id}: ${e.message}`);
+                const msg = String(e.message || '');
+                const lower = msg.toLowerCase();
+                const isKyc = lower.includes('kyc') || lower.includes('bvn');
+                const isPhone = lower.includes('phone');
+                if (isKyc) {
+                    return res.status(400).json({ success: false, message: 'KYC/BVN verification is required to generate a virtual account.' });
+                }
+                if (isPhone) {
+                    return res.status(400).json({ success: false, message: 'A valid phone number is required to generate a virtual account.' });
+                }
+                return res.status(502).json({ success: false, message: 'Virtual account generation is temporarily unavailable. Please try again later.' });
             }
-            return res.json({
-              success: true,
-              hasVirtualAccount: false,
-              message: 'No virtual account assigned yet.'
-            });
         }
 
         const masked = maskAccountNumber(user.virtual_account_number);
