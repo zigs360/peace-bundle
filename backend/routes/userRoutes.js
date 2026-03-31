@@ -10,7 +10,9 @@ const {
     requestVirtualAccount,
     getVirtualAccountSummary,
     revealVirtualAccountNumber,
-    auditVirtualAccountAccess
+    auditVirtualAccountAccess,
+    fetchDualVirtualAccounts,
+    getDualVirtualAccountsSnapshot
 } = require('../controllers/userController');
 const dataPurchaseController = require('../controllers/dataPurchaseController');
 const bulkDataController = require('../controllers/bulkDataController');
@@ -46,6 +48,8 @@ router.post(
   ],
   auditVirtualAccountAccess
 );
+router.post('/virtual-accounts/dual', protect, fetchDualVirtualAccounts);
+router.get('/virtual-accounts/dual', protect, getDualVirtualAccountsSnapshot);
 router.get('/apikey', protect, getApiKey);
 router.post('/apikey/regenerate', protect, regenerateApiKey);
 router.get('/beneficiaries/:userId', protect, getBeneficiaries);

@@ -1,5 +1,6 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
+const User = require('../models/User');
 
 class BillstackVirtualAccountService {
   constructor() {
@@ -17,6 +18,19 @@ class BillstackVirtualAccountService {
     return axios.create({
       baseURL: this.baseUrl,
       timeout: this.timeoutMs,
+      headers: {
+        Authorization: `Bearer ${this.secretKey}`,
+        'x-api-key': this.secretKey,
+        'x-public-key': this.publicKey,
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+
+  clientWithTimeout(timeoutMs) {
+    return axios.create({
+      baseURL: this.baseUrl,
+      timeout: Number.isFinite(timeoutMs) ? timeoutMs : this.timeoutMs,
       headers: {
         Authorization: `Bearer ${this.secretKey}`,
         'x-api-key': this.secretKey,
@@ -44,7 +58,7 @@ class BillstackVirtualAccountService {
     return raw;
   }
 
-  async generateVirtualAccount(user, bank) {
+  async generateVirtualAccount(user, bank, options = {}) {
     if (!this.isConfigured()) {
       throw new Error('BillStack virtual account is not configured');
     }
@@ -60,7 +74,7 @@ class BillstackVirtualAccountService {
     };
 
     try {
-      const res = await this.client().post('/generateVirtualAccount/', payload);
+      const res = await this.clientWithTimeout(options.timeoutMs).post('/generateVirtualAccount/', payload);
       const body = res.data || {};
       if (!body.status) {
         throw new Error(body.message || 'Cannot reserve account at the moment.');
@@ -87,14 +101,14 @@ class BillstackVirtualAccountService {
     }
   }
 
-  async upgradeVirtualAccount(customerEmail, bvn) {
+  async upgradeVirtualAccount(customerEmail, bvn, options = {}) {
     if (!this.isConfigured()) {
       throw new Error('BillStack virtual account is not configured');
     }
 
     const payload = { customer: customerEmail, bvn };
     try {
-      const res = await this.client().post('/upgradeVirtualAccount', payload);
+      const res = await this.clientWithTimeout(options.timeoutMs).post('/upgradeVirtualAccount', payload);
       return res.data;
     } catch (e) {
       const status = e.response?.status;
@@ -104,7 +118,13 @@ class BillstackVirtualAccountService {
       throw new Error(message);
     }
   }
+
+  async generateVirtualAccountForUserId(userId, options = {}) {
+    const user = await User.findByPk(userId);
+    if (!user) throw new Error('User not found');
+    const bank = options.bank || process.env.BILLSTACK_BANK || 'PALMPAY';
+    return this.generateVirtualAccount(user, bank, { timeoutMs: options.timeoutMs });
+  }
 }
 
 module.exports = new BillstackVirtualAccountService();
-

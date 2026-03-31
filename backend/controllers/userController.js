@@ -6,6 +6,7 @@ const ApiKey = require('../models/ApiKey');
 const crypto = require('crypto');
 
 const virtualAccountService = require('../services/virtualAccountService');
+const dualVirtualAccountService = require('../services/dualVirtualAccountService');
 const logger = require('../utils/logger');
 
 const maskAccountNumber = (accountNumber) => {
@@ -203,6 +204,42 @@ const auditVirtualAccountAccess = async (req, res) => {
     } catch (error) {
         logger.error(`[VirtualAccount] Audit log failed for user ${userId}: ${error.message}`);
         return res.status(500).json({ success: false, message: 'Failed to record audit event' });
+    }
+};
+
+const fetchDualVirtualAccounts = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const timeoutMsRaw = parseInt(req.body?.timeoutMs, 10);
+        const timeoutMs = Number.isFinite(timeoutMsRaw) ? Math.min(10000, Math.max(500, timeoutMsRaw)) : 10000;
+        const retry = req.body?.retry && typeof req.body.retry === 'object' ? req.body.retry : undefined;
+        const retryConfig = retry
+            ? {
+                  retries: Number.isFinite(parseInt(retry.retries, 10)) ? Math.min(5, Math.max(0, parseInt(retry.retries, 10))) : undefined,
+                  baseDelayMs: Number.isFinite(parseInt(retry.baseDelayMs, 10)) ? Math.min(2000, Math.max(0, parseInt(retry.baseDelayMs, 10))) : undefined,
+                  maxDelayMs: Number.isFinite(parseInt(retry.maxDelayMs, 10)) ? Math.min(5000, Math.max(0, parseInt(retry.maxDelayMs, 10))) : undefined
+              }
+            : undefined;
+
+        const result = await dualVirtualAccountService.ensureDualVirtualAccounts(userId, { timeoutMs, retry: retryConfig });
+        if (result.overallStatus === 'failed') {
+            return res.status(502).json({ success: false, ...result });
+        }
+        return res.json(result);
+    } catch (error) {
+        logger.error(`[DualVA] Failed for user ${userId}: ${error.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to retrieve dual virtual accounts' });
+    }
+};
+
+const getDualVirtualAccountsSnapshot = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const result = await dualVirtualAccountService.getDualVirtualAccountsSnapshot(userId);
+        return res.json(result);
+    } catch (error) {
+        logger.error(`[DualVA] Snapshot failed for user ${userId}: ${error.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to load dual virtual accounts snapshot' });
     }
 };
 
@@ -460,5 +497,7 @@ module.exports = {
     requestVirtualAccount,
     getVirtualAccountSummary,
     revealVirtualAccountNumber,
-    auditVirtualAccountAccess
+    auditVirtualAccountAccess,
+    fetchDualVirtualAccounts,
+    getDualVirtualAccountsSnapshot
 };

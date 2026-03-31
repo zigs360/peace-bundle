@@ -7,7 +7,6 @@ axiosRetry(axios, { retries: 3, retryDelay: axiosRetry.exponentialDelay });
 
 class OgdamsService {
     constructor() {
-        this.apiKey = process.env.OGDAMS_API_KEY;
         this.baseUrl = 'https://simhosting.ogdams.ng/api/v1';
     }
 
@@ -31,8 +30,14 @@ class OgdamsService {
         }
 
         const url = `${this.baseUrl}/vend/airtime`;
+        const apiKey = process.env.OGDAMS_API_KEY;
+        if (!apiKey) {
+            const err = new Error('OGDAMS_API_KEY is not configured');
+            err.statusCode = 500;
+            throw err;
+        }
         const headers = {
-            'Authorization': `Bearer ${this.apiKey}`,
+            'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
         };
 
@@ -41,8 +46,20 @@ class OgdamsService {
             logger.info('Ogdams API Response:', { reference: data.reference, response: response.data });
             return response.data;
         } catch (error) {
-            logger.error('Ogdams API Error:', { reference: data.reference, error: error.response ? error.response.data : error.message });
-            throw error;
+            const status = error.response?.status;
+            const responseData = error.response?.data;
+            const message = responseData?.message || responseData?.error || error.message || 'Ogdams API request failed';
+
+            const meta = { reference: data.reference, status, error: responseData || message };
+            if (process.env.NODE_ENV === 'test') {
+                logger.debug('Ogdams API Error', meta);
+            } else {
+                logger.error('Ogdams API Error', meta);
+            }
+
+            const err = new Error(message);
+            err.statusCode = status || 502;
+            throw err;
         }
     }
 }

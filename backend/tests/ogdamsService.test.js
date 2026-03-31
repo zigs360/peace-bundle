@@ -2,6 +2,10 @@ const OgdamsService = require('../services/ogdamsService');
 const nock = require('nock');
 
 describe('OgdamsService', () => {
+    beforeAll(() => {
+        process.env.OGDAMS_API_KEY = 'test-ogdams-key';
+    });
+
     afterEach(() => {
         nock.cleanAll();
     });
@@ -37,7 +41,7 @@ describe('OgdamsService', () => {
             reference: 'test-ref'
         };
 
-        await expect(OgdamsService.purchaseAirtime(data)).rejects.toThrow();
+        await expect(OgdamsService.purchaseAirtime(data)).rejects.toThrow('Internal Server Error');
     });
 
     it('should throw an error when the payload is invalid', async () => {

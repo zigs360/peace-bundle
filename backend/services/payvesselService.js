@@ -17,7 +17,7 @@ class PayVesselService {
      * @param {number} retryCount - Current retry attempt
      * @returns {Promise<Object>} - Account details
      */
-    async createVirtualAccount(user, retryCount = 0) {
+    async createVirtualAccount(user, retryCount = 0, options = {}) {
         try {
             if (!user.email || !user.name || !user.phone) {
                 throw new Error('User details (email, name, phone) are required for virtual account creation');
@@ -75,7 +75,7 @@ class PayVesselService {
                         'api-secret': `Bearer ${this.secretKey}`,
                         'Content-Type': 'application/json'
                     },
-                    timeout: 30000
+                    timeout: Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000
                 }
             );
 
@@ -121,15 +121,23 @@ class PayVesselService {
             });
 
             // Retry for transient errors (5xx, timeouts, or 503 Service Unavailable)
-            if (retryCount < 3 && (!status || status >= 500)) {
+            const maxRetries = Number.isFinite(options.maxRetries) ? options.maxRetries : 3;
+            if (retryCount < maxRetries && (!status || status >= 500)) {
                 const delay = Math.pow(2, retryCount) * 1500; // Exponential backoff: 1.5s, 3s, 4.5s
                 logger.info(`[PayVessel] Transient failure, retrying in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                return this.createVirtualAccount(user, retryCount + 1);
+                return this.createVirtualAccount(user, retryCount + 1, options);
             }
 
             throw new Error(`PayVessel Error: ${errorData?.message || error.message}`);
         }
+    }
+
+    async createVirtualAccountForUserId(userId, options = {}) {
+        const User = require('../models/User');
+        const user = await User.findByPk(userId);
+        if (!user) throw new Error('User not found');
+        return this.createVirtualAccount(user, 0, { timeoutMs: options.timeoutMs, maxRetries: 0 });
     }
 
     /**
