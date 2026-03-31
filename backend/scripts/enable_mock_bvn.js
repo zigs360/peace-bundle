@@ -8,17 +8,16 @@ async function run() {
   await connectDB();
   await SystemSetting.set('allow_mock_bvn', true, 'boolean', 'api');
   const value = await SystemSetting.get('allow_mock_bvn');
-  // eslint-disable-next-line no-console
   console.log('allow_mock_bvn:', value);
   await sequelize.close();
 }
 
 run().catch(async (e) => {
-  // eslint-disable-next-line no-console
   console.error(e);
   try {
     await sequelize.close();
-  } catch (_) {}
+  } catch (closeErr) {
+    void closeErr;
+  }
   process.exit(1);
 });
-
