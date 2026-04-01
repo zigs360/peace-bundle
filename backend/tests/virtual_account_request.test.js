@@ -94,8 +94,8 @@ describe('Virtual Account Request', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    expect(res.statusCode).toBe(400);
-    expect(res.body.success).toBe(false);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.hasVirtualAccount).toBe(true);
   });
 });
-

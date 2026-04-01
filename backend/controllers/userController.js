@@ -30,8 +30,9 @@ const requestVirtualAccount = async (req, res) => {
         }
 
         if (!user.email || !user.name) {
-            return res.status(400).json({
+            return res.json({
                 success: false,
+                code: 'PROFILE_INCOMPLETE',
                 message: 'Your profile is incomplete. Please update your name and email before requesting a virtual account.'
             });
         }
@@ -44,21 +45,23 @@ const requestVirtualAccount = async (req, res) => {
             (phoneDigits.startsWith('0') && phoneDigits.length === 11);
 
         if (!rawPhone || !isPhoneValid) {
-            return res.status(400).json({
+            return res.json({
                 success: false,
+                code: 'PHONE_INVALID',
                 message: 'A valid Nigerian phone number is required on your profile before requesting a virtual account.'
             });
         }
 
         if (user.virtual_account_number) {
-            return res.status(400).json({ 
-                success: false, 
+            const masked = maskAccountNumber(user.virtual_account_number);
+            return res.json({
+                success: true,
                 message: 'You already have a virtual account assigned.',
-                data: {
-                    bank: user.virtual_account_bank,
-                    accountNumber: user.virtual_account_number,
-                    accountName: user.virtual_account_name
-                }
+                hasVirtualAccount: true,
+                accountNumberMasked: masked,
+                last4: String(user.virtual_account_number).slice(-4),
+                bankName: user.virtual_account_bank,
+                accountName: user.virtual_account_name
             });
         }
 
@@ -74,8 +77,9 @@ const requestVirtualAccount = async (req, res) => {
             const envAllowsMockBvn = process.env.NODE_ENV === 'test' ? true : String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
             const canUseMock = allowMockBvn && envAllowsMockBvn;
             if (!user.bvn && !user.is_bvn_verified && !canUseMock) {
-                return res.status(400).json({ 
-                    success: false, 
+                return res.json({ 
+                    success: false,
+                    code: 'KYC_REQUIRED',
                     message: 'KYC/BVN verification is required to generate a virtual account. Please verify your identity first.' 
                 });
             }
