@@ -39,6 +39,49 @@ class VirtualAccountService {
         this.paystackBaseUrl = 'https://api.paystack.co';
     }
 
+    getApprovedProviders() {
+        return ['payvessel', 'billstack'];
+    }
+
+    getUserProvider(user) {
+        const provider = user?.metadata?.va_provider;
+        return String(provider || '').trim().toLowerCase();
+    }
+
+    isApprovedProvider(provider) {
+        return this.getApprovedProviders().includes(String(provider || '').trim().toLowerCase());
+    }
+
+    isDisplayableVirtualAccount(user) {
+        if (!user?.virtual_account_number) return false;
+        const provider = this.getUserProvider(user);
+        return this.isApprovedProvider(provider);
+    }
+
+    async quarantineUnauthorizedVirtualAccount(user, options = {}) {
+        if (!user?.virtual_account_number) return false;
+        if (this.isDisplayableVirtualAccount(user)) return false;
+
+        const { transaction } = options;
+        const meta = user.metadata || {};
+        user.metadata = {
+            ...meta,
+            invalid_virtual_account: {
+                provider: meta.va_provider ?? null,
+                accountNumber: user.virtual_account_number,
+                bankName: user.virtual_account_bank,
+                accountName: user.virtual_account_name,
+                quarantinedAt: new Date().toISOString(),
+            },
+            va_provider: null,
+        };
+        user.virtual_account_number = null;
+        user.virtual_account_bank = null;
+        user.virtual_account_name = null;
+        await user.save({ transaction });
+        return true;
+    }
+
     isPayvesselConfigured() {
         if (process.env.NODE_ENV === 'test') return true;
         return Boolean(process.env.PAYVESSEL_API_KEY && process.env.PAYVESSEL_SECRET_KEY && process.env.PAYVESSEL_BUSINESS_ID);
@@ -422,8 +465,11 @@ class VirtualAccountService {
     async assignVirtualAccount(user, options = {}) {
         const { transaction } = options;
         
-        if (user.virtual_account_number) {
+        if (user.virtual_account_number && this.isDisplayableVirtualAccount(user)) {
             return null;
+        }
+        if (user.virtual_account_number && !this.isDisplayableVirtualAccount(user)) {
+            await this.quarantineUnauthorizedVirtualAccount(user, { transaction });
         }
 
         // Feature Flag: Check if generation is enabled
@@ -433,27 +479,21 @@ class VirtualAccountService {
             return null;
         }
 
-        // Prefer PayVessel, fallback to Monnify or others
+        // Prefer approved providers only
         try {
-            const fallbackSetting = await this.getSetting('virtual_account_fallback_to_local');
-            const allowLocalFallback =
-                fallbackSetting === null ||
-                fallbackSetting === undefined ||
-                fallbackSetting === true ||
-                fallbackSetting === 1 ||
-                fallbackSetting === '1' ||
-                fallbackSetting === 'true';
-
             const requestedProvider = (await this.getSetting('virtual_account_provider')) || 'payvessel';
             const normalizeProvider = (p) => String(p || '').trim().toLowerCase();
             const configuredProviders = [];
             if (this.isPayvesselConfigured()) configuredProviders.push('payvessel');
             if (this.isBillstackConfigured()) configuredProviders.push('billstack');
-            configuredProviders.push('local', 'monnify', 'paystack');
 
-            const provider = configuredProviders.includes(normalizeProvider(requestedProvider))
+            const requestedNormalized = normalizeProvider(requestedProvider);
+            const provider = configuredProviders.includes(requestedNormalized)
                 ? normalizeProvider(requestedProvider)
-                : 'payvessel';
+                : configuredProviders[0];
+            if (!provider) {
+                throw new Error('No approved virtual account provider is configured');
+            }
             
             let accountDetails;
             
@@ -530,21 +570,6 @@ class VirtualAccountService {
                 }
             }
 
-            if (!accountDetails) {
-                if (provider === 'local') {
-                    accountDetails = await this.createLocalAccount(user, { transaction });
-                } else if (provider === 'monnify') {
-                    accountDetails = await this.createMonnifyAccount(user);
-                } else if (provider === 'paystack') {
-                    accountDetails = await this.createPaystackAccount(user);
-                }
-            }
-
-            if (!accountDetails && allowLocalFallback && (provider === 'payvessel' || provider === 'billstack')) {
-                accountDetails = await this.createLocalAccount(user, { transaction });
-                user.metadata = { ...user.metadata, va_provider: 'local' };
-            }
-
             if (!accountDetails && (provider === 'payvessel' || provider === 'billstack')) {
                 const preferredError = providerErrors[provider];
                 if (preferredError) {
@@ -573,6 +598,9 @@ class VirtualAccountService {
             }
 
             const effectiveProvider = user.metadata?.va_provider || provider;
+            if (!this.isApprovedProvider(effectiveProvider)) {
+                throw new Error(`Unauthorized virtual account provider: ${effectiveProvider}`);
+            }
 
             if (accountDetails) {
                 user.virtual_account_number = accountDetails.accountNumber;

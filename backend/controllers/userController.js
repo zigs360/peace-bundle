@@ -53,6 +53,9 @@ const requestVirtualAccount = async (req, res) => {
         }
 
         if (user.virtual_account_number) {
+            if (!virtualAccountService.isDisplayableVirtualAccount(user)) {
+                await virtualAccountService.quarantineUnauthorizedVirtualAccount(user);
+            } else {
             const masked = maskAccountNumber(user.virtual_account_number);
             return res.json({
                 success: true,
@@ -63,34 +66,6 @@ const requestVirtualAccount = async (req, res) => {
                 bankName: user.virtual_account_bank,
                 accountName: user.virtual_account_name
             });
-        }
-
-        const providerSetting = await virtualAccountService.getSetting('virtual_account_provider');
-        const provider = String(providerSetting || 'payvessel').toLowerCase();
-        if (provider === 'payvessel') {
-            const fallbackSetting = await virtualAccountService.getSetting('virtual_account_fallback_to_local');
-            const allowLocalFallback =
-                fallbackSetting === null ||
-                fallbackSetting === undefined ||
-                fallbackSetting === true ||
-                fallbackSetting === 1 ||
-                fallbackSetting === '1' ||
-                fallbackSetting === 'true';
-
-            const allowMockBvnSetting = await virtualAccountService.getSetting('allow_mock_bvn');
-            const allowMockBvn =
-                allowMockBvnSetting === true ||
-                allowMockBvnSetting === 1 ||
-                allowMockBvnSetting === '1' ||
-                allowMockBvnSetting === 'true';
-            const envAllowsMockBvn = process.env.NODE_ENV === 'test' ? true : String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
-            const canUseMock = allowMockBvn && envAllowsMockBvn;
-            if (!allowLocalFallback && !user.bvn && !user.is_bvn_verified && !canUseMock) {
-                return res.json({ 
-                    success: false,
-                    code: 'KYC_REQUIRED',
-                    message: 'KYC/BVN verification is required to generate a virtual account. Please verify your identity first.' 
-                });
             }
         }
 
@@ -110,9 +85,19 @@ const requestVirtualAccount = async (req, res) => {
     } catch (error) {
         logger.error(`[VirtualAccount] Manual request failed for user ${userId}: ${error.message}`);
         await virtualAccountService.recordProvisioningFailure(userId, error.message);
-        res.status(500).json({ 
+        const msg = String(error.message || '');
+        const lower = msg.toLowerCase();
+        const isKyc = lower.includes('kyc') || lower.includes('bvn');
+        const isConfig = lower.includes('configured') || lower.includes('provider');
+        if (isKyc) {
+            return res.json({ success: false, code: 'KYC_REQUIRED', message: 'KYC/BVN verification is required to generate a virtual account.' });
+        }
+        if (isConfig) {
+            return res.json({ success: false, code: 'PROVIDER_NOT_CONFIGURED', message: msg });
+        }
+        return res.status(500).json({ 
             success: false, 
-            message: error.message || 'Failed to generate virtual account. Please try again later.' 
+            message: msg || 'Failed to generate virtual account. Please try again later.' 
         });
     }
 };
@@ -183,6 +168,14 @@ const getVirtualAccountSummary = async (req, res) => {
             }
         }
 
+        if (!virtualAccountService.isDisplayableVirtualAccount(user)) {
+            return res.json({
+                success: true,
+                hasVirtualAccount: false,
+                message: 'No valid virtual account assigned yet.'
+            });
+        }
+
         const masked = maskAccountNumber(user.virtual_account_number);
 
         return res.json({
@@ -210,6 +203,9 @@ const revealVirtualAccountNumber = async (req, res) => {
 
         if (!user.virtual_account_number) {
             return res.status(404).json({ success: false, message: 'No virtual account assigned yet.' });
+        }
+        if (!virtualAccountService.isDisplayableVirtualAccount(user)) {
+            return res.status(404).json({ success: false, message: 'No valid virtual account assigned yet.' });
         }
 
         logger.info('[AUDIT] Virtual account revealed', {

@@ -1,33 +1,29 @@
 const { connectDB, User } = require('../config/db');
 const SystemSetting = require('../models/SystemSetting');
 const virtualAccountService = require('../services/virtualAccountService');
-
-const luhnIsValid = (value) => {
-  const digits = String(value).replace(/\D/g, '').split('').map(Number);
-  let sum = 0;
-  let doubleNext = false;
-  for (let i = digits.length - 1; i >= 0; i--) {
-    let d = digits[i];
-    if (doubleNext) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-    doubleNext = !doubleNext;
-  }
-  return sum % 10 === 0;
-};
+const payvesselService = require('../services/payvesselService');
 
 describe('Bulk assign missing virtual accounts', () => {
   beforeAll(async () => {
     await connectDB();
     await SystemSetting.set('virtual_account_generation_enabled', true, 'boolean', 'api');
-    await SystemSetting.set('virtual_account_provider', 'local', 'string', 'api');
-    await SystemSetting.set('local_virtual_account_prefix', '901', 'string', 'api');
-    await SystemSetting.set('local_virtual_account_bank', 'Peace Bundlle', 'string', 'api');
+    await SystemSetting.set('virtual_account_provider', 'payvessel', 'string', 'api');
+    await SystemSetting.set('allow_mock_bvn', true, 'boolean', 'api');
   });
 
-  it('assigns local virtual accounts to active users missing one', async () => {
+  it('assigns provider virtual accounts to active users missing one', async () => {
+    let seq = 0;
+    const payvesselSpy = jest.spyOn(payvesselService, 'createVirtualAccount').mockImplementation(async (user) => {
+      seq += 1;
+      const accountNumber = String(6600000000 + seq);
+      return {
+        accountNumber,
+        bankName: 'PALMPAY',
+        accountName: user.name,
+        trackingReference: `PV-${user.id}`,
+      };
+    });
+
     const createdUsers = [];
     for (let i = 0; i < 3; i++) {
       const user = await User.create({
@@ -57,16 +53,19 @@ describe('Bulk assign missing virtual accounts', () => {
       includeInactive: false,
     });
 
+    expect(payvesselSpy).toHaveBeenCalled();
     expect(summary.created).toBeGreaterThanOrEqual(3);
     expect(summary.failed).toBe(0);
 
     for (const u of createdUsers) {
       const updated = await User.findByPk(u.id);
-      expect(updated.virtual_account_number).toMatch(/^901\d{7}$/);
-      expect(luhnIsValid(updated.virtual_account_number)).toBe(true);
-      expect(updated.virtual_account_bank).toBe('Peace Bundlle');
+      expect(updated.virtual_account_number).toMatch(/^\d{10}$/);
+      expect(updated.virtual_account_bank).toBe('PALMPAY');
       expect(updated.virtual_account_name).toBe(updated.name);
+      expect(updated.metadata?.va_provider).toBe('payvessel');
     }
+
+    payvesselSpy.mockRestore();
   });
 
   it('continues processing even if one user fails (per-user transaction rollback)', async () => {
@@ -88,12 +87,19 @@ describe('Bulk assign missing virtual accounts', () => {
       account_status: 'active',
     });
 
-    const original = virtualAccountService.createLocalAccount.bind(virtualAccountService);
-    const spy = jest.spyOn(virtualAccountService, 'createLocalAccount').mockImplementation(async (user, options) => {
+    let seq = 0;
+    const spy = jest.spyOn(payvesselService, 'createVirtualAccount').mockImplementation(async (user) => {
       if (user.id === u1.id) {
         throw new Error('Synthetic failure');
       }
-      return original(user, options);
+      seq += 1;
+      const accountNumber = String(6600000000 + seq);
+      return {
+        accountNumber,
+        bankName: 'PALMPAY',
+        accountName: user.name,
+        trackingReference: `PV-${user.id}`,
+      };
     });
 
     const summary = await virtualAccountService.bulkAssignMissingVirtualAccounts({
@@ -114,4 +120,3 @@ describe('Bulk assign missing virtual accounts', () => {
     expect(after2.virtual_account_number).toBeTruthy();
   });
 });
-
