@@ -1,10 +1,11 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database'); // Import the instance directly
+const crypto = require('crypto');
 
 const Sim = sequelize.define('Sim', {
   id: {
     type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
+    defaultValue: () => crypto.randomUUID(),
     primaryKey: true,
   },
 

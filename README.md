@@ -70,6 +70,13 @@ Peace Bundlle is a Nigerian-based VTU and fintech platform that allows users to 
 ## 12. Security
 - Encryption, PINs, RBAC
 
+### Secrets Handling
+- Do not commit `.env` files or any API keys/secrets.
+- Store production secrets only in your hosting provider’s environment-variable/secret manager (Render Environment Variables).
+- Enable the repository pre-commit secret scanner:
+  - `node scripts/setup-githooks.js`
+- Rotate any key that has been exposed outside the secret manager.
+
 ## 13. Revenue Model
 - Markups, Upgrade fees, API fees
 

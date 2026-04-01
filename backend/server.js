@@ -45,7 +45,25 @@ const PORT = process.env.PORT || 5000;
 
 // Security Middleware
 app.use(helmet());
-app.use(cors());
+const parseAllowedOrigins = (value) => {
+  return String(value || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+};
+const allowedOrigins = parseAllowedOrigins(process.env.FRONTEND_URLS || process.env.FRONTEND_URL);
+const corsOptions =
+  process.env.NODE_ENV === 'production' && allowedOrigins.length
+    ? {
+        origin: (origin, callback) => {
+          if (!origin) return callback(null, true);
+          if (allowedOrigins.includes(origin)) return callback(null, true);
+          return callback(null, false);
+        },
+        credentials: true,
+      }
+    : { origin: true, credentials: true };
+app.use(cors(corsOptions));
 app.use(compression());
 
 // Logging Middleware

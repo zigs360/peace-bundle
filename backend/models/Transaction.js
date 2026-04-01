@@ -1,10 +1,11 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database'); // Import the instance directly
+const crypto = require('crypto');
 
 const Transaction = sequelize.define('Transaction', {
   id: {
     type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
+    defaultValue: () => crypto.randomUUID(),
     primaryKey: true,
   },
   // user_id will be added by association (from Wallet or direct User)
@@ -116,7 +117,7 @@ const Transaction = sequelize.define('Transaction', {
   },
 
   dataPlanId: {
-    type: DataTypes.UUID,
+    type: DataTypes.INTEGER,
     allowNull: true,
   },
 
@@ -125,13 +126,6 @@ const Transaction = sequelize.define('Transaction', {
     allowNull: true,
   },
 
-  // Virtual field for frontend compatibility
-  date: {
-    type: DataTypes.VIRTUAL,
-    get() {
-      return this.getDataValue('createdAt');
-    }
-  },
 }, {
   timestamps: true,
   tableName: 'transactions',

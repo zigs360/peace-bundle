@@ -65,7 +65,8 @@ class PayVesselService {
                 // Check if we should provide a mock BVN for development
                 const SystemSetting = require('../models/SystemSetting');
                 const allowMock = await SystemSetting.get('allow_mock_bvn');
-                if (allowMock) {
+                const envAllowsMockBvn = String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
+                if (allowMock && envAllowsMockBvn) {
                     payload.bvn = '22222222222'; // Standard mock BVN for PayVessel sandbox
                     logger.info(`[PayVessel] Using mock BVN for ${user.email} as allowed by system settings`);
                 }

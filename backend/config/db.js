@@ -2,6 +2,12 @@ const sequelize = require('./database'); // Correct import of instance
 const bcrypt = require('bcryptjs');
 
 let isConnected = false;
+const globalState = globalThis.__peacebundle_db_state || {
+  isConnected: false,
+  isSyncDone: false,
+  connectPromise: null
+};
+globalThis.__peacebundle_db_state = globalState;
 
 // Import models (Top Level)
 const User = require('../models/User');
@@ -120,77 +126,80 @@ try {
 }
 
 const connectDB = async () => {
-  if (isConnected) {
+  if (globalState.isConnected || isConnected) {
     console.log('PostgreSQL already connected via Sequelize');
     return;
   }
 
   try {
+    if (globalState.connectPromise) {
+      await globalState.connectPromise;
+      isConnected = globalState.isConnected;
+      return;
+    }
+
     const dbUrl = process.env.DATABASE_URL || 'unknown';
     console.log(`Attempting to connect to DB at ${dbUrl.split('@')[1] || 'default'}`);
-    
-    await sequelize.authenticate();
-    console.log('PostgreSQL Connected via Sequelize');
+    globalState.connectPromise = (async () => {
+      await sequelize.authenticate();
+      console.log('PostgreSQL Connected via Sequelize');
 
-    try {
-      await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL');
-    } catch (e) {
-      void e;
       try {
-        await sequelize.query('DELETE FROM wallets WHERE "userId" IS NULL');
-      } catch (e2) {
-        void e2;
-      }
-    }
-
-    // Sync models
-    if (process.env.NODE_ENV === 'test') {
-      console.log('Syncing models (test mode)...');
-      try {
-        await sequelize.sync({ force: true });
-        console.log('Models synced');
-      } catch (error) {
-        console.error('Model sync failed:', error);
-        throw error;
-      }
-    } else {
-      await sequelize.sync({ alter: true });
-    }
-    
-    console.log('Database Synced');
-
-    // Seed System Settings and Admin if not in test mode
-    if (process.env.NODE_ENV !== 'test') {
-      // Seed System Settings if empty
-      const settingsCount = await SystemSetting.count();
-      if (settingsCount === 0) {
-        await SystemSetting.bulkCreate([
-          { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
-          { key: 'site_url', value: 'https://peacebundlle.com', type: 'string', group: 'general' },
-          { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
-          { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
-          { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },
-          { key: 'allow_mock_bvn', value: 'true', type: 'boolean', group: 'api' },
-          { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
-        ]);
-        console.log('Default System Settings Seeded');
+        await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL');
+      } catch (e) {
+        void e;
+        try {
+          await sequelize.query('DELETE FROM wallets WHERE "userId" IS NULL');
+        } catch (e2) {
+          void e2;
+        }
       }
 
-      // Seed Requested Admin
-      const adminUser = await seedAdmin();
-
-      // FIX: Assign any Sims with NULL userId to the admin user
-      // We do this after ensuring adminUser exists
-      const [updatedCount] = await Sim.update(
-        { userId: adminUser.id },
-        { where: { userId: null } }
-      );
-      if (updatedCount > 0) {
-        console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
+      if (process.env.NODE_ENV === 'test') {
+        if (!globalState.isSyncDone) {
+          console.log('Syncing models (test mode)...');
+          await sequelize.sync({ force: true });
+          console.log('Models synced');
+          globalState.isSyncDone = true;
+        }
+      } else {
+        await sequelize.sync({ alter: true });
       }
-    }
-    
-    isConnected = true;
+
+      console.log('Database Synced');
+
+      if (process.env.NODE_ENV !== 'test') {
+        const settingsCount = await SystemSetting.count();
+        if (settingsCount === 0) {
+          await SystemSetting.bulkCreate([
+            { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
+            { key: 'site_url', value: 'https://peacebundlle.com', type: 'string', group: 'general' },
+            { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
+            { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
+            { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },
+            { key: 'allow_mock_bvn', value: 'true', type: 'boolean', group: 'api' },
+            { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
+          ]);
+          console.log('Default System Settings Seeded');
+        }
+
+        const adminUser = await seedAdmin();
+
+        const [updatedCount] = await Sim.update(
+          { userId: adminUser.id },
+          { where: { userId: null } }
+        );
+        if (updatedCount > 0) {
+          console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
+        }
+      }
+
+      globalState.isConnected = true;
+      isConnected = true;
+    })();
+
+    await globalState.connectPromise;
+    globalState.connectPromise = null;
 
   } catch (error) {
     console.error(`Error: ${error.message}`);

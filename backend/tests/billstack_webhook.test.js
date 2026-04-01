@@ -10,6 +10,14 @@ describe('BillStack webhook', () => {
     process.env.BILLSTACK_WEBHOOK_SECRET = 'test_billstack_webhook_secret';
   });
 
+  afterEach(() => {
+    process.env.NODE_ENV = 'test';
+    process.env.BILLSTACK_WEBHOOK_SECRET = 'test_billstack_webhook_secret';
+    delete process.env.MOCK_BVN_ALLOWED;
+    delete process.env.MOCK_BVN_FUNDING_CAP_NGN;
+    delete process.env.MOCK_BVN_MAX_EVENTS_24H;
+  });
+
   it('credits wallet by virtual account number and is idempotent by reference', async () => {
     const user = await User.create({
       name: 'Webhook VA User',
@@ -69,5 +77,81 @@ describe('BillStack webhook', () => {
     const afterBalance2 = parseFloat(walletAfter2.balance);
     expect(afterBalance2).toBe(afterBalance);
   });
-});
 
+  it('rejects invalid signature when secret is set', async () => {
+    const payload = {
+      event: 'PAYMENT_NOTIFIFICATION',
+      data: {
+        type: 'RESERVED_ACCOUNT_TRANSACTION',
+        reference: `BILLSTACK-TXN-${Date.now()}`,
+        amount: '100',
+        account: { account_number: '0000000000' }
+      }
+    };
+
+    const res = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', 'bad').send(payload);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects webhook in production when secret is missing', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.BILLSTACK_WEBHOOK_SECRET;
+
+    const payload = {
+      event: 'PAYMENT_NOTIFIFICATION',
+      data: {
+        type: 'RESERVED_ACCOUNT_TRANSACTION',
+        reference: `BILLSTACK-TXN-${Date.now()}`,
+        amount: '100',
+        account: { account_number: '0000000000' }
+      }
+    };
+
+    const res = await request(app).post('/api/webhooks/billstack').send(payload);
+    expect(res.statusCode).toBe(500);
+  });
+
+  it('holds funding for review for mock-bvn users when cap is exceeded', async () => {
+    process.env.MOCK_BVN_ALLOWED = 'true';
+    process.env.MOCK_BVN_FUNDING_CAP_NGN = '1000';
+
+    const user = await User.create({
+      name: 'MockBVN User',
+      email: `mockbvn_va_${Date.now()}@test.com`,
+      phone: '08011007701',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+      virtual_account_number: '6634530576',
+      virtual_account_bank: 'PALMPAY',
+      virtual_account_name: 'MockBVN User',
+      metadata: { mock_bvn_status: 'mock' }
+    });
+
+    const walletBefore = await Wallet.findOne({ where: { userId: user.id } });
+    const beforeBalance = parseFloat(walletBefore.balance);
+
+    const payload = {
+      event: 'PAYMENT_NOTIFIFICATION',
+      data: {
+        type: 'RESERVED_ACCOUNT_TRANSACTION',
+        reference: `BILLSTACK-TXN-${Date.now()}`,
+        amount: '1500',
+        account: { account_number: '6634530576' }
+      }
+    };
+
+    const signature = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload)).digest('hex');
+    const res = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', signature).send(payload);
+    expect(res.statusCode).toBe(200);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    const afterBalance = parseFloat(walletAfter.balance);
+    expect(afterBalance).toBe(beforeBalance);
+
+    const txn = await Transaction.findOne({ where: { reference: payload.data.reference } });
+    expect(txn).toBeTruthy();
+    expect(txn.status).toBe('pending');
+    expect(txn.metadata.review_status).toBe('pending_review');
+  });
+});

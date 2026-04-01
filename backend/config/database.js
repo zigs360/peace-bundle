@@ -4,6 +4,9 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 let sequelize;
+if (globalThis.__peacebundle_sequelize) {
+  sequelize = globalThis.__peacebundle_sequelize;
+} else {
 
 const normalizeDatabaseUrl = (databaseUrl) => {
   if (!databaseUrl) return databaseUrl;
@@ -23,13 +26,14 @@ const normalizeDatabaseUrl = (databaseUrl) => {
   }
 };
 
-if (process.env.NODE_ENV === 'test') {
-   sequelize = new Sequelize('sqlite::memory:', {
-      logging: false,
-      dialect: 'sqlite'
-    });
- } else {
-  const databaseUrl = normalizeDatabaseUrl(process.env.DATABASE_URL);
+const databaseUrl = normalizeDatabaseUrl(process.env.DATABASE_URL);
+const useTestPostgres = String(process.env.USE_TEST_POSTGRES || 'false').toLowerCase() === 'true';
+if (process.env.NODE_ENV === 'test' && !useTestPostgres) {
+  sequelize = new Sequelize('sqlite::memory:', {
+    logging: false,
+    dialect: 'sqlite'
+  });
+} else {
   sequelize = new Sequelize(databaseUrl || 'postgres://postgres:postgres@localhost:5432/peacebundle', {
     dialect: 'postgres',
     logging: false,
@@ -47,6 +51,9 @@ if (process.env.NODE_ENV === 'test') {
       } : false
     }
   });
+}
+
+  globalThis.__peacebundle_sequelize = sequelize;
 }
 
 module.exports = sequelize; // Export the instance directly

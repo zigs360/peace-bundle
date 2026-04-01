@@ -13,9 +13,17 @@ class NotificationService {
    * Initialize Socket.io with Express server
    */
   init(server) {
+    const allowedOrigins = String(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const origin =
+      process.env.NODE_ENV === 'production' && allowedOrigins.length
+        ? allowedOrigins
+        : process.env.FRONTEND_URL || '*';
     this.io = new Server(server, {
       cors: {
-        origin: process.env.FRONTEND_URL || '*', 
+        origin,
         methods: ['GET', 'POST'],
         credentials: true
       },

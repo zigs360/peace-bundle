@@ -26,13 +26,6 @@ const handlePaystackWebhook = async (req, res) => {
             if (status === 'success') {
                 const t = await sequelize.transaction();
                 try {
-                    const existingTxn = await Transaction.findOne({ where: { reference } });
-                    if (existingTxn) {
-                        await t.rollback();
-                        logger.info(`[Webhook] Paystack: Transaction ${reference} already processed`);
-                        return res.status(200).json({ success: true, message: 'Transaction already exists' });
-                    }
-
                     const user = await User.findOne({ where: { email: customer.email } });
                     if (!user) {
                         await t.rollback();
@@ -41,14 +34,27 @@ const handlePaystackWebhook = async (req, res) => {
                     }
 
                     const creditAmount = amount / 100; // kobo to Naira
-                    await walletService.credit(
-                        user,
-                        creditAmount,
-                        'funding',
-                        `Paystack Funding: ${reference}`,
-                        { reference, gateway: 'paystack' },
-                        t
-                    );
+                    try {
+                        const result = await walletService.creditFundingWithFraudChecks(
+                            user,
+                            creditAmount,
+                            `Paystack Funding: ${reference}`,
+                            { reference, gateway: 'paystack' },
+                            t
+                        );
+                        if (result.status === 'pending_review') {
+                            await t.commit();
+                            logger.warn(`[Webhook] Paystack: Funding held for review ${reference}`, { userId: user.id });
+                            return res.status(200).json({ success: true, message: 'Pending review' });
+                        }
+                    } catch (error) {
+                        if (error?.name === 'SequelizeUniqueConstraintError') {
+                            await t.rollback();
+                            logger.info(`[Webhook] Paystack: Duplicate transaction ignored ${reference}`);
+                            return res.status(200).json({ success: true, message: 'Transaction already exists' });
+                        }
+                        throw error;
+                    }
                     
                     await t.commit();
                     logger.info(`[Webhook] Paystack: Wallet funded successfully for ${user.email} - ₦${creditAmount}`);
@@ -94,13 +100,6 @@ const handlePayvesselWebhook = async (req, res) => {
         
         const t = await sequelize.transaction();
         try {
-            const existingTxn = await Transaction.findOne({ where: { reference } });
-            if (existingTxn) {
-                await t.rollback();
-                logger.info(`[Webhook] PayVessel: Transaction ${reference} already processed`);
-                return res.status(200).json({ success: true, message: 'transaction already exist' });
-            }
-
             const user = await User.findOne({ where: { email: customer.email } });
             if (!user) {
                 await t.rollback();
@@ -108,19 +107,32 @@ const handlePayvesselWebhook = async (req, res) => {
                 return res.status(404).json({ success: false, message: 'user not found' });
             }
 
-            await walletService.credit(
-                user,
-                amount,
-                'funding',
-                `PayVessel Funding: ${reference}`,
-                { 
-                    reference, 
-                    gateway: 'payvessel',
-                    fee: order.fee,
-                    description: order.description
-                },
-                t
-            );
+            try {
+                const result = await walletService.creditFundingWithFraudChecks(
+                    user,
+                    amount,
+                    `PayVessel Funding: ${reference}`,
+                    { 
+                        reference, 
+                        gateway: 'payvessel',
+                        fee: order.fee,
+                        description: order.description
+                    },
+                    t
+                );
+                if (result.status === 'pending_review') {
+                    await t.commit();
+                    logger.warn(`[Webhook] PayVessel: Funding held for review ${reference}`, { userId: user.id });
+                    return res.status(200).json({ success: true, message: 'pending_review' });
+                }
+            } catch (error) {
+                if (error?.name === 'SequelizeUniqueConstraintError') {
+                    await t.rollback();
+                    logger.info(`[Webhook] PayVessel: Duplicate transaction ignored ${reference}`);
+                    return res.status(200).json({ success: true, message: 'transaction already exist' });
+                }
+                throw error;
+            }
 
             await t.commit();
             logger.info(`[Webhook] PayVessel: Wallet funded successfully for ${user.email} - ₦${amount}`);
@@ -169,13 +181,6 @@ const handleMonnifyWebhook = async (req, res) => {
             if (paymentStatus === 'PAID') {
                 const t = await sequelize.transaction();
                 try {
-                    const existingTxn = await Transaction.findOne({ where: { reference: transactionReference } });
-                    if (existingTxn) {
-                        await t.rollback();
-                        logger.info(`[Webhook] Monnify: Transaction ${transactionReference} already processed`);
-                        return res.status(200).json({ success: true, message: 'Transaction already exists' });
-                    }
-
                     const user = await User.findOne({ where: { email: customerDTO.email } });
                     if (!user) {
                         await t.rollback();
@@ -183,14 +188,27 @@ const handleMonnifyWebhook = async (req, res) => {
                         return res.status(404).send('User not found');
                     }
 
-                    await walletService.credit(
-                        user,
-                        amountPaid,
-                        'funding',
-                        `Monnify Funding: ${transactionReference}`,
-                        { reference: transactionReference, gateway: 'monnify' },
-                        t
-                    );
+                    try {
+                        const result = await walletService.creditFundingWithFraudChecks(
+                            user,
+                            amountPaid,
+                            `Monnify Funding: ${transactionReference}`,
+                            { reference: transactionReference, gateway: 'monnify' },
+                            t
+                        );
+                        if (result.status === 'pending_review') {
+                            await t.commit();
+                            logger.warn(`[Webhook] Monnify: Funding held for review ${transactionReference}`, { userId: user.id });
+                            return res.status(200).json({ success: true, message: 'Transaction pending review' });
+                        }
+                    } catch (error) {
+                        if (error?.name === 'SequelizeUniqueConstraintError') {
+                            await t.rollback();
+                            logger.info(`[Webhook] Monnify: Duplicate transaction ignored ${transactionReference}`);
+                            return res.status(200).json({ success: true, message: 'Transaction already exists' });
+                        }
+                        throw error;
+                    }
                     
                     await t.commit();
                     logger.info(`[Webhook] Monnify: Wallet funded successfully for ${user.email} - ₦${amountPaid}`);
@@ -255,14 +273,18 @@ const handleBillstackWebhook = async (req, res) => {
         const secret = process.env.BILLSTACK_WEBHOOK_SECRET;
         const signature = req.headers['x-billstack-signature'];
 
-        if (secret) {
+        if (!secret) {
+            if (process.env.NODE_ENV === 'production') {
+                logger.error('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; rejecting webhook');
+                return res.status(500).json({ message: 'Webhook not configured' });
+            }
+            logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
+        } else {
             const computed = crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
             if (!signature || computed !== signature) {
                 logger.warn('[Webhook] BillStack: Invalid signature');
                 return res.status(400).json({ message: 'Invalid signature' });
             }
-        } else {
-            logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
         }
 
         const data = payload?.data;
@@ -270,19 +292,12 @@ const handleBillstackWebhook = async (req, res) => {
         const amount = parseFloat(data?.amount);
         const accountNumber = data?.account?.account_number;
 
-        if (!reference || !amount || !accountNumber) {
+        if (!reference || !accountNumber || Number.isNaN(amount)) {
             return res.status(400).json({ message: 'Invalid payload' });
         }
 
         const t = await sequelize.transaction();
         try {
-            const existingTxn = await Transaction.findOne({ where: { reference } });
-            if (existingTxn) {
-                await t.rollback();
-                logger.info(`[Webhook] BillStack: Transaction ${reference} already processed`);
-                return res.status(200).json({ success: true, message: 'Transaction already exists' });
-            }
-
             const user = await User.findOne({ where: { virtual_account_number: accountNumber } });
             if (!user) {
                 await t.rollback();
@@ -290,21 +305,34 @@ const handleBillstackWebhook = async (req, res) => {
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            await walletService.credit(
-                user,
-                amount,
-                'funding',
-                `BillStack Funding: ${reference}`,
-                {
-                    reference,
-                    gateway: 'billstack',
-                    merchant_reference: data?.merchant_reference,
-                    inter_bank_reference: data?.wiaxy_ref,
-                    payer: data?.payer,
-                    account: data?.account
-                },
-                t
-            );
+            try {
+                const result = await walletService.creditFundingWithFraudChecks(
+                    user,
+                    amount,
+                    `BillStack Funding: ${reference}`,
+                    {
+                        reference,
+                        gateway: 'billstack',
+                        merchant_reference: data?.merchant_reference,
+                        inter_bank_reference: data?.wiaxy_ref,
+                        payer: data?.payer,
+                        account: data?.account
+                    },
+                    t
+                );
+                if (result.status === 'pending_review') {
+                    await t.commit();
+                    logger.warn(`[Webhook] BillStack: Funding held for review ${reference}`, { userId: user.id });
+                    return res.status(200).json({ success: true, message: 'pending_review' });
+                }
+            } catch (error) {
+                if (error?.name === 'SequelizeUniqueConstraintError') {
+                    await t.rollback();
+                    logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${reference}`);
+                    return res.status(200).json({ success: true, message: 'Transaction already exists' });
+                }
+                throw error;
+            }
 
             await t.commit();
             logger.info(`[Webhook] BillStack: Wallet funded successfully for ${user.email} - ₦${amount}`);

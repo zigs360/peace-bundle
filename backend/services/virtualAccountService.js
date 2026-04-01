@@ -370,6 +370,7 @@ class VirtualAccountService {
                 };
             };
 
+            let payvesselUsedMockBvn = false;
             const tryPayvessel = async () => {
                 if (process.env.NODE_ENV !== 'test') {
                     const allowMockBvnSetting = await this.getSetting('allow_mock_bvn');
@@ -379,8 +380,13 @@ class VirtualAccountService {
                         allowMockBvnSetting === '1' ||
                         allowMockBvnSetting === 'true';
                     const hasKycId = Boolean(user.bvn || user.nin);
-                    if (!hasKycId && !allowMockBvn) {
+                    const envAllowsMockBvn = String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
+                    const mockAllowed = allowMockBvn && envAllowsMockBvn;
+                    if (!hasKycId && !mockAllowed) {
                         throw new Error('KYC/BVN verification is required to generate a PayVessel virtual account');
+                    }
+                    if (!hasKycId && mockAllowed) {
+                        payvesselUsedMockBvn = true;
                     }
                 }
                 return payvesselService.createVirtualAccount(user);
@@ -445,6 +451,9 @@ class VirtualAccountService {
                     };
                 } else {
                     user.metadata = { ...user.metadata, va_provider: effectiveProvider };
+                }
+                if (effectiveProvider === 'payvessel' && payvesselUsedMockBvn) {
+                    user.metadata = { ...user.metadata, mock_bvn_status: 'mock' };
                 }
                 await user.save({ transaction });
                 logger.info(`[VirtualAccount] Assigned ${effectiveProvider} account for user ${user.id}`);

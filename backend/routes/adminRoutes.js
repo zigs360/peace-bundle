@@ -33,7 +33,10 @@ const {
     upgradeBillstackVirtualAccount,
     getVirtualAccountHealth,
     getReferralAnalytics,
-    viewKycDocument
+    viewKycDocument,
+    listPendingFundingReviews,
+    approvePendingFundingReview,
+    rejectPendingFundingReview
 } = require('../controllers/adminController');
 const {
     adminGetSubscriptionPlans,
@@ -95,5 +98,8 @@ router.post('/sims/:id/check-balance', protect, admin, checkSimBalance);
 // Referral Analytics Route
 router.get('/referrals/analytics', protect, admin, getReferralAnalytics);
 router.get('/virtual-accounts/health', protect, admin, getVirtualAccountHealth);
+router.get('/funding/pending-review', protect, admin, listPendingFundingReviews);
+router.post('/funding/pending-review/:id/approve', protect, admin, approvePendingFundingReview);
+router.post('/funding/pending-review/:id/reject', protect, admin, rejectPendingFundingReview);
 
 module.exports = router;

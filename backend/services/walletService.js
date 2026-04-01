@@ -1,6 +1,7 @@
 const sequelize = require('../config/database');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
+const { Op } = require('sequelize');
 const crypto = require('crypto');
 
 class WalletService {
@@ -45,9 +46,76 @@ class WalletService {
         description: description,
         metadata: metadata,
         status: 'completed'
-      }, { transaction: transaction });
+      }, { transaction: transaction, returning: false });
 
       return txn;
+    };
+
+    if (t) return work(t);
+    return sequelize.transaction(work);
+  }
+
+  async creditFundingWithFraudChecks(user, amount, description = null, metadata = {}, t = null) {
+    const cap = parseFloat(process.env.MOCK_BVN_FUNDING_CAP_NGN || '50000');
+    const maxEvents = parseInt(process.env.MOCK_BVN_MAX_EVENTS_24H || '3', 10);
+    const mockAllowed = String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
+    const isMockUser = mockAllowed && user?.metadata?.mock_bvn_status === 'mock';
+
+    const work = async (transaction) => {
+      const wallet = await Wallet.findOne({
+        where: { userId: user.id },
+        transaction: transaction,
+        lock: true
+      });
+
+      if (!wallet) throw new Error('Wallet not found');
+
+      const balanceBefore = parseFloat(wallet.balance);
+      const amountNum = parseFloat(amount);
+
+      if (isMockUser && Number.isFinite(amountNum) && amountNum > 0) {
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const [count24h, sumAll] = await Promise.all([
+          Transaction.count({
+            where: { userId: user.id, type: 'credit', source: 'funding', createdAt: { [Op.gte]: since } },
+            transaction: transaction
+          }),
+          Transaction.sum('amount', { where: { userId: user.id, type: 'credit', source: 'funding', status: 'completed' }, transaction: transaction })
+        ]);
+
+        const fundedTotal = parseFloat(sumAll || 0);
+        const exceedsVelocity = Number.isFinite(count24h) && count24h >= maxEvents;
+        const exceedsCap = Number.isFinite(cap) && fundedTotal + amountNum > cap;
+
+        if (exceedsVelocity || exceedsCap) {
+          const txn = await Transaction.create(
+            {
+              walletId: wallet.id,
+              userId: user.id,
+              type: 'credit',
+              amount: amountNum,
+              balance_before: balanceBefore,
+              balance_after: balanceBefore,
+              source: 'funding',
+              reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
+              description: description,
+              metadata: {
+                ...metadata,
+                review_status: 'pending_review',
+                review_reason: exceedsCap ? 'mock_bvn_cap' : 'mock_bvn_velocity',
+                mock_bvn: true
+              },
+              status: 'pending'
+            },
+            { transaction: transaction, returning: false }
+          );
+
+          return { status: 'pending_review', transaction: txn };
+        }
+      }
+
+      const txn = await this.credit(user, amount, 'funding', description, metadata, transaction);
+      return { status: 'completed', transaction: txn };
     };
 
     if (t) return work(t);
@@ -124,7 +192,7 @@ class WalletService {
         description: description,
         metadata: metadata,
         status: 'completed' 
-      }, { transaction: transaction });
+      }, { transaction: transaction, returning: false });
 
       return txn;
     };
@@ -171,7 +239,7 @@ class WalletService {
         description: `Transfer to ${recipient.name || recipient.email}`,
         metadata: { recipient_id: recipient.id },
         status: 'completed'
-      }, { transaction: transaction });
+      }, { transaction: transaction, returning: false });
 
       // 2. Credit Recipient
       const recipientWallet = await Wallet.findOne({ 
@@ -199,7 +267,7 @@ class WalletService {
         description: `Transfer from ${sender.name || sender.email}`,
         metadata: { sender_id: sender.id },
         status: 'completed'
-      }, { transaction: transaction });
+      }, { transaction: transaction, returning: false });
 
       return {
         debit_transaction: debitTxn,
@@ -276,7 +344,7 @@ class WalletService {
         reference: this.generateReference(),
         description: description || 'Affiliate commission earned',
         status: 'completed'
-      }, { transaction: transaction });
+      }, { transaction: transaction, returning: false });
     };
 
     if (t) return work(t);
@@ -325,7 +393,7 @@ class WalletService {
         reference: this.generateReference(),
         description: 'Commission transfer to main wallet',
         status: 'completed'
-      }, { transaction: transaction });
+      }, { transaction: transaction, returning: false });
     };
 
     if (t) return work(t);

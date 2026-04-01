@@ -49,6 +49,8 @@ jobs:
         DATABASE_URL: postgres://postgres:password@localhost:5432/peacebundle_test
         NODE_ENV: test
         JWT_SECRET: test_secret
+        NODE_OPTIONS: --max-old-space-size=2048
+        USE_TEST_POSTGRES: true
       run: npm test
 
   test-frontend:

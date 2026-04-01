@@ -97,6 +97,17 @@ PayVessel:
 - `PAYVESSEL_BUSINESS_ID`
 - `PAYVESSEL_BASE_URL` (default in code)
 
+## Webhooks
+
+Configure provider webhooks to point to the backend:
+
+- BillStack: `POST /api/webhooks/billstack`
+- PayVessel: `POST /api/webhooks/payvessel`
+- Paystack: `POST /api/webhooks/paystack`
+- Monnify: `POST /api/webhooks/monnify`
+
+For BillStack, set `BILLSTACK_WEBHOOK_SECRET` and configure BillStack to sign webhook payloads. In production the BillStack webhook is rejected if the secret is not configured.
+
 ## PCI-DSS / Security Notes
 
 - The API returns masked account numbers by default.

@@ -1291,6 +1291,12 @@ const getVirtualAccountHealth = async (req, res) => {
         const provider = await SystemSetting.get('virtual_account_provider');
         const allowMockBvn = await SystemSetting.get('allow_mock_bvn');
 
+        const forwardedProto = req.headers['x-forwarded-proto'];
+        const forwardedHost = req.headers['x-forwarded-host'];
+        const proto = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto) || req.protocol;
+        const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) || req.get('host');
+        const baseUrl = proto && host ? `${proto}://${host}` : null;
+
         const billstackBaseUrl = process.env.BILLSTACK_BASE_URL || process.env.BILL_STACK_BASE_URL || null;
         let billstackHost = null;
         try {
@@ -1324,11 +1330,161 @@ const getVirtualAccountHealth = async (req, res) => {
                     baseUrlHost: payvesselHost,
                     businessIdSet: Boolean(process.env.PAYVESSEL_BUSINESS_ID)
                 }
+            },
+            webhooks: {
+                billstack: baseUrl ? `${baseUrl}/api/webhooks/billstack` : '/api/webhooks/billstack',
+                payvessel: baseUrl ? `${baseUrl}/api/webhooks/payvessel` : '/api/webhooks/payvessel',
+                paystack: baseUrl ? `${baseUrl}/api/webhooks/paystack` : '/api/webhooks/paystack',
+                monnify: baseUrl ? `${baseUrl}/api/webhooks/monnify` : '/api/webhooks/monnify'
             }
         });
     } catch (e) {
         logger.error(`[Admin] Virtual account health failed: ${e.message}`);
         return res.status(500).json({ success: false, message: 'Failed to load virtual account health' });
+    }
+};
+
+const listPendingFundingReviews = async (req, res) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+
+        const { count, rows } = await Transaction.findAndCountAll({
+            where: {
+                status: 'pending',
+                type: 'credit',
+                source: 'funding'
+            },
+            include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] }],
+            order: [['createdAt', 'DESC']],
+            limit: parseInt(limit),
+            offset
+        });
+
+        const pendingReview = rows.filter((t) => t?.metadata?.review_status === 'pending_review');
+
+        return res.json({
+            success: true,
+            transactions: pendingReview,
+            total: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
+    } catch (e) {
+        logger.error(`[Admin] List pending funding reviews failed: ${e.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to load pending reviews' });
+    }
+};
+
+const approvePendingFundingReview = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const t = await sequelize.transaction();
+        try {
+            const txn = await Transaction.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
+            if (!txn) {
+                await t.rollback();
+                return res.status(404).json({ success: false, message: 'Transaction not found' });
+            }
+
+            if (txn.metadata?.review_status !== 'pending_review' || txn.status !== 'pending' || txn.type !== 'credit' || txn.source !== 'funding') {
+                if (txn.metadata?.review_status === 'approved') {
+                    await t.rollback();
+                    return res.json({ success: true, message: 'Already approved', transaction: txn });
+                }
+                if (txn.metadata?.review_status === 'rejected') {
+                    await t.rollback();
+                    return res.status(400).json({ success: false, message: 'Already rejected' });
+                }
+                await t.rollback();
+                return res.status(400).json({ success: false, message: 'Transaction is not pending review' });
+            }
+
+            const user = await User.findByPk(txn.userId, { transaction: t, lock: t.LOCK.UPDATE });
+            if (!user) {
+                await t.rollback();
+                return res.status(404).json({ success: false, message: 'User not found' });
+            }
+
+            const wallet = await Wallet.findOne({ where: { userId: user.id }, transaction: t, lock: t.LOCK.UPDATE });
+            if (!wallet) {
+                await t.rollback();
+                return res.status(404).json({ success: false, message: 'Wallet not found' });
+            }
+
+            const balanceBefore = parseFloat(wallet.balance);
+            const amount = parseFloat(txn.amount);
+            const balanceAfter = balanceBefore + amount;
+
+            await wallet.update({ balance: balanceAfter }, { transaction: t });
+
+            txn.balance_before = balanceBefore;
+            txn.balance_after = balanceAfter;
+            txn.status = 'completed';
+            txn.completed_at = new Date();
+            txn.metadata = {
+                ...(txn.metadata || {}),
+                review_status: 'approved',
+                reviewed_by: req.user.id,
+                reviewed_at: new Date().toISOString()
+            };
+            await txn.save({ transaction: t });
+
+            await t.commit();
+            return res.json({ success: true, message: 'Approved', transaction: txn });
+        } catch (err) {
+            if (t && !t.finished) await t.rollback();
+            throw err;
+        }
+    } catch (e) {
+        logger.error(`[Admin] Approve pending funding review failed: ${e.message}`, { id });
+        return res.status(500).json({ success: false, message: 'Approval failed' });
+    }
+};
+
+const rejectPendingFundingReview = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const t = await sequelize.transaction();
+        try {
+            const txn = await Transaction.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
+            if (!txn) {
+                await t.rollback();
+                return res.status(404).json({ success: false, message: 'Transaction not found' });
+            }
+
+            if (txn.metadata?.review_status !== 'pending_review' || txn.status !== 'pending' || txn.type !== 'credit' || txn.source !== 'funding') {
+                if (txn.metadata?.review_status === 'rejected') {
+                    await t.rollback();
+                    return res.json({ success: true, message: 'Already rejected', transaction: txn });
+                }
+                if (txn.metadata?.review_status === 'approved') {
+                    await t.rollback();
+                    return res.status(400).json({ success: false, message: 'Already approved' });
+                }
+                await t.rollback();
+                return res.status(400).json({ success: false, message: 'Transaction is not pending review' });
+            }
+
+            txn.status = 'failed';
+            txn.failure_reason = 'Rejected by admin';
+            txn.metadata = {
+                ...(txn.metadata || {}),
+                review_status: 'rejected',
+                reviewed_by: req.user.id,
+                reviewed_at: new Date().toISOString()
+            };
+            await txn.save({ transaction: t });
+
+            await t.commit();
+            return res.json({ success: true, message: 'Rejected', transaction: txn });
+        } catch (err) {
+            if (t && !t.finished) await t.rollback();
+            throw err;
+        }
+    } catch (e) {
+        logger.error(`[Admin] Reject pending funding review failed: ${e.message}`, { id });
+        return res.status(500).json({ success: false, message: 'Rejection failed' });
     }
 };
 
@@ -1365,5 +1521,8 @@ module.exports = {
     sendAdminBulkSMS,
     generateMissingVirtualAccounts,
     upgradeBillstackVirtualAccount,
-    getVirtualAccountHealth
+    getVirtualAccountHealth,
+    listPendingFundingReviews,
+    approvePendingFundingReview,
+    rejectPendingFundingReview
 };

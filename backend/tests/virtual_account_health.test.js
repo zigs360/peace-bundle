@@ -27,8 +27,8 @@ describe('Admin virtual account health', () => {
     expect(res.body.providers).toBeTruthy();
     expect(res.body.providers.billstack).toBeTruthy();
     expect(res.body.providers.payvessel).toBeTruthy();
+    expect(res.body.webhooks.billstack).toContain('/api/webhooks/billstack');
     expect(JSON.stringify(res.body)).not.toContain('SECRET_KEY');
     expect(JSON.stringify(res.body)).not.toContain('sk_');
   });
 });
-
