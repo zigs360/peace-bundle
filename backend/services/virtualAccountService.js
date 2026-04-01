@@ -497,6 +497,7 @@ class VirtualAccountService {
 
             const shouldTryRemote = provider === 'payvessel' || provider === 'billstack';
             const fallbacks = shouldTryRemote ? (provider === 'billstack' ? ['billstack', 'payvessel'] : ['payvessel', 'billstack']) : [];
+            const providerErrors = {};
             for (const p of fallbacks) {
                 if (p === 'payvessel' && !this.isPayvesselConfigured()) {
                     logger.warn('[VirtualAccount] PayVessel not configured; skipping', { userId: user.id });
@@ -515,6 +516,7 @@ class VirtualAccountService {
                     }
                 } catch (e) {
                     logger.warn(`[VirtualAccount] Provider attempt failed (${p}) for user ${user.id}: ${e.message}`);
+                    providerErrors[p] = e;
                 }
             }
 
@@ -529,9 +531,25 @@ class VirtualAccountService {
             }
 
             if (!accountDetails && (provider === 'payvessel' || provider === 'billstack')) {
+                const preferredError = providerErrors[provider];
+                if (preferredError) {
+                    throw preferredError;
+                }
+
+                const fallbackError = provider === 'payvessel' ? providerErrors.billstack : providerErrors.payvessel;
+                if (fallbackError) {
+                    throw fallbackError;
+                }
+
                 const missing = [];
-                if (!this.isPayvesselConfigured()) missing.push('PAYVESSEL_API_KEY/PAYVESSEL_SECRET_KEY/PAYVESSEL_BUSINESS_ID');
-                if (!this.isBillstackConfigured()) missing.push('BILLSTACK_BASE_URL/BILLSTACK_SECRET_KEY');
+                if (provider === 'payvessel') {
+                    if (!this.isPayvesselConfigured()) missing.push('PAYVESSEL_API_KEY/PAYVESSEL_SECRET_KEY/PAYVESSEL_BUSINESS_ID');
+                } else if (provider === 'billstack') {
+                    if (!this.isBillstackConfigured()) missing.push('BILLSTACK_BASE_URL/BILLSTACK_SECRET_KEY');
+                }
+                if (!missing.length) {
+                    throw new Error(`Provider ${provider} returned no account details`);
+                }
                 throw new Error(`No virtual account provider is properly configured (${missing.join(', ')})`);
             }
 
