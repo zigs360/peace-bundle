@@ -103,6 +103,7 @@ export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry,
           {canRequest && (
             <button
               onClick={async () => {
+                if (!onRequest) return;
                 const res = await onRequest();
                 if (!res.ok) setActionError(res.message);
               }}
@@ -215,6 +216,7 @@ export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry,
           <div className="mt-4 flex gap-2">
             <button
               onClick={async () => {
+                if (!onRequest) return;
                 const res = await onRequest();
                 if (!res.ok) setActionError(res.message);
               }}
