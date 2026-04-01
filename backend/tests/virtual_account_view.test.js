@@ -13,7 +13,7 @@ describe('Virtual Account secure view', () => {
     const user = await User.create({
       name: 'On Demand VA User',
       email: `ondemand_va_${Date.now()}@test.com`,
-      phone: '08011009910',
+      phone: `080${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -43,7 +43,7 @@ describe('Virtual Account secure view', () => {
     const user = await User.create({
       name: 'No VA User',
       email: `no_va_${Date.now()}@test.com`,
-      phone: '08011009900',
+      phone: `081${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -63,7 +63,7 @@ describe('Virtual Account secure view', () => {
     const user = await User.create({
       name: 'Has VA User',
       email: `has_va_${Date.now()}@test.com`,
-      phone: '08011009901',
+      phone: `082${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -96,7 +96,7 @@ describe('Virtual Account secure view', () => {
     const user = await User.create({
       name: 'Audit VA User',
       email: `audit_va_${Date.now()}@test.com`,
-      phone: '08011009902',
+      phone: `083${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',

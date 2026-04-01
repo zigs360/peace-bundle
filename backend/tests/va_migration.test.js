@@ -1,10 +1,13 @@
 const { connectDB, User } = require('../config/db');
+const SystemSetting = require('../models/SystemSetting');
 const virtualAccountService = require('../services/virtualAccountService');
 const payvesselService = require('../services/payvesselService');
 
 describe('Virtual account migration', () => {
   beforeAll(async () => {
     await connectDB();
+    await SystemSetting.set('virtual_account_generation_enabled', true, 'boolean', 'api');
+    await SystemSetting.set('virtual_account_provider', 'payvessel', 'string', 'api');
   });
 
   it('creates virtual accounts for legacy users without virtual accounts', async () => {
@@ -19,6 +22,7 @@ describe('Virtual account migration', () => {
 
     const legacyUsers = [];
     for (let i = 1; i <= 3; i++) {
+      const createdAt = new Date(Date.UTC(2000, 0, i, 0, 0, 0));
       const user = await User.create({
         name: `Legacy User ${i}`,
         email: `legacy${i}_${Date.now()}@test.com`,
@@ -26,6 +30,8 @@ describe('Virtual account migration', () => {
         password: 'password123',
         role: 'user',
         account_status: 'active',
+        createdAt,
+        updatedAt: createdAt,
       });
       legacyUsers.push(user);
     }

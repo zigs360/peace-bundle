@@ -16,7 +16,7 @@ const { startVirtualAccountProvisioningJob } = require('./jobs/virtualAccountPro
 const path = require('path');
 const fs = require('fs');
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 // Create uploads directory if not exists
 const uploadDir = path.join(__dirname, 'uploads');
@@ -73,7 +73,10 @@ if (process.env.NODE_ENV === 'development') {
 
 // Request Timeout (30 seconds)
 app.use((req, res, next) => {
-  res.setTimeout(30000, () => {
+  const timeoutMsRaw = Number.parseInt(process.env.REQUEST_TIMEOUT_MS || '30000', 10);
+  const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 30000;
+  res.setTimeout(timeoutMs, () => {
+    if (res.headersSent || res.writableEnded) return;
     logger.warn('Request timeout:', { method: req.method, url: req.url });
     res.status(408).json({ success: false, message: 'Request Timeout' });
   });

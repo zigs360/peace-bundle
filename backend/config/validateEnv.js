@@ -26,9 +26,15 @@ const validateEnv = () => {
     process.exit(1);
   }
 
-  const missingServices = serviceEnvVars.filter((key) => !process.env[key]);
-  if (missingServices.length > 0) {
-    logger.warn(`WARNING: Missing service API keys: ${missingServices.join(', ')}. Some features like virtual accounts or data purchase may fail.`);
+  const shouldWarnServices = String(process.env.REQUIRE_SERVICE_KEYS || 'false').toLowerCase() === 'true';
+
+  if (shouldWarnServices) {
+    const missingServices = serviceEnvVars.filter((key) => !process.env[key]);
+    if (missingServices.length > 0) {
+      logger.warn(
+        `WARNING: Missing service API keys: ${missingServices.join(', ')}. Some features like virtual accounts or data purchase may fail.`,
+      );
+    }
   }
 };
 

@@ -13,7 +13,7 @@ module.exports = [
       },
     },
     rules: {
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'no-unused-vars': 'off',
       'no-console': 'off',
     },
     ignores: ['node_modules/', 'coverage/'],

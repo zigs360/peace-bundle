@@ -74,7 +74,8 @@ const registerUser = async (req, res) => {
         const generatedRefCode = await ReferralService.generateUniqueCode(userName);
 
         // Hash password
-        const salt = await bcrypt.genSalt(10);
+        const saltRounds = process.env.NODE_ENV === 'test' ? 4 : 10;
+        const salt = await bcrypt.genSalt(saltRounds);
         const hashedPassword = await bcrypt.hash(password, salt);
 
         // Create user

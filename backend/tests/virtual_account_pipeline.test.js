@@ -23,7 +23,7 @@ describe('Virtual account pipeline', () => {
     const user = await User.create({
       name: 'Pipeline User',
       email: `pipeline_${Date.now()}@test.com`,
-      phone: '08011009900',
+      phone: `080${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -40,7 +40,7 @@ describe('Virtual account pipeline', () => {
     const user = await User.create({
       name: 'Pipeline User 2',
       email: `pipeline2_${Date.now()}@test.com`,
-      phone: '08011009901',
+      phone: `081${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',

@@ -24,7 +24,7 @@ describe('BillStack virtual account provider', () => {
     const user = await User.create({
       name: 'Test User',
       email: `billstack_va_${Date.now()}@test.com`,
-      phone: '09012345678',
+      phone: `0901234${String(Date.now()).slice(-4)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -41,4 +41,3 @@ describe('BillStack virtual account provider', () => {
     expect(updated.metadata?.billstack_reference).toBe('R-TEST-REF');
   });
 });
-

@@ -14,6 +14,7 @@ const levels = {
 const level = () => {
   const env = process.env.NODE_ENV || 'development';
   const isDevelopment = env === 'development';
+  if (env === 'test') return 'error';
   return isDevelopment ? 'debug' : 'warn';
 };
 
@@ -74,6 +75,7 @@ const logger = winston.createLogger({
   levels,
   format,
   transports,
+  silent: process.env.NODE_ENV === 'test' && String(process.env.TEST_LOGS || 'false').toLowerCase() !== 'true',
 });
 
 module.exports = logger;

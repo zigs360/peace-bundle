@@ -163,7 +163,17 @@ const connectDB = async () => {
           globalState.isSyncDone = true;
         }
       } else {
-        await sequelize.sync({ alter: true });
+        const syncMode = String(
+          process.env.DB_SYNC || (process.env.NODE_ENV === 'production' ? 'safe' : 'alter'),
+        ).toLowerCase();
+
+        if (syncMode === 'alter') {
+          await sequelize.sync({ alter: true });
+        } else if (syncMode === 'safe') {
+          await sequelize.sync();
+        } else if (syncMode !== 'none') {
+          throw new Error(`Invalid DB_SYNC mode: ${syncMode}`);
+        }
       }
 
       console.log('Database Synced');
@@ -177,7 +187,12 @@ const connectDB = async () => {
             { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
             { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
             { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },
-            { key: 'allow_mock_bvn', value: 'true', type: 'boolean', group: 'api' },
+            {
+              key: 'allow_mock_bvn',
+              value: String(process.env.MOCK_BVN_ALLOWED || 'false'),
+              type: 'boolean',
+              group: 'api',
+            },
             { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
           ]);
           console.log('Default System Settings Seeded');
@@ -185,12 +200,11 @@ const connectDB = async () => {
 
         const adminUser = await seedAdmin();
 
-        const [updatedCount] = await Sim.update(
-          { userId: adminUser.id },
-          { where: { userId: null } }
-        );
-        if (updatedCount > 0) {
-          console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
+        if (adminUser) {
+          const [updatedCount] = await Sim.update({ userId: adminUser.id }, { where: { userId: null } });
+          if (updatedCount > 0) {
+            console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
+          }
         }
       }
 
@@ -210,28 +224,48 @@ const connectDB = async () => {
   }
 };
 
-// Seed Requested Admin (ADMIN/Alamin0336)
 const seedAdmin = async () => {
-  const adminUsername = 'ADMIN';
-  let adminUser = await User.findOne({ where: { name: adminUsername } });
-  
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash('Alamin0336', salt);
+  const existingAdmin = await User.findOne({ where: { role: 'admin' } });
 
-  if (!adminUser) {
-    adminUser = await User.create({
-      name: adminUsername,
-      email: 'admin@peacebundlle.com',
-      phone: '08000000000',
-      password: hashedPassword,
-      role: 'admin',
-      account_status: 'active'
-    });
-    console.log('Requested Admin user (ADMIN/Alamin0336) Seeded');
-  } else {
-    // Update password to ensure it matches
-    await adminUser.update({ password: hashedPassword });
+  const adminName = process.env.ADMIN_NAME || 'Admin';
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPhone = process.env.ADMIN_PHONE || '08000000000';
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const forcePasswordReset = String(process.env.ADMIN_FORCE_PASSWORD_RESET || 'false').toLowerCase() === 'true';
+  const allowSeed =
+    process.env.NODE_ENV !== 'production' || String(process.env.SEED_ADMIN || 'false').toLowerCase() === 'true';
+
+  if (existingAdmin) {
+    if (adminPassword && forcePasswordReset) {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(adminPassword, salt);
+      await existingAdmin.update({ password: hashedPassword });
+      console.log('Admin password updated via ADMIN_FORCE_PASSWORD_RESET');
+    }
+    return existingAdmin;
   }
+
+  if (!allowSeed) {
+    console.warn('No admin user found and seeding is disabled; skipping admin seed.');
+    return null;
+  }
+
+  if (!adminEmail || !adminPassword) {
+    console.warn('No admin user found; set ADMIN_EMAIL and ADMIN_PASSWORD (and SEED_ADMIN=true in production) to seed one.');
+    return null;
+  }
+
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(adminPassword, salt);
+  const adminUser = await User.create({
+    name: adminName,
+    email: adminEmail,
+    phone: adminPhone,
+    password: hashedPassword,
+    role: 'admin',
+    account_status: 'active',
+  });
+  console.log('Admin user seeded from environment variables');
   return adminUser;
 };
 

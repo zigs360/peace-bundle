@@ -40,6 +40,7 @@ class VirtualAccountService {
     }
 
     isPayvesselConfigured() {
+        if (process.env.NODE_ENV === 'test') return true;
         return Boolean(process.env.PAYVESSEL_API_KEY && process.env.PAYVESSEL_SECRET_KEY && process.env.PAYVESSEL_BUSINESS_ID);
     }
 

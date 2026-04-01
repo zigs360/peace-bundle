@@ -19,7 +19,7 @@ describe('Dual virtual accounts (BillStack + PayVessel)', () => {
     const user = await User.create({
       name: 'Dual VA User',
       email: `dual_va_${Date.now()}@test.com`,
-      phone: '09012345678',
+      phone: `095${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -56,7 +56,7 @@ describe('Dual virtual accounts (BillStack + PayVessel)', () => {
     const user = await User.create({
       name: 'Dual VA Partial',
       email: `dual_va_partial_${Date.now()}@test.com`,
-      phone: '09012345679',
+      phone: `090${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -86,7 +86,7 @@ describe('Dual virtual accounts (BillStack + PayVessel)', () => {
     const user = await User.create({
       name: 'Dual VA Failed',
       email: `dual_va_failed_${Date.now()}@test.com`,
-      phone: '09012345670',
+      phone: `091${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -110,7 +110,7 @@ describe('Dual virtual accounts (BillStack + PayVessel)', () => {
     const user = await User.create({
       name: 'Dual VA Idem',
       email: `dual_va_idem_${Date.now()}@test.com`,
-      phone: '09012345671',
+      phone: `092${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -150,7 +150,7 @@ describe('Dual virtual accounts (BillStack + PayVessel)', () => {
     const user = await User.create({
       name: 'Dual VA Retry',
       email: `dual_va_retry_${Date.now()}@test.com`,
-      phone: '09012345672',
+      phone: `093${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
@@ -188,7 +188,7 @@ describe('Dual virtual accounts (BillStack + PayVessel)', () => {
     const user = await User.create({
       name: 'Dual VA Snapshot',
       email: `dual_va_snapshot_${Date.now()}@test.com`,
-      phone: '09012345673',
+      phone: `094${String(Date.now()).slice(-8)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',
