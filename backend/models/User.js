@@ -152,6 +152,12 @@ User.afterCreate(async (user, options) => {
     const wallet = await Wallet.create({ userId: user.id }, { transaction });
     logger.info(`[AUDIT] Wallet created successfully for user: ${user.email} (Wallet ID: ${wallet.id})`);
 
+    const meta = user.metadata || {};
+    await user.update(
+      { metadata: { ...meta, va_status: meta.va_status || 'pending', va_requested_at: meta.va_requested_at || new Date().toISOString() } },
+      { transaction }
+    );
+
     // 2. Assign Virtual Account (Non-blocking)
     // We make this non-blocking for registration to ensure the user can at least register 
     // even if the virtual account provider is temporarily down or keys are misconfigured.
@@ -162,17 +168,21 @@ User.afterCreate(async (user, options) => {
       return;
     }
 
-    // Use a small delay to ensure transaction is committed before external service tries to update user
-    setTimeout(async () => {
+    const run = async () => {
       try {
         const VirtualAccountService = require('../services/virtualAccountService');
-        const accountDetails = await VirtualAccountService.assignVirtualAccount(user);
+        await VirtualAccountService.recordProvisioningAttempt(user.id);
+        const freshUser = await user.sequelize.models.User.findByPk(user.id);
+        if (!freshUser || freshUser.virtual_account_number) return;
+
+        const accountDetails = await VirtualAccountService.assignVirtualAccount(freshUser);
         
         if (accountDetails) {
+          await VirtualAccountService.recordProvisioningSuccess(user.id);
           logger.info(`[AUDIT] Virtual account assigned successfully for user: ${user.email}`);
           // Send notification to user about their new virtual account
           try {
-            await VirtualAccountService.notifyUserOfNewAccount(user);
+            await VirtualAccountService.notifyUserOfNewAccount(freshUser);
           } catch (notifErr) {
             logger.warn(`[AUDIT] Failed to notify user ${user.email} of new account: ${notifErr.message}`);
           }
@@ -181,8 +191,27 @@ User.afterCreate(async (user, options) => {
         }
       } catch (err) {
         logger.error(`[AUDIT] Virtual account assignment FAILED for user: ${user.email}. Error: ${err.message}`);
+        try {
+          const VirtualAccountService = require('../services/virtualAccountService');
+          await VirtualAccountService.recordProvisioningFailure(user.id, err.message);
+        } catch (e) {
+          void e;
+        }
       }
-    }, 2000); // 2 second delay to ensure DB transaction is finalized
+    };
+
+    const schedule = () => {
+      const timer = setTimeout(() => {
+        void run();
+      }, 500);
+      timer.unref?.();
+    };
+
+    if (transaction && typeof transaction.afterCommit === 'function') {
+      transaction.afterCommit(() => schedule());
+    } else {
+      schedule();
+    }
 
   } catch (error) {
     logger.error(`[AUDIT] Automated setup FAILED for user: ${user.email}. Error: ${error.message}`);

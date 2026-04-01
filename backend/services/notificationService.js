@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const axios = require('axios');
+const Notification = require('../models/Notification');
 
 // Create reusable transporter object using the default SMTP transport
 // In production, use real credentials from .env
@@ -15,6 +16,7 @@ const transporter = nodemailer.createTransport({
 
 const sendEmail = async (to, subject, text, html) => {
     try {
+        if (process.env.NODE_ENV === 'test') return;
         if (!to) return;
         
         // If credentials are still placeholders, log and return to prevent timeout/errors
@@ -39,6 +41,7 @@ const sendEmail = async (to, subject, text, html) => {
 
 const sendSMS = async (phone, message) => {
     try {
+        if (process.env.NODE_ENV === 'test') return;
         if (!phone) return;
 
         // Normalize phone number to international format (234...)
@@ -73,44 +76,74 @@ const sendSMS = async (phone, message) => {
 const sendTransactionNotification = async (user, transaction) => {
     if (!user) return;
 
-    const subject = `Transaction Notification: ${transaction.type}`;
+    if (transaction?.type === 'virtual_account_activation') {
+        const subject = 'Your virtual account is now active';
+        const details = transaction?.details || {};
+        const message = transaction?.message || `Hello ${user.name || 'User'}, your virtual account is now active.`;
+        const htmlMessage = `
+            <h3>Virtual Account Activated</h3>
+            <p>Hello ${user.name || 'User'},</p>
+            <p>${message}</p>
+            <ul>
+                <li><strong>Bank:</strong> ${details.bank || ''}</li>
+                <li><strong>Account Number:</strong> ${details.accountNumber || ''}</li>
+                <li><strong>Account Name:</strong> ${details.accountName || ''}</li>
+            </ul>
+            <p>You can now fund your wallet via bank transfer.</p>
+        `;
+
+        await Notification.create({
+            userId: user.id,
+            title: 'Virtual account activated',
+            message,
+            type: 'success',
+            priority: 'medium',
+            link: '/dashboard/fund',
+            metadata: { kind: 'virtual_account_activation', details: { ...details, accountNumber: undefined } }
+        });
+
+        await sendEmail(user.email, subject, message, htmlMessage);
+        if (user.phone) {
+            const smsMessage = `PeaceBundlle: Your virtual account is active. Bank: ${details.bank || ''}. Account: ${details.accountNumber || ''}.`;
+            await sendSMS(user.phone, smsMessage);
+        }
+        return;
+    }
+
+    const subject = `Transaction Notification: ${transaction?.type || 'update'}`;
     const message = `
-        Dear ${user.fullName},
+        Hello ${user.name || 'User'},
         
-        Your transaction was successful.
+        Your transaction update:
         
-        Type: ${transaction.type}
-        Amount: ₦${transaction.amount}
-        Status: ${transaction.status}
-        Reference: ${transaction.reference}
+        Type: ${transaction?.type || ''}
+        Amount: ₦${transaction?.amount || ''}
+        Status: ${transaction?.status || ''}
+        Reference: ${transaction?.reference || ''}
         Date: ${new Date().toLocaleString()}
-        
-        Current Balance: ₦${user.balance}
         
         Thank you for using Peace Bundlle.
     `;
-    
+
     const htmlMessage = `
         <h3>Transaction Notification</h3>
-        <p>Dear ${user.name},</p>
-        <p>Your transaction was successful.</p>
+        <p>Hello ${user.name || 'User'},</p>
+        <p>Your transaction update:</p>
         <ul>
-            <li><strong>Type:</strong> ${transaction.type}</li>
-            <li><strong>Amount:</strong> ₦${transaction.amount}</li>
-            <li><strong>Status:</strong> ${transaction.status}</li>
-            <li><strong>Reference:</strong> ${transaction.reference}</li>
+            <li><strong>Type:</strong> ${transaction?.type || ''}</li>
+            <li><strong>Amount:</strong> ₦${transaction?.amount || ''}</li>
+            <li><strong>Status:</strong> ${transaction?.status || ''}</li>
+            <li><strong>Reference:</strong> ${transaction?.reference || ''}</li>
             <li><strong>Date:</strong> ${new Date().toLocaleString()}</li>
         </ul>
-        <p><strong>Current Balance:</strong> ₦${user.balance}</p>
         <p>Thank you for using Peace Bundlle.</p>
     `;
 
-    // Send Email
     await sendEmail(user.email, subject, message, htmlMessage);
-
-    // Send SMS (Short version)
-    const smsMessage = `PeaceBundlle: ${transaction.type} of N${transaction.amount} successful. Ref: ${transaction.reference}. Bal: N${user.balance}.`;
-    await sendSMS(user.phone, smsMessage);
+    if (user.phone) {
+        const smsMessage = `PeaceBundlle: ${transaction?.type || 'Transaction'} update. Ref: ${transaction?.reference || ''}.`;
+        await sendSMS(user.phone, smsMessage);
+    }
 };
 
 module.exports = {

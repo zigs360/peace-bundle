@@ -7,10 +7,11 @@ type Props = {
   onReveal: () => Promise<string | null>;
   onCopy: () => Promise<void>;
   onRetry: () => Promise<void>;
+  onRequest?: () => Promise<{ ok: true } | { ok: false; message: string }>;
   variant?: 'dashboard' | 'fund';
 };
 
-export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry, variant = 'dashboard' }: Props) {
+export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry, onRequest, variant = 'dashboard' }: Props) {
   const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [revealedNumber, setRevealedNumber] = useState<string | null>(null);
@@ -80,6 +81,9 @@ export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry,
     }
 
     if (state.status === 'empty') {
+      const msg = String(state.summary.message || '');
+      const lower = msg.toLowerCase();
+      const canRequest = Boolean(onRequest) && !lower.includes('kyc') && !lower.includes('bvn') && !lower.includes('phone');
       return (
         <div className="text-center py-16 px-6 bg-gray-50 rounded-[2rem] border-2 border-dashed border-gray-200">
           <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-gray-100">
@@ -96,6 +100,17 @@ export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry,
             <RefreshCw className="w-5 h-5 mr-3" />
             Refresh Account Details
           </button>
+          {canRequest && (
+            <button
+              onClick={async () => {
+                const res = await onRequest();
+                if (!res.ok) setActionError(res.message);
+              }}
+              className="inline-flex items-center px-8 py-4 mt-3 bg-white text-primary-700 font-black rounded-2xl hover:bg-gray-100 transition-all shadow-sm border border-gray-200 active:scale-95"
+            >
+              Request Virtual Account
+            </button>
+          )}
         </div>
       );
     }
@@ -186,6 +201,9 @@ export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry,
   }
 
   if (state.status === 'empty') {
+    const msg = String(state.summary.message || '');
+    const lower = msg.toLowerCase();
+    const canRequest = Boolean(onRequest) && !lower.includes('kyc') && !lower.includes('bvn') && !lower.includes('phone');
     return (
       <div className="mb-8 bg-gradient-to-r from-primary-600 to-primary-800 rounded-lg shadow-lg p-6 text-white">
         <div className="flex items-center gap-2 mb-2">
@@ -193,6 +211,22 @@ export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry,
           <h2 className="text-xl font-bold">Virtual account not available yet</h2>
         </div>
         <p className="text-primary-100 max-w-md">{state.summary.message || 'Please check back later.'}</p>
+        {canRequest && (
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={async () => {
+                const res = await onRequest();
+                if (!res.ok) setActionError(res.message);
+              }}
+              className="px-4 py-2 bg-white text-primary-700 rounded font-bold text-sm hover:bg-gray-100"
+            >
+              Request Virtual Account
+            </button>
+            <button onClick={onRetry} className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded transition-colors text-sm">
+              Retry
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -255,4 +289,3 @@ export default function VirtualAccountWidget({ state, onReveal, onCopy, onRetry,
     </div>
   );
 }
-

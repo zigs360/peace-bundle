@@ -1285,6 +1285,48 @@ const upgradeBillstackVirtualAccount = async (req, res) => {
     }
 };
 
+const retryUserVirtualAccount = async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        if (user.virtual_account_number) {
+            return res.status(400).json({
+                success: false,
+                message: 'User already has a virtual account',
+                data: {
+                    bank: user.virtual_account_bank,
+                    accountNumber: user.virtual_account_number,
+                    accountName: user.virtual_account_name
+                }
+            });
+        }
+
+        const virtualAccountService = require('../services/virtualAccountService');
+        await virtualAccountService.recordProvisioningAttempt(user.id);
+        const details = await virtualAccountService.assignVirtualAccount(user);
+        await virtualAccountService.recordProvisioningSuccess(user.id);
+        try {
+            await virtualAccountService.notifyUserOfNewAccount(user);
+        } catch (e) {
+            void e;
+        }
+
+        return res.json({ success: true, message: 'Virtual account generated', data: details, user: await User.findByPk(user.id) });
+    } catch (e) {
+        logger.error(`[Admin] Virtual account retry failed for user ${req.params.id}: ${e.message}`);
+        try {
+            const virtualAccountService = require('../services/virtualAccountService');
+            await virtualAccountService.recordProvisioningFailure(req.params.id, e.message);
+        } catch (e2) {
+            void e2;
+        }
+        return res.status(500).json({ success: false, message: 'Virtual account retry failed' });
+    }
+};
+
 const getVirtualAccountHealth = async (req, res) => {
     try {
         const enabled = await SystemSetting.get('virtual_account_generation_enabled');
@@ -1521,6 +1563,7 @@ module.exports = {
     sendAdminBulkSMS,
     generateMissingVirtualAccounts,
     upgradeBillstackVirtualAccount,
+    retryUserVirtualAccount,
     getVirtualAccountHealth,
     listPendingFundingReviews,
     approvePendingFundingReview,

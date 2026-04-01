@@ -61,6 +61,14 @@ class VirtualAccountService {
      * @param {User} user 
      */
     async notifyUserOfNewAccount(user) {
+        const meta = user.metadata || {};
+        const notifiedAt = meta.va_notified_at ? new Date(meta.va_notified_at) : null;
+        if (notifiedAt && Number.isFinite(notifiedAt.getTime())) {
+            const ageMs = Date.now() - notifiedAt.getTime();
+            if (ageMs >= 0 && ageMs < 24 * 60 * 60 * 1000 && meta.va_notified_account === user.virtual_account_number) {
+                return;
+            }
+        }
         const message = `Hello ${user.name || 'User'}, your unique virtual account is now active! \nBank: ${user.virtual_account_bank}\nAccount No: ${user.virtual_account_number}\nName: ${user.virtual_account_name}\nYou can now fund your wallet instantly via bank transfer.`;
         
         // 1. Send SMS (if phone exists)
@@ -83,8 +91,98 @@ class VirtualAccountService {
                     accountName: user.virtual_account_name
                 }
             });
+            user.metadata = { ...meta, va_notified_at: new Date().toISOString(), va_notified_account: user.virtual_account_number };
+            await user.save();
         } catch (emailErr) {
             logger.error(`[VirtualAccount] Email notification failed for ${user.id}: ${emailErr.message}`);
+        }
+    }
+
+    async recordProvisioningFailure(userId, errorMessage) {
+        try {
+            const user = await User.findByPk(userId);
+            if (!user) return;
+            const meta = user.metadata || {};
+            const lastFailedAt = meta.va_last_failed_at ? new Date(meta.va_last_failed_at) : null;
+            if (lastFailedAt && Number.isFinite(lastFailedAt.getTime())) {
+                const ageMs = Date.now() - lastFailedAt.getTime();
+                if (ageMs >= 0 && ageMs < 5 * 60 * 1000) {
+                    return;
+                }
+            }
+            const attempts = parseInt(String(meta.va_failed_attempts || 0), 10);
+            const nextAttempts = Number.isFinite(attempts) ? attempts + 1 : 1;
+            const next = {
+                ...meta,
+                va_status: 'failed',
+                va_failed_attempts: nextAttempts,
+                va_last_failed_at: new Date().toISOString(),
+                va_last_error: String(errorMessage || 'Unknown error').slice(0, 500)
+            };
+            await user.update({ metadata: next });
+
+            const Notification = require('../models/Notification');
+            await Notification.create({
+                userId: user.id,
+                title: 'Virtual account pending',
+                message: `We could not generate your virtual account yet. ${next.va_last_error}`,
+                type: 'warning',
+                priority: 'high',
+                link: '/dashboard/fund',
+                metadata: { kind: 'va_provisioning_failed', attempts: nextAttempts }
+            });
+
+            const alertThreshold = parseInt(String(process.env.VA_ALERT_THRESHOLD || '3'), 10);
+            if (Number.isFinite(alertThreshold) && nextAttempts === alertThreshold) {
+                await Notification.create({
+                    userId: null,
+                    title: 'Virtual account provisioning failures',
+                    message: `User ${user.email || user.id} has failed virtual account provisioning ${nextAttempts} times. Last error: ${next.va_last_error}`,
+                    type: 'error',
+                    priority: 'high',
+                    metadata: { userId: user.id, attempts: nextAttempts }
+                });
+            }
+        } catch (e) {
+            logger.error(`[VirtualAccount] Failed to record provisioning failure for user ${userId}: ${e.message}`);
+        }
+    }
+
+    async recordProvisioningAttempt(userId) {
+        try {
+            const user = await User.findByPk(userId);
+            if (!user) return;
+            const meta = user.metadata || {};
+            const attempts = parseInt(String(meta.va_attempts || 0), 10);
+            const nextAttempts = Number.isFinite(attempts) ? attempts + 1 : 1;
+            await user.update({
+                metadata: {
+                    ...meta,
+                    va_status: 'processing',
+                    va_attempts: nextAttempts,
+                    va_last_attempt_at: new Date().toISOString()
+                }
+            });
+        } catch (e) {
+            logger.error(`[VirtualAccount] Failed to record provisioning attempt for user ${userId}: ${e.message}`);
+        }
+    }
+
+    async recordProvisioningSuccess(userId) {
+        try {
+            const user = await User.findByPk(userId);
+            if (!user) return;
+            const meta = user.metadata || {};
+            await user.update({
+                metadata: {
+                    ...meta,
+                    va_status: 'assigned',
+                    va_assigned_at: new Date().toISOString(),
+                    va_last_error: null
+                }
+            });
+        } catch (e) {
+            logger.error(`[VirtualAccount] Failed to record provisioning success for user ${userId}: ${e.message}`);
         }
     }
 
@@ -193,6 +291,7 @@ class VirtualAccountService {
                 }
 
                 try {
+                    await this.recordProvisioningAttempt(row.id);
                     let createdForUser = false;
                     await sequelize.transaction(async (t) => {
                         const freshUser = await User.findByPk(row.id, { transaction: t, lock: t.LOCK.UPDATE });
@@ -217,11 +316,15 @@ class VirtualAccountService {
                             }
                         }
                     });
-                    if (createdForUser) summary.created++;
+                    if (createdForUser) {
+                        summary.created++;
+                        await this.recordProvisioningSuccess(row.id);
+                    }
                 } catch (err) {
                     summary.failed++;
                     summary.errors.push({ userId: row.id, email: row.email, error: err.message });
                     logger.error(`[VirtualAccount] Bulk assignment failed for user ${row.id}: ${err.message}`);
+                    await this.recordProvisioningFailure(row.id, err.message);
                 }
             }
 

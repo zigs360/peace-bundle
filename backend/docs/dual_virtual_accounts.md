@@ -108,6 +108,14 @@ Configure provider webhooks to point to the backend:
 
 For BillStack, set `BILLSTACK_WEBHOOK_SECRET` and configure BillStack to sign webhook payloads. In production the BillStack webhook is rejected if the secret is not configured.
 
+## Recovery & Monitoring
+
+- User retry (manual recovery): `POST /api/users/virtual-account/request`
+- Admin retry (per user): `POST /api/admin/users/:id/virtual-account/retry`
+- Admin readiness check: `GET /api/admin/virtual-accounts/health`
+
+When provisioning fails, the system records provisioning state in `user.metadata` and creates an in-app notification so users understand the next step (retry, complete KYC, or contact support).
+
 ## PCI-DSS / Security Notes
 
 - The API returns masked account numbers by default.

@@ -112,3 +112,14 @@ export const auditVirtualAccountAccess = async (action: 'view_masked' | 'reveal_
   } catch (_) {}
 };
 
+export const requestVirtualAccount = async (): Promise<{ ok: true } | { ok: false; message: string }> => {
+  try {
+    await api.post('/users/virtual-account/request', {});
+    return { ok: true };
+  } catch (err: any) {
+    const messageFromServer = err?.response?.data?.message;
+    const message = isNonEmptyString(messageFromServer) ? messageFromServer : 'Failed to request a virtual account.';
+    return { ok: false, message };
+  }
+};
+

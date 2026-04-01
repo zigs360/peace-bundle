@@ -11,7 +11,7 @@ export default function UserDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-  const { state: va, refresh: refreshVa, reveal: revealVa, auditCopy } = useVirtualAccount();
+  const { state: va, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
 
   useEffect(() => {
     const initDashboard = async () => {
@@ -66,7 +66,7 @@ export default function UserDashboard() {
       </div>
 
       {/* Virtual Account Section */}
-      <VirtualAccountWidget state={va} onReveal={revealVa} onCopy={auditCopy} onRetry={refreshVa} variant="dashboard" />
+      <VirtualAccountWidget state={va} onReveal={revealVa} onCopy={auditCopy} onRetry={refreshVa} onRequest={requestVa} variant="dashboard" />
 
       <StaggerContainer className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         <StaggerItem>

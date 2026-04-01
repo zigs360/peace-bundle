@@ -62,26 +62,30 @@ const requestVirtualAccount = async (req, res) => {
             });
         }
 
-        // Check if KYC is required for VA creation (some providers require BVN/KYC)
-        // If BVN is missing and required, we might need to prompt for it
-        // Note: For PayVessel, some business models allow initial creation without full BVN, 
-        // but it's safer to have it if required by your settings.
-        const allowMockBvnSetting = await virtualAccountService.getSetting('allow_mock_bvn');
-        const allowMockBvn =
-            allowMockBvnSetting === true ||
-            allowMockBvnSetting === 1 ||
-            allowMockBvnSetting === '1' ||
-            allowMockBvnSetting === 'true';
-        if (!user.bvn && !user.is_bvn_verified && !allowMockBvn) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'KYC/BVN verification is required to generate a virtual account. Please verify your identity first.' 
-            });
+        const providerSetting = await virtualAccountService.getSetting('virtual_account_provider');
+        const provider = String(providerSetting || 'payvessel').toLowerCase();
+        if (provider === 'payvessel') {
+            const allowMockBvnSetting = await virtualAccountService.getSetting('allow_mock_bvn');
+            const allowMockBvn =
+                allowMockBvnSetting === true ||
+                allowMockBvnSetting === 1 ||
+                allowMockBvnSetting === '1' ||
+                allowMockBvnSetting === 'true';
+            const envAllowsMockBvn = process.env.NODE_ENV === 'test' ? true : String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
+            const canUseMock = allowMockBvn && envAllowsMockBvn;
+            if (!user.bvn && !user.is_bvn_verified && !canUseMock) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'KYC/BVN verification is required to generate a virtual account. Please verify your identity first.' 
+                });
+            }
         }
 
         logger.info(`[VirtualAccount] Manual request initiated by user ${userId} (${user.email})`);
+        await virtualAccountService.recordProvisioningAttempt(userId);
         
         const account = await virtualAccountService.assignVirtualAccount(user);
+        await virtualAccountService.recordProvisioningSuccess(userId);
         
         // Notify user immediately
         await virtualAccountService.notifyUserOfNewAccount(user);
@@ -92,6 +96,7 @@ const requestVirtualAccount = async (req, res) => {
         });
     } catch (error) {
         logger.error(`[VirtualAccount] Manual request failed for user ${userId}: ${error.message}`);
+        await virtualAccountService.recordProvisioningFailure(userId, error.message);
         res.status(500).json({ 
             success: false, 
             message: error.message || 'Failed to generate virtual account. Please try again later.' 
@@ -115,9 +120,24 @@ const getVirtualAccountSummary = async (req, res) => {
         });
 
         if (!user.virtual_account_number) {
+            const meta = user.metadata || {};
+            const lastAttemptAt = meta.va_last_attempt_at ? new Date(meta.va_last_attempt_at) : null;
+            if (meta.va_status === 'processing' && lastAttemptAt && Number.isFinite(lastAttemptAt.getTime())) {
+                const ageMs = Date.now() - lastAttemptAt.getTime();
+                if (ageMs >= 0 && ageMs < 2 * 60 * 1000) {
+                    return res.json({ success: true, hasVirtualAccount: false, message: 'Your virtual account is being generated. Please refresh in a few minutes.' });
+                }
+            }
             try {
+                await virtualAccountService.recordProvisioningAttempt(user.id);
                 const account = await virtualAccountService.assignVirtualAccount(user);
                 if (account) {
+                    await virtualAccountService.recordProvisioningSuccess(user.id);
+                    try {
+                        await virtualAccountService.notifyUserOfNewAccount(user);
+                    } catch (e) {
+                        void e;
+                    }
                     const masked = maskAccountNumber(user.virtual_account_number);
                     return res.json({
                         success: true,
@@ -135,6 +155,7 @@ const getVirtualAccountSummary = async (req, res) => {
                 });
             } catch (e) {
                 logger.warn(`[VirtualAccount] On-demand assignment failed for user ${user.id}: ${e.message}`);
+                await virtualAccountService.recordProvisioningFailure(user.id, e.message);
                 const msg = String(e.message || '');
                 const lower = msg.toLowerCase();
                 const isKyc = lower.includes('kyc') || lower.includes('bvn');

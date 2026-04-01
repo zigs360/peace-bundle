@@ -15,7 +15,7 @@ export default function FundWallet() {
   const [fetchingUser, setFetchingUser] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const { state: va, hasVirtualAccount, refresh: refreshVa, reveal: revealVa, auditCopy } = useVirtualAccount();
+  const { state: va, hasVirtualAccount, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
 
   useEffect(() => {
     fetchUserProfile();
@@ -207,7 +207,7 @@ export default function FundWallet() {
                 </button>
             </div>
 
-            <VirtualAccountWidget state={va} onReveal={revealVa} onCopy={auditCopy} onRetry={refreshVa} variant="fund" />
+            <VirtualAccountWidget state={va} onReveal={revealVa} onCopy={auditCopy} onRetry={refreshVa} onRequest={requestVa} variant="fund" />
 
             {va.status === 'ready' && (
               <div className="mt-6 p-6 bg-amber-50 rounded-3xl border border-amber-100 flex items-start">

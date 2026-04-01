@@ -5,6 +5,7 @@ import {
   auditVirtualAccountAccess,
   fetchVirtualAccountSummary,
   revealVirtualAccountNumber,
+  requestVirtualAccount,
 } from '../services/virtualAccount';
 
 export type VirtualAccountState =
@@ -52,6 +53,15 @@ export const useVirtualAccount = () => {
     await auditVirtualAccountAccess('copy_full');
   }, []);
 
+  const request = useCallback(async () => {
+    const res = await requestVirtualAccount();
+    if (res.ok) {
+      await refresh();
+      return { ok: true as const };
+    }
+    return { ok: false as const, message: res.message };
+  }, [refresh]);
+
   const hasVirtualAccount = useMemo(() => state.status === 'ready', [state.status]);
 
   return {
@@ -60,6 +70,6 @@ export const useVirtualAccount = () => {
     refresh,
     reveal,
     auditCopy,
+    request,
   };
 };
-
