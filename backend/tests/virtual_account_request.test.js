@@ -4,6 +4,7 @@ const app = require('../server');
 const { connectDB, User } = require('../config/db');
 const SystemSetting = require('../models/SystemSetting');
 const payvesselService = require('../services/payvesselService');
+const billstackVirtualAccountService = require('../services/billstackVirtualAccountService');
 
 describe('Virtual Account Request', () => {
   beforeAll(async () => {
@@ -140,5 +141,61 @@ describe('Virtual Account Request', () => {
     expect(updated.virtual_account_number).toBe(assignedAccountNumber);
     expect(updated.metadata?.va_provider).toBe('payvessel');
     expect(updated.metadata?.invalid_virtual_account?.accountNumber).toBe('9010732536');
+  });
+
+  it('does not require BVN/KYC when billstack is configured (uses billstack instead of payvessel)', async () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    process.env.PAYVESSEL_API_KEY = process.env.PAYVESSEL_API_KEY || 'test';
+    process.env.PAYVESSEL_SECRET_KEY = process.env.PAYVESSEL_SECRET_KEY || 'test';
+    process.env.PAYVESSEL_BUSINESS_ID = process.env.PAYVESSEL_BUSINESS_ID || 'test';
+
+    await SystemSetting.set('virtual_account_generation_enabled', true, 'boolean', 'api');
+    await SystemSetting.set('virtual_account_provider', 'payvessel', 'string', 'api');
+    await SystemSetting.set('allow_mock_bvn', false, 'boolean', 'api');
+    delete process.env.MOCK_BVN_ALLOWED;
+
+    const payvesselSpy = jest.spyOn(payvesselService, 'createVirtualAccount');
+    const prevBillstack = { secretKey: billstackVirtualAccountService.secretKey, baseUrl: billstackVirtualAccountService.baseUrl };
+    billstackVirtualAccountService.secretKey = 'test';
+    billstackVirtualAccountService.baseUrl = 'https://api.billstack.co/v2/thirdparty';
+    const billstackSpy = jest.spyOn(billstackVirtualAccountService, 'generateVirtualAccount').mockResolvedValueOnce({
+      accountNumber: `67${String(Date.now()).slice(-8)}`,
+      bankName: 'PALMPAY',
+      accountName: 'Billstack User',
+      trackingReference: `PB-${Date.now()}`,
+      raw: { status: true },
+    });
+
+    const user = await User.create({
+      name: 'Billstack User',
+      email: `billstack_user_${Date.now()}@test.com`,
+      phone: `080${String(Date.now()).slice(-8)}`,
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+    });
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    const res = await request(app)
+      .post('/api/users/virtual-account/request')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toHaveProperty('accountNumber');
+    expect(res.body).toHaveProperty('bankName');
+    expect(payvesselSpy).not.toHaveBeenCalled();
+    expect(billstackSpy).toHaveBeenCalled();
+
+    const updated = await User.findByPk(user.id);
+    expect(updated.virtual_account_number).toBeTruthy();
+    expect(updated.metadata?.va_provider).toBe('billstack');
+
+    payvesselSpy.mockRestore();
+    billstackSpy.mockRestore();
+    billstackVirtualAccountService.secretKey = prevBillstack.secretKey;
+    billstackVirtualAccountService.baseUrl = prevBillstack.baseUrl;
+    process.env.NODE_ENV = prevEnv;
   });
 });

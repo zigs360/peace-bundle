@@ -52,6 +52,20 @@ class VirtualAccountService {
         return this.getApprovedProviders().includes(String(provider || '').trim().toLowerCase());
     }
 
+    async isPayvesselKycSatisfied(user) {
+        if (process.env.NODE_ENV === 'test') return true;
+        if (user?.bvn || user?.nin) return true;
+
+        const allowMockBvnSetting = await this.getSetting('allow_mock_bvn');
+        const allowMockBvn =
+            allowMockBvnSetting === true ||
+            allowMockBvnSetting === 1 ||
+            allowMockBvnSetting === '1' ||
+            allowMockBvnSetting === 'true';
+        const envAllowsMockBvn = String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
+        return Boolean(allowMockBvn && envAllowsMockBvn);
+    }
+
     isDisplayableVirtualAccount(user) {
         if (!user?.virtual_account_number) return false;
         const provider = this.getUserProvider(user);
@@ -525,28 +539,22 @@ class VirtualAccountService {
 
             let payvesselUsedMockBvn = false;
             const tryPayvessel = async () => {
-                if (process.env.NODE_ENV !== 'test') {
-                    const allowMockBvnSetting = await this.getSetting('allow_mock_bvn');
-                    const allowMockBvn =
-                        allowMockBvnSetting === true ||
-                        allowMockBvnSetting === 1 ||
-                        allowMockBvnSetting === '1' ||
-                        allowMockBvnSetting === 'true';
-                    const hasKycId = Boolean(user.bvn || user.nin);
-                    const envAllowsMockBvn = String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
-                    const mockAllowed = allowMockBvn && envAllowsMockBvn;
-                    if (!hasKycId && !mockAllowed) {
-                        throw new Error('KYC/BVN verification is required to generate a PayVessel virtual account');
-                    }
-                    if (!hasKycId && mockAllowed) {
-                        payvesselUsedMockBvn = true;
-                    }
+                const kycOk = await this.isPayvesselKycSatisfied(user);
+                if (!kycOk) {
+                    throw new Error('KYC/BVN verification is required to generate a PayVessel virtual account');
+                }
+                if (process.env.NODE_ENV !== 'test' && !user.bvn && !user.nin) {
+                    payvesselUsedMockBvn = true;
                 }
                 return payvesselService.createVirtualAccount(user);
             };
 
             const shouldTryRemote = provider === 'payvessel' || provider === 'billstack';
-            const fallbacks = shouldTryRemote ? (provider === 'billstack' ? ['billstack', 'payvessel'] : ['payvessel', 'billstack']) : [];
+            const payvesselKycOk = provider === 'payvessel' ? await this.isPayvesselKycSatisfied(user) : true;
+            const preferBillstackForNoKyc = provider === 'payvessel' && !payvesselKycOk && this.isBillstackConfigured();
+            const fallbacks = shouldTryRemote
+                ? (provider === 'billstack' || preferBillstackForNoKyc ? ['billstack', 'payvessel'] : ['payvessel', 'billstack'])
+                : [];
             const providerErrors = {};
             for (const p of fallbacks) {
                 if (p === 'payvessel' && !this.isPayvesselConfigured()) {
