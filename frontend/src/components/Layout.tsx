@@ -195,6 +195,11 @@ export default function Layout() {
             <Receipt className={getIconClasses('/admin/transactions')} />
             {!isCollapsed && <span>Transactions</span>}
           </Link>
+
+          <Link to="/admin/funding-review" className={getLinkClasses('/admin/funding-review')} title={isCollapsed ? "Funding Review" : ""}>
+            <Bell className={getIconClasses('/admin/funding-review')} />
+            {!isCollapsed && <span>Funding Review</span>}
+          </Link>
           
           <Link to="/admin/pricing" className={getLinkClasses('/admin/pricing')} title={isCollapsed ? "Pricing" : ""}>
             <Tag className={getIconClasses('/admin/pricing')} />

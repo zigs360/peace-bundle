@@ -25,6 +25,7 @@ import ReviewsIndex from './pages/admin/Reviews';
 import SubscriptionsIndex from './pages/admin/Subscriptions/Index';
 import CreateOrEditSubscriptionPlan from './pages/admin/Subscriptions/Create';
 import KycIndex from './pages/admin/Kyc/Index';
+import FundingReviews from './pages/admin/FundingReviews';
 import UserLayout from './components/UserLayout';
 import CookieConsent from './components/common/CookieConsent';
 import UserDashboard from './pages/dashboard/UserDashboard';
@@ -84,6 +85,7 @@ function App() {
             <Route index element={<AdminDashboard />} />
             <Route path="users" element={<AdminUsersPage />} />
             <Route path="transactions" element={<Transactions />} />
+            <Route path="funding-review" element={<FundingReviews />} />
             <Route path="pricing" element={<Pricing />} />
             <Route path="kyc" element={<KycIndex />} />
             <Route path="subscriptions" element={<SubscriptionsIndex />} />
