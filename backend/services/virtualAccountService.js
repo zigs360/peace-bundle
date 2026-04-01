@@ -435,6 +435,15 @@ class VirtualAccountService {
 
         // Prefer PayVessel, fallback to Monnify or others
         try {
+            const fallbackSetting = await this.getSetting('virtual_account_fallback_to_local');
+            const allowLocalFallback =
+                fallbackSetting === null ||
+                fallbackSetting === undefined ||
+                fallbackSetting === true ||
+                fallbackSetting === 1 ||
+                fallbackSetting === '1' ||
+                fallbackSetting === 'true';
+
             const requestedProvider = (await this.getSetting('virtual_account_provider')) || 'payvessel';
             const normalizeProvider = (p) => String(p || '').trim().toLowerCase();
             const configuredProviders = [];
@@ -529,6 +538,11 @@ class VirtualAccountService {
                 } else if (provider === 'paystack') {
                     accountDetails = await this.createPaystackAccount(user);
                 }
+            }
+
+            if (!accountDetails && allowLocalFallback && (provider === 'payvessel' || provider === 'billstack')) {
+                accountDetails = await this.createLocalAccount(user, { transaction });
+                user.metadata = { ...user.metadata, va_provider: 'local' };
             }
 
             if (!accountDetails && (provider === 'payvessel' || provider === 'billstack')) {

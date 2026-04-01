@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const app = require('../server');
 const { connectDB, User } = require('../config/db');
 const SystemSetting = require('../models/SystemSetting');
+const payvesselService = require('../services/payvesselService');
 
 describe('Virtual Account Request', () => {
   beforeAll(async () => {
@@ -97,5 +98,38 @@ describe('Virtual Account Request', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.hasVirtualAccount).toBe(true);
+  });
+
+  it('falls back to local account when payvessel provider fails', async () => {
+    await SystemSetting.set('virtual_account_generation_enabled', true, 'boolean', 'api');
+    await SystemSetting.set('virtual_account_provider', 'payvessel', 'string', 'api');
+    await SystemSetting.set('virtual_account_fallback_to_local', true, 'boolean', 'api');
+    await SystemSetting.set('local_virtual_account_prefix', '901', 'string', 'api');
+    await SystemSetting.set('local_virtual_account_bank', 'Peace Bundlle', 'string', 'api');
+
+    jest.spyOn(payvesselService, 'createVirtualAccount').mockRejectedValueOnce(new Error('PayVessel down'));
+
+    const user = await User.create({
+      name: 'VA Fallback',
+      email: `va_fallback_${Date.now()}@test.com`,
+      phone: `080${String(Date.now()).slice(-8)}`,
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+    });
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    const res = await request(app)
+      .post('/api/users/virtual-account/request')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toHaveProperty('accountNumber');
+    expect(res.body).toHaveProperty('bankName');
+    expect(res.body).toHaveProperty('accountName');
+
+    const updated = await User.findByPk(user.id);
+    expect(updated.virtual_account_number).toBeTruthy();
   });
 });

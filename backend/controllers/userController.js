@@ -68,6 +68,15 @@ const requestVirtualAccount = async (req, res) => {
         const providerSetting = await virtualAccountService.getSetting('virtual_account_provider');
         const provider = String(providerSetting || 'payvessel').toLowerCase();
         if (provider === 'payvessel') {
+            const fallbackSetting = await virtualAccountService.getSetting('virtual_account_fallback_to_local');
+            const allowLocalFallback =
+                fallbackSetting === null ||
+                fallbackSetting === undefined ||
+                fallbackSetting === true ||
+                fallbackSetting === 1 ||
+                fallbackSetting === '1' ||
+                fallbackSetting === 'true';
+
             const allowMockBvnSetting = await virtualAccountService.getSetting('allow_mock_bvn');
             const allowMockBvn =
                 allowMockBvnSetting === true ||
@@ -76,7 +85,7 @@ const requestVirtualAccount = async (req, res) => {
                 allowMockBvnSetting === 'true';
             const envAllowsMockBvn = process.env.NODE_ENV === 'test' ? true : String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
             const canUseMock = allowMockBvn && envAllowsMockBvn;
-            if (!user.bvn && !user.is_bvn_verified && !canUseMock) {
+            if (!allowLocalFallback && !user.bvn && !user.is_bvn_verified && !canUseMock) {
                 return res.json({ 
                     success: false,
                     code: 'KYC_REQUIRED',
