@@ -4,7 +4,8 @@ import { Save, Settings as SettingsIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 export default function AdminSettings() {
-  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [settings, setSettings] = useState<Record<string, any>>({});
+  const [maskedKeys, setMaskedKeys] = useState<Record<string, true>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -14,7 +15,30 @@ export default function AdminSettings() {
   const fetchSettings = async () => {
     try {
       const res = await api.get('/admin/settings');
-      setSettings(res.data);
+      const grouped = res?.data?.settings;
+      const next: Record<string, any> = {};
+      const nextMasked: Record<string, true> = {};
+
+      if (grouped && typeof grouped === 'object') {
+        for (const groupKey of Object.keys(grouped)) {
+          const list = grouped[groupKey];
+          if (!Array.isArray(list)) continue;
+          for (const item of list) {
+            const key = item?.key;
+            if (typeof key !== 'string' || !key) continue;
+            const value = item?.value;
+            if (value === '********') {
+              next[key] = '';
+              nextMasked[key] = true;
+            } else {
+              next[key] = value;
+            }
+          }
+        }
+      }
+
+      setSettings(next);
+      setMaskedKeys(nextMasked);
     } catch (err) {
       console.error('Failed to fetch settings', err);
       toast.error('Failed to load settings');
@@ -23,14 +47,22 @@ export default function AdminSettings() {
     }
   };
 
-  const handleChange = (key: string, value: string) => {
+  const handleChange = (key: string, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.put('/admin/settings', settings);
+      const payload: Record<string, any> = {};
+      for (const key of Object.keys(settings)) {
+        const value = settings[key];
+        if (maskedKeys[key] && (value === '' || value === undefined || value === null)) {
+          continue;
+        }
+        payload[key] = value;
+      }
+      await api.put('/admin/settings', { settings: payload });
       toast.success('Settings updated successfully');
     } catch (err) {
       console.error('Failed to update settings', err);
@@ -77,6 +109,35 @@ export default function AdminSettings() {
           </div>
 
           <div className="border-b pb-4">
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Virtual Account</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Virtual Account Provider</label>
+                <select
+                  className="mt-1 block w-full border rounded-md px-3 py-2 bg-white"
+                  value={settings['virtual_account_provider'] || 'billstack'}
+                  onChange={(e) => handleChange('virtual_account_provider', e.target.value)}
+                >
+                  <option value="billstack">BillStack (No BVN required)</option>
+                  <option value="payvessel">PayVessel (May require BVN)</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-3 mt-6">
+                <input
+                  id="virtual_account_generation_enabled"
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={Boolean(settings['virtual_account_generation_enabled'] ?? true)}
+                  onChange={(e) => handleChange('virtual_account_generation_enabled', e.target.checked)}
+                />
+                <label htmlFor="virtual_account_generation_enabled" className="text-sm font-medium text-gray-700">
+                  Enable virtual account generation
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-b pb-4">
             <h2 className="text-lg font-medium text-gray-900 mb-4">Contact Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -112,6 +173,7 @@ export default function AdminSettings() {
                   className="mt-1 block w-full border rounded-md px-3 py-2"
                   value={settings['paystack_secret_key'] || ''}
                   onChange={(e) => handleChange('paystack_secret_key', e.target.value)}
+                  placeholder={maskedKeys['paystack_secret_key'] ? '********' : ''}
                 />
               </div>
               <div>
@@ -121,6 +183,7 @@ export default function AdminSettings() {
                   className="mt-1 block w-full border rounded-md px-3 py-2"
                   value={settings['monnify_api_key'] || ''}
                   onChange={(e) => handleChange('monnify_api_key', e.target.value)}
+                  placeholder={maskedKeys['monnify_api_key'] ? '********' : ''}
                 />
               </div>
               <div>
@@ -130,6 +193,7 @@ export default function AdminSettings() {
                   className="mt-1 block w-full border rounded-md px-3 py-2"
                   value={settings['smeplug_api_key'] || ''}
                   onChange={(e) => handleChange('smeplug_api_key', e.target.value)}
+                  placeholder={maskedKeys['smeplug_api_key'] ? '********' : ''}
                 />
               </div>
               <div>
@@ -139,6 +203,7 @@ export default function AdminSettings() {
                   className="mt-1 block w-full border rounded-md px-3 py-2"
                   value={settings['payvessel_api_key'] || ''}
                   onChange={(e) => handleChange('payvessel_api_key', e.target.value)}
+                  placeholder={maskedKeys['payvessel_api_key'] ? '********' : ''}
                 />
               </div>
               <div>
@@ -148,6 +213,7 @@ export default function AdminSettings() {
                   className="mt-1 block w-full border rounded-md px-3 py-2"
                   value={settings['payvessel_secret_key'] || ''}
                   onChange={(e) => handleChange('payvessel_secret_key', e.target.value)}
+                  placeholder={maskedKeys['payvessel_secret_key'] ? '********' : ''}
                 />
               </div>
             </div>
