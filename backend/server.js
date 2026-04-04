@@ -77,7 +77,12 @@ if (process.env.NODE_ENV === 'development') {
 // Request Timeout (30 seconds)
 app.use((req, res, next) => {
   const timeoutMsRaw = Number.parseInt(process.env.REQUEST_TIMEOUT_MS || '30000', 10);
-  const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 30000;
+  const defaultTimeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 30000;
+  const timeoutMs = req.path.startsWith('/api/admin/virtual-accounts/health')
+    ? 120000
+    : req.path.startsWith('/api/admin')
+      ? Math.max(defaultTimeoutMs, 60000)
+      : defaultTimeoutMs;
   res.setTimeout(timeoutMs, () => {
     if (res.headersSent || res.writableEnded) return;
     logger.warn('Request timeout:', { method: req.method, url: req.url });
