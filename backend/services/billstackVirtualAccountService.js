@@ -4,9 +4,35 @@ const User = require('../models/User');
 
 class BillstackVirtualAccountService {
   constructor() {
-    this.baseUrl = process.env.BILLSTACK_BASE_URL || process.env.BILL_STACK_BASE_URL || 'https://api.billstack.co/v2/thirdparty';
-    this.secretKey = process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY || '';
-    this.publicKey = process.env.BILLSTACK_PUBLIC_KEY || process.env.BILL_STACK_PUBLIC_KEY || '';
+    const baseUrlCandidates = [
+      { key: 'BILLSTACK_BASE_URL', value: process.env.BILLSTACK_BASE_URL },
+      { key: 'BILL_STACK_BASE_URL', value: process.env.BILL_STACK_BASE_URL },
+      { key: 'Bill_Stack_BASE_URL', value: process.env.Bill_Stack_BASE_URL }
+    ];
+    const secretKeyCandidates = [
+      { key: 'BILLSTACK_SECRET_KEY', value: process.env.BILLSTACK_SECRET_KEY },
+      { key: 'BILL_STACK_SECRET_KEY', value: process.env.BILL_STACK_SECRET_KEY },
+      { key: 'Bill_Stack_SECRET_KEY', value: process.env.Bill_Stack_SECRET_KEY }
+    ];
+    const publicKeyCandidates = [
+      { key: 'BILLSTACK_PUBLIC_KEY', value: process.env.BILLSTACK_PUBLIC_KEY },
+      { key: 'BILL_STACK_PUBLIC_KEY', value: process.env.BILL_STACK_PUBLIC_KEY },
+      { key: 'Bill_Stack_PUBLIC_KEY', value: process.env.Bill_Stack_PUBLIC_KEY }
+    ];
+
+    const pickFirst = (items) => items.find((i) => Boolean(i.value)) || null;
+    const pickedBaseUrl = pickFirst(baseUrlCandidates);
+    const pickedSecret = pickFirst(secretKeyCandidates);
+    const pickedPublic = pickFirst(publicKeyCandidates);
+
+    this.baseUrl = pickedBaseUrl?.value || 'https://api.billstack.co/v2/thirdparty';
+    this.secretKey = pickedSecret?.value || '';
+    this.publicKey = pickedPublic?.value || '';
+    this.envKeyNames = {
+      baseUrl: pickedBaseUrl?.key || null,
+      secretKey: pickedSecret?.key || null,
+      publicKey: pickedPublic?.key || null
+    };
     this.timeoutMs = parseInt(process.env.BILLSTACK_TIMEOUT_MS || '30000', 10);
   }
 

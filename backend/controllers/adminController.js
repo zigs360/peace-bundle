@@ -1339,7 +1339,11 @@ const getVirtualAccountHealth = async (req, res) => {
         const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) || req.get('host');
         const baseUrl = proto && host ? `${proto}://${host}` : null;
 
-        const billstackBaseUrl = process.env.BILLSTACK_BASE_URL || process.env.BILL_STACK_BASE_URL || null;
+        const billstackBaseUrl =
+            process.env.BILLSTACK_BASE_URL ||
+            process.env.BILL_STACK_BASE_URL ||
+            process.env.Bill_Stack_BASE_URL ||
+            null;
         let billstackHost = null;
         try {
             billstackHost = billstackBaseUrl ? new URL(billstackBaseUrl).host : null;
@@ -1364,8 +1368,29 @@ const getVirtualAccountHealth = async (req, res) => {
             },
             providers: {
                 billstack: {
-                    configured: Boolean((process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY) && billstackBaseUrl),
-                    baseUrlHost: billstackHost
+                    configured: Boolean(
+                        (process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY || process.env.Bill_Stack_SECRET_KEY) &&
+                            billstackBaseUrl
+                    ),
+                    baseUrlHost: billstackHost,
+                    env: {
+                        baseUrlSources: {
+                            BILLSTACK_BASE_URL: Boolean(process.env.BILLSTACK_BASE_URL),
+                            BILL_STACK_BASE_URL: Boolean(process.env.BILL_STACK_BASE_URL),
+                            Bill_Stack_BASE_URL: Boolean(process.env.Bill_Stack_BASE_URL)
+                        },
+                        secretKeySources: {
+                            BILLSTACK: Boolean(process.env.BILLSTACK_SECRET_KEY),
+                            BILL_STACK: Boolean(process.env.BILL_STACK_SECRET_KEY),
+                            Bill_Stack: Boolean(process.env.Bill_Stack_SECRET_KEY)
+                        },
+                        publicKeySources: {
+                            BILLSTACK: Boolean(process.env.BILLSTACK_PUBLIC_KEY),
+                            BILL_STACK: Boolean(process.env.BILL_STACK_PUBLIC_KEY),
+                            Bill_Stack: Boolean(process.env.Bill_Stack_PUBLIC_KEY)
+                        },
+                        webhookSecretPresent: Boolean(process.env.BILLSTACK_WEBHOOK_SECRET)
+                    }
                 },
                 payvessel: {
                     configured: Boolean(process.env.PAYVESSEL_API_KEY && process.env.PAYVESSEL_SECRET_KEY && process.env.PAYVESSEL_BUSINESS_ID),
