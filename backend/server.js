@@ -42,6 +42,9 @@ try {
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 
 // Security Middleware
 app.use(helmet());
@@ -87,18 +90,31 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate Limiting
-const limiter = rateLimit({
+const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 300, // Limit each IP to 300 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false },
+  validate: { xForwardedForHeader: process.env.NODE_ENV === 'production' },
+  skip: (req) => req.path.startsWith('/admin'),
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again after 15 minutes',
   },
 });
-app.use('/api', limiter);
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 2000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: process.env.NODE_ENV === 'production' },
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again after 15 minutes',
+  },
+});
+app.use('/api/admin', adminLimiter);
+app.use('/api', apiLimiter);
 
 // Logging Middleware
 const morganFormat = ':method :url :status :res[content-length] - :response-time ms';
