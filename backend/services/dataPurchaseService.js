@@ -3,10 +3,146 @@ const sequelize = require('../config/database');
 const walletService = require('./walletService');
 const smeplugService = require('./smeplugService');
 const ogdamsService = require('./ogdamsService');
+const simManagementService = require('./simManagementService');
 const affiliateService = require('./affiliateService');
 const logger = require('../utils/logger');
 
 class DataPurchaseService {
+  getAirtimeProviderConfig() {
+    const ogdamsTimeoutMsRaw = Number.parseInt(process.env.OGDAMS_TIMEOUT_MS || '12000', 10);
+    const smeplugTimeoutMsRaw = Number.parseInt(process.env.SMEPLUG_TIMEOUT_MS || '15000', 10);
+    const ogdamsTimeoutMs =
+      Number.isFinite(ogdamsTimeoutMsRaw) && ogdamsTimeoutMsRaw > 0 ? ogdamsTimeoutMsRaw : 12000;
+    const smeplugTimeoutMs =
+      Number.isFinite(smeplugTimeoutMsRaw) && smeplugTimeoutMsRaw > 0 ? smeplugTimeoutMsRaw : 15000;
+
+    return { ogdamsTimeoutMs, smeplugTimeoutMs };
+  }
+
+  getAirtimeReconcileConfig() {
+    const delayMsRaw = Number.parseInt(process.env.AIRTIME_RECONCILE_DELAY_MS || '5000', 10);
+    const maxAttemptsRaw = Number.parseInt(process.env.AIRTIME_RECONCILE_MAX_ATTEMPTS || '3', 10);
+    const statusCheckEnabledRaw = String(process.env.OGDAMS_STATUS_CHECK_ENABLED || 'true').toLowerCase();
+
+    const delayMs = Number.isFinite(delayMsRaw) && delayMsRaw >= 0 ? delayMsRaw : 5000;
+    const maxAttempts = Number.isFinite(maxAttemptsRaw) && maxAttemptsRaw > 0 ? maxAttemptsRaw : 3;
+    const statusCheckEnabled = statusCheckEnabledRaw !== 'false';
+
+    return { delayMs, maxAttempts, statusCheckEnabled };
+  }
+
+  isUncertainProviderStateError(error) {
+    const code = String(error?.code || '').toUpperCase();
+    const statusCode = Number(error?.statusCode);
+    if (code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'ECONNRESET' || code === 'EAI_AGAIN' || code === 'ENOTFOUND') {
+      return true;
+    }
+    if (Number.isFinite(statusCode) && statusCode >= 500) return true;
+    return false;
+  }
+
+  parseOgdamsStatus(raw) {
+    if (!raw) return null;
+    const direct = String(raw?.status || raw?.data?.status || raw?.result?.status || '').toLowerCase();
+    if (direct.includes('success') || direct === 'completed') return { status: 'success', raw };
+    if (direct.includes('fail') || direct.includes('error') || direct === 'failed') return { status: 'failed', raw };
+    if (direct.includes('pending') || direct.includes('process') || direct.includes('queue')) return { status: 'pending', raw };
+    return { status: 'unknown', raw };
+  }
+
+  scheduleAirtimeReconciliation(transactionId, attempt = 1) {
+    const { delayMs, maxAttempts } = this.getAirtimeReconcileConfig();
+    if (attempt > maxAttempts) return;
+    const delay = attempt <= 1 ? delayMs : Math.min(delayMs * attempt, 60000);
+    setTimeout(() => {
+      this.reconcileAirtimeTransaction(transactionId, attempt).catch((e) => {
+        logger.error('[Airtime] Reconcile failed', { transactionId, error: e.message });
+      });
+    }, delay);
+  }
+
+  async reconcileAirtimeTransaction(transactionId, attempt = 1) {
+    const { maxAttempts, statusCheckEnabled } = this.getAirtimeReconcileConfig();
+    const txn = await Transaction.findByPk(transactionId);
+    if (!txn) return;
+    if (txn.status === 'completed' || txn.status === 'failed' || txn.status === 'refunded') return;
+
+    const meta = txn.metadata && typeof txn.metadata === 'object' ? txn.metadata : {};
+    const nextAttempt = attempt + 1;
+
+    if (statusCheckEnabled) {
+      try {
+        const statusRaw = await ogdamsService.checkAirtimeStatus(txn.reference);
+        const parsed = this.parseOgdamsStatus(statusRaw);
+        if (parsed?.status === 'success') {
+          await txn.update({
+            status: 'completed',
+            completed_at: new Date(),
+            smeplug_response: { provider: 'ogdams', data: parsed.raw },
+            metadata: { ...meta, service_provider: 'ogdams', provider_attempts: meta.provider_attempts || [] }
+          });
+
+          try {
+            const user = await User.findByPk(txn.userId);
+            if (user) {
+              const { sendTransactionNotification } = require('./notificationService');
+              await sendTransactionNotification(user, txn);
+            }
+          } catch (e) {
+            void e;
+          }
+          return;
+        }
+        if (parsed?.status === 'failed') {
+          await this.dispenseAirtimeWithFallback(
+            txn,
+            { network: txn.provider || meta.provider, amount: meta.vend_amount || txn.amount, phoneNumber: txn.recipient_phone || meta.recipient_phone },
+            { reconciliation: true, attempt },
+            null,
+            { skipOgdams: true },
+          );
+
+          try {
+            const user = await User.findByPk(txn.userId);
+            if (user) {
+              const { sendTransactionNotification } = require('./notificationService');
+              await sendTransactionNotification(user, txn);
+            }
+          } catch (e) {
+            void e;
+          }
+          return;
+        }
+      } catch (e) {
+        logger.warn('[Airtime] Reconcile status check failed', { transactionId, error: e.message });
+      }
+    }
+
+    if (attempt >= maxAttempts) {
+      await this.handleFailedAirtimeTransaction(txn, 'Airtime verification timed out', null);
+      return;
+    }
+
+    await txn.update({
+      status: 'queued',
+      metadata: { ...meta, reconcile_attempt: attempt, reconcile_scheduled: true }
+    });
+    this.scheduleAirtimeReconciliation(transactionId, nextAttempt);
+  }
+
+  async withTimeout(promise, timeoutMs, label) {
+    let timeoutId = null;
+    const timeout = new Promise((_, reject) => {
+      const err = new Error(`${label} timeout after ${timeoutMs}ms`);
+      err.code = 'ETIMEDOUT';
+      timeoutId = setTimeout(() => reject(err), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
   /**
    * Purchase data for a recipient
    * @param {User} user
@@ -127,18 +263,16 @@ class DataPurchaseService {
           }
       }
 
-      const data = {
-        network_id: smeplugService.getNetworkId(transaction.provider),
-        plan_id: smeplugPlanId || '1',
-        phone: transaction.recipient_phone,
-        mode: sim ? 'sim_system' : 'wallet'
-      };
+      const mode = sim ? 'device_based' : 'wallet';
+      const options = sim ? { sim_number: sim.phoneNumber } : {};
 
-      if (sim) {
-        data.sim_number = sim.phoneNumber;
-      }
-
-      const response = await smeplugService.purchaseData(data);
+      const response = await smeplugService.purchaseData(
+        transaction.provider,
+        transaction.recipient_phone,
+        smeplugPlanId || '1',
+        mode,
+        options
+      );
 
       if (response.success) {
         await transaction.markAsCompleted(response.data, t);
@@ -185,6 +319,24 @@ class DataPurchaseService {
     // Increment SIM failed count
     if (sim) {
         await sim.incrementDispenses(true); // true for failed
+    }
+  }
+
+  async handleFailedAirtimeTransaction(transaction, reason, t) {
+    await transaction.markAsFailed(reason, t);
+
+    if (transaction.type === 'debit') {
+      const user = await User.findByPk(transaction.userId || transaction.user_id, { transaction: t });
+      if (user) {
+        await walletService.credit(
+          user,
+          transaction.amount,
+          'refund',
+          `Refund for failed airtime purchase: ${transaction.reference}`,
+          { original_transaction_reference: transaction.reference },
+          t,
+        );
+      }
     }
   }
 
@@ -331,28 +483,335 @@ class DataPurchaseService {
         t
       );
 
-      await transaction.update({ reference, status: 'pending' }, { transaction: t });
+      await transaction.update({ reference, status: 'processing' }, { transaction: t });
 
       try {
-        const response = await ogdamsService.purchaseAirtime({
-          networkId: this.getNetworkId(network),
-          amount,
-          phoneNumber,
-          type: 'VTU',
-          reference,
-        });
-
-        if (response.status === 'success') {
-          await transaction.markAsCompleted(response, t);
-        } else {
-          await this.handleFailedTransaction(transaction, response.message || 'Unknown error', null, t);
-        }
+        await this.dispenseAirtimeWithFallback(
+          transaction,
+          { network, amount, phoneNumber },
+          { attemptedFrom: 'dataPurchaseService.purchaseAirtime' },
+          t,
+        );
       } catch (error) {
-        await this.handleFailedTransaction(transaction, error.message, null, t);
+        await this.handleFailedAirtimeTransaction(transaction, error.message, t);
       }
 
       return transaction;
     });
+  }
+
+  async dispenseAirtimeWithFallback(transaction, { network, amount, phoneNumber }, context = {}, t = null) {
+    let options = {};
+    if (arguments.length >= 5 && typeof arguments[4] === 'object' && arguments[4] !== null) {
+      options = arguments[4];
+    }
+    const { ogdamsTimeoutMs, smeplugTimeoutMs } = this.getAirtimeProviderConfig();
+    const startedAt = Date.now();
+    const attempts = [];
+
+    const normalizePhone = (value) => {
+      const digits = String(value || '').replace(/\D/g, '');
+      if (digits.startsWith('234') && digits.length === 13) return `0${digits.slice(3)}`;
+      return digits;
+    };
+
+    const cleanNetwork = String(network || '').trim().toLowerCase();
+    const cleanPhone = normalizePhone(phoneNumber);
+    const vendAmount = Math.round(Number(amount));
+
+    const baseMeta = transaction.metadata && typeof transaction.metadata === 'object' ? transaction.metadata : {};
+
+    const recordAttempt = async (entry) => {
+      attempts.push(entry);
+      await transaction.update(
+        {
+          metadata: {
+            ...baseMeta,
+            provider_attempts: attempts,
+            service_provider: entry.ok ? entry.provider : baseMeta.service_provider,
+            provider_switch: entry.switch || baseMeta.provider_switch,
+          },
+        },
+        { transaction: t },
+      );
+    };
+
+    const persistSuccess = async ({ provider, reference, response, switchedFrom = null }) => {
+      const latencyMs = Date.now() - startedAt;
+      await transaction.update(
+        {
+          recipient_phone: cleanPhone,
+          provider: cleanNetwork,
+          smeplug_reference: reference || transaction.smeplug_reference || transaction.reference,
+          smeplug_response: { provider, data: response },
+          status: 'completed',
+          completed_at: new Date(),
+          metadata: {
+            ...baseMeta,
+            service_provider: provider,
+            provider_latency_ms: latencyMs,
+            provider_switch:
+              switchedFrom
+                ? { from: switchedFrom, to: provider, reason: 'primary_failed', context }
+                : baseMeta.provider_switch || null,
+            provider_attempts: attempts,
+          },
+        },
+        { transaction: t },
+      );
+    };
+
+    const persistFailure = async (reason) => {
+      await this.handleFailedAirtimeTransaction(transaction, reason, t);
+      await transaction.update(
+        {
+          metadata: {
+            ...baseMeta,
+            provider_attempts: attempts,
+          },
+        },
+        { transaction: t },
+      );
+    };
+
+    if (!options.skipOgdams) {
+      try {
+      const ogdamsResponse = await this.withTimeout(
+        ogdamsService.purchaseAirtime({
+          networkId: this.getNetworkId(cleanNetwork),
+          amount: vendAmount,
+          phoneNumber: cleanPhone,
+          type: 'VTU',
+          reference: transaction.reference,
+        }),
+        ogdamsTimeoutMs,
+        'OGDAMS',
+      );
+
+      const ok = String(ogdamsResponse?.status || '').toLowerCase() === 'success';
+      await recordAttempt({
+        provider: 'ogdams',
+        ok,
+        latency_ms: Date.now() - startedAt,
+        status: ogdamsResponse?.status,
+      });
+
+      if (!ok) {
+        throw new Error(ogdamsResponse?.message || 'Ogdams returned non-success response');
+      }
+
+      await persistSuccess({
+        provider: 'ogdams',
+        reference: ogdamsResponse?.reference || ogdamsResponse?.data?.reference || transaction.reference,
+        response: ogdamsResponse,
+      });
+      logger.info('[Airtime] Provider success', { provider: 'ogdams', reference: transaction.reference });
+      return { provider: 'ogdams', response: ogdamsResponse };
+      } catch (ogErr) {
+        const ogReason = ogErr?.message || 'Ogdams failed';
+        const uncertain = this.isUncertainProviderStateError(ogErr);
+
+        await recordAttempt({
+          provider: 'ogdams',
+          ok: false,
+          latency_ms: Date.now() - startedAt,
+          error: ogReason,
+          uncertain,
+        });
+
+        const { statusCheckEnabled } = this.getAirtimeReconcileConfig();
+        if (uncertain && statusCheckEnabled) {
+          try {
+            const statusRaw = await this.withTimeout(
+              ogdamsService.checkAirtimeStatus(transaction.reference),
+              ogdamsTimeoutMs,
+              'OGDAMS_STATUS',
+            );
+            const parsed = this.parseOgdamsStatus(statusRaw);
+            if (parsed?.status === 'success') {
+              await persistSuccess({
+                provider: 'ogdams',
+                reference: statusRaw?.reference || statusRaw?.data?.reference || transaction.reference,
+                response: parsed.raw,
+              });
+              logger.info('[Airtime] Provider success after verify', { provider: 'ogdams', reference: transaction.reference });
+              return { provider: 'ogdams', response: parsed.raw, verified: true };
+            }
+            if (parsed?.status === 'failed') {
+              logger.warn('[Airtime] Switching provider after verified failure', {
+                from: 'ogdams',
+                to: 'smeplug',
+                reference: transaction.reference,
+                reason: ogReason,
+              });
+              await recordAttempt({
+                provider: 'ogdams',
+                ok: false,
+                latency_ms: Date.now() - startedAt,
+                error: ogReason,
+                switch: { from: 'ogdams', to: 'smeplug', reason: 'verified_failed', context },
+              });
+            } else {
+              await transaction.update(
+                {
+                  status: 'queued',
+                  metadata: {
+                    ...baseMeta,
+                    provider_attempts: attempts,
+                    service_provider: 'ogdams',
+                    provider_pending: true,
+                    reconcile_scheduled: true,
+                    reconcile_attempt: 1,
+                  },
+                },
+                { transaction: t },
+              );
+              this.scheduleAirtimeReconciliation(transaction.id, 1);
+              logger.warn('[Airtime] Queued due to uncertain Ogdams state', { reference: transaction.reference });
+              return { provider: 'ogdams', pending: true };
+            }
+          } catch (statusErr) {
+            await transaction.update(
+              {
+                status: 'queued',
+                metadata: {
+                  ...baseMeta,
+                  provider_attempts: attempts,
+                  service_provider: 'ogdams',
+                  provider_pending: true,
+                  reconcile_scheduled: true,
+                  reconcile_attempt: 1,
+                },
+              },
+              { transaction: t },
+            );
+            this.scheduleAirtimeReconciliation(transaction.id, 1);
+            logger.warn('[Airtime] Queued due to uncertain Ogdams state', {
+              reference: transaction.reference,
+              reason: statusErr.message,
+            });
+            return { provider: 'ogdams', pending: true };
+          }
+        }
+
+        if (uncertain) {
+          await transaction.update(
+            {
+              status: 'queued',
+              metadata: {
+                ...baseMeta,
+                provider_attempts: attempts,
+                service_provider: 'ogdams',
+                provider_pending: true,
+                reconcile_scheduled: true,
+                reconcile_attempt: 1,
+              },
+            },
+            { transaction: t },
+          );
+          this.scheduleAirtimeReconciliation(transaction.id, 1);
+          logger.warn('[Airtime] Queued due to uncertain Ogdams state', { reference: transaction.reference, reason: ogReason });
+          return { provider: 'ogdams', pending: true };
+        }
+
+        logger.warn('[Airtime] Switching provider', {
+          from: 'ogdams',
+          to: 'smeplug',
+          reference: transaction.reference,
+          reason: ogReason,
+        });
+        await recordAttempt({
+          provider: 'ogdams',
+          ok: false,
+          latency_ms: Date.now() - startedAt,
+          error: ogReason,
+          switch: { from: 'ogdams', to: 'smeplug', reason: ogReason, context },
+        });
+      }
+    }
+
+    const smeplugStart = Date.now();
+    try {
+      let processedViaSim = false;
+      let simReference = null;
+      let simResponse = null;
+
+      const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, vendAmount);
+      if (optimalSim) {
+        try {
+          const simResult = await this.withTimeout(
+            simManagementService.processTransaction(optimalSim, { provider: cleanNetwork, amount: vendAmount }, cleanPhone),
+            smeplugTimeoutMs,
+            'SMEPLUG_SIM',
+          );
+          if (simResult?.success) {
+            processedViaSim = true;
+            simReference = simResult.reference;
+            simResponse = simResult;
+            await transaction.update({ simId: optimalSim.id }, { transaction: t });
+          }
+        } catch (simErr) {
+          logger.error('[Airtime] SMEPlug SIM route failed', {
+            reference: transaction.reference,
+            error: simErr.message,
+          });
+        }
+      }
+
+      if (processedViaSim) {
+        await recordAttempt({
+          provider: 'smeplug',
+          ok: true,
+          latency_ms: Date.now() - smeplugStart,
+          route: 'sim',
+        });
+        await persistSuccess({
+          provider: 'smeplug',
+          reference: simReference,
+          response: simResponse,
+          switchedFrom: 'ogdams',
+        });
+        return { provider: 'smeplug', response: simResponse };
+      }
+
+      const smeplugResponse = await this.withTimeout(
+        smeplugService.purchaseVTU(cleanNetwork, cleanPhone, vendAmount),
+        smeplugTimeoutMs,
+        'SMEPLUG',
+      );
+
+      const ok = !!smeplugResponse?.success;
+      await recordAttempt({
+        provider: 'smeplug',
+        ok,
+        latency_ms: Date.now() - smeplugStart,
+        route: 'api',
+        status_code: smeplugResponse?.status_code,
+      });
+
+      if (!ok) {
+        throw new Error(smeplugResponse?.error || 'Smeplug returned non-success response');
+      }
+
+      await persistSuccess({
+        provider: 'smeplug',
+        reference: smeplugResponse.data?.reference || smeplugResponse.data?.transaction_id,
+        response: smeplugResponse.data,
+        switchedFrom: 'ogdams',
+      });
+
+      return { provider: 'smeplug', response: smeplugResponse.data };
+    } catch (spErr) {
+      const spReason = spErr?.message || 'Smeplug failed';
+      await recordAttempt({
+        provider: 'smeplug',
+        ok: false,
+        latency_ms: Date.now() - smeplugStart,
+        error: spReason,
+      });
+      await persistFailure(spReason);
+      throw spErr;
+    }
   }
 }
 

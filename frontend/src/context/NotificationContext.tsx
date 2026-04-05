@@ -21,6 +21,7 @@ interface NotificationContextType {
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
   isConnected: boolean;
+  pricingVersion: number;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -28,6 +29,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [pricingVersion, setPricingVersion] = useState(0);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -99,6 +101,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       );
     });
 
+    newSocket.on('pricing_update', () => {
+      setPricingVersion((v) => v + 1);
+    });
+
     newSocket.on('disconnect', () => {
       setIsConnected(false);
       console.log('Disconnected from notification socket');
@@ -118,7 +124,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       fetchNotifications,
       markAsRead,
       markAllAsRead,
-      isConnected
+      isConnected,
+      pricingVersion
     }}>
       {children}
     </NotificationContext.Provider>

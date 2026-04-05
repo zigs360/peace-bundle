@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Wifi, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
+import { useNotifications } from '../context/NotificationContext';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Plan = any;
@@ -13,11 +14,12 @@ export default function Pricing() {
   const [subPlans, setSubPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [subLoading, setSubLoading] = useState(true);
+  const { pricingVersion } = useNotifications();
 
   useEffect(() => {
     fetchDataPlans();
     fetchSubscriptionPlans();
-  }, [activeNetwork]);
+  }, [activeNetwork, pricingVersion]);
 
   const fetchDataPlans = async () => {
     setLoading(true);
@@ -25,7 +27,7 @@ export default function Pricing() {
       const res = await api.get(`/plans?provider=${activeNetwork}`);
       setPlans((res.data as any[]).map((p: any) => ({
         ...p,
-        price: p.admin_price,
+        price: p.effective_price ?? p.admin_price,
         type: p.category
       })));
     } catch (err) {
@@ -204,4 +206,3 @@ export default function Pricing() {
     </div>
   );
 }
-

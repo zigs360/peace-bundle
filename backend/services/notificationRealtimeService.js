@@ -39,7 +39,7 @@ class NotificationService {
       }
 
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         socket.userId = decoded.id;
         next();
       } catch (err) {
@@ -140,6 +140,11 @@ class NotificationService {
   async sendBulk(userIds, data) {
     const promises = userIds.map(userId => this.sendToUser(userId, data));
     return Promise.all(promises);
+  }
+
+  emitToAll(event, payload) {
+    if (!this.io) return;
+    this.io.emit(event, payload);
   }
 }
 

@@ -127,7 +127,64 @@ const getChartData = async (req, res) => {
     }
 };
 
+// @desc    Get Airtime Provider Stats (Ogdams vs Smeplug)
+// @route   GET /api/reports/airtime-providers
+// @access  Private/Admin
+const getAirtimeProviderStats = async (req, res) => {
+    const { timeRange } = req.query;
+
+    let startDate = new Date();
+    if (timeRange === '24h') startDate.setHours(startDate.getHours() - 24);
+    else if (timeRange === '7d') startDate.setDate(startDate.getDate() - 7);
+    else if (timeRange === '30d') startDate.setDate(startDate.getDate() - 30);
+    else startDate.setDate(startDate.getDate() - 7);
+
+    try {
+        const providerExpr = sequelize.literal(`COALESCE(metadata->>'service_provider','unknown')`);
+
+        const rows = await Transaction.findAll({
+            attributes: [
+                [providerExpr, 'provider'],
+                [sequelize.fn('COUNT', sequelize.col('id')), 'total'],
+                [sequelize.fn('SUM', sequelize.literal(`CASE WHEN status = 'completed' THEN 1 ELSE 0 END`)), 'success'],
+                [sequelize.fn('SUM', sequelize.literal(`CASE WHEN status = 'failed' THEN 1 ELSE 0 END`)), 'failed'],
+                [sequelize.fn('SUM', sequelize.literal(`CASE WHEN (metadata->'provider_switch') IS NOT NULL THEN 1 ELSE 0 END`)), 'switched']
+            ],
+            where: {
+                source: 'airtime_purchase',
+                type: 'debit',
+                createdAt: { [Op.gte]: startDate }
+            },
+            group: [providerExpr],
+            order: [[providerExpr, 'ASC']]
+        });
+
+        const stats = rows.map((row) => {
+            const provider = row.get('provider');
+            const total = Number(row.get('total') || 0);
+            const success = Number(row.get('success') || 0);
+            const failed = Number(row.get('failed') || 0);
+            const switched = Number(row.get('switched') || 0);
+            const successRate = total > 0 ? Number(((success / total) * 100).toFixed(2)) : 0;
+            return { provider, total, success, failed, switched, successRate };
+        });
+
+        res.json({
+            timeRange: timeRange || '7d',
+            from: startDate.toISOString(),
+            stats
+        });
+    } catch (error) {
+        logger.error(`[Report] Airtime provider stats error: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve airtime provider statistics'
+        });
+    }
+};
+
 module.exports = {
     getSystemStats,
-    getChartData
+    getChartData,
+    getAirtimeProviderStats
 };

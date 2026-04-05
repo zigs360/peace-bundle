@@ -29,6 +29,9 @@ const SupportTicket = require('../models/SupportTicket');
 const Notification = require('../models/Notification');
 const Review = require('../models/Review');
 const CallPlan = require('../models/CallPlan');
+const PricingTier = require('../models/PricingTier');
+const PricingRule = require('../models/PricingRule');
+const PricingAuditLog = require('../models/PricingAuditLog');
 
 // Define Associations (Top Level)
 
@@ -121,6 +124,12 @@ try {
 
   User.hasMany(SupportTicket, { foreignKey: 'assignedTo', as: 'AssignedTickets', onDelete: 'SET NULL' });
   SupportTicket.belongsTo(User, { foreignKey: 'assignedTo', as: 'AssignedStaff' });
+
+  PricingTier.hasMany(PricingRule, { foreignKey: 'tierId', as: 'rules', onDelete: 'CASCADE' });
+  PricingRule.belongsTo(PricingTier, { foreignKey: 'tierId', as: 'tier' });
+
+  User.hasMany(PricingAuditLog, { foreignKey: 'adminId', as: 'pricingAuditLogs' });
+  PricingAuditLog.belongsTo(User, { foreignKey: 'adminId', as: 'admin' });
 } catch (error) {
   console.error('Error defining associations:', error);
 }
@@ -194,6 +203,9 @@ const connectDB = async () => {
               group: 'api',
             },
             { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
+            { key: 'pricing_tier_user', value: 'default', type: 'string', group: 'pricing' },
+            { key: 'pricing_tier_reseller', value: 'default', type: 'string', group: 'pricing' },
+            { key: 'pricing_tier_admin', value: 'default', type: 'string', group: 'pricing' },
           ]);
           console.log('Default System Settings Seeded');
         }
@@ -291,5 +303,8 @@ module.exports = {
   SupportTicket,
   Notification,
   Review,
-  CallPlan
+  CallPlan,
+  PricingTier,
+  PricingRule,
+  PricingAuditLog
 };

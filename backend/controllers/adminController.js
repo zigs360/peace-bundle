@@ -1225,7 +1225,7 @@ const sendAdminBulkSMS = async (req, res) => {
 
         // Fire and forget
         Promise.allSettled(recipientList.map(recipient => 
-            sendSMS(recipient, message) 
+            sendSMS(recipient, message, { senderId }) 
         ));
         
         res.json({ message: `SMS sending initiated to ${recipientList.length} recipients` });

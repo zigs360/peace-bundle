@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { Wifi, Smartphone, CheckCircle } from 'lucide-react';
 import { SlideUp, FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
 import SelectProvider from '../../components/Forms/SelectProvider';
+import { useNotifications } from '../../context/NotificationContext';
 
 const NETWORKS = ['mtn', 'airtel', 'glo', '9mobile'];
 
@@ -22,10 +23,11 @@ export default function BuyData() {
   const [loading, setLoading] = useState(false);
   const [plansLoading, setPlansLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const { pricingVersion } = useNotifications();
 
   useEffect(() => {
     fetchPlans(network);
-  }, [network]);
+  }, [network, pricingVersion]);
 
   const fetchPlans = async (net: string) => {
     setPlansLoading(true);
@@ -35,7 +37,7 @@ export default function BuyData() {
         ...p,
         id: p.id,
         name: p.name,
-        price: p.admin_price,
+        price: p.effective_price ?? p.admin_price,
         data: p.size_mb,
         validity: p.validity
       }));

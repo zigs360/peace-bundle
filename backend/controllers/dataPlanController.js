@@ -1,6 +1,8 @@
 const DataPlan = require('../models/DataPlan');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
 // @desc    Get all data plans
 // @route   GET /api/plans
@@ -18,8 +20,36 @@ const getDataPlans = async (req, res) => {
             where,
             order: [['sort_order', 'ASC'], ['admin_price', 'ASC']]
         });
-        
-        res.json(plans);
+
+        let user = null;
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                if (decoded?.id) {
+                    user = await User.findByPk(decoded.id);
+                }
+            } catch (e) {
+                void e;
+            }
+        }
+
+        const payload = await Promise.all(
+            plans.map(async (plan) => {
+                const json = plan.toJSON();
+                try {
+                    const price = await plan.getPriceForUser(user);
+                    json.effective_price = parseFloat(String(price));
+                } catch (e) {
+                    void e;
+                    json.effective_price = parseFloat(String(plan.admin_price));
+                }
+                return json;
+            })
+        );
+
+        res.json(payload);
     } catch (error) {
         logger.error(`[DataPlan] Fetch error: ${error.message}`);
         res.status(500).json({ 

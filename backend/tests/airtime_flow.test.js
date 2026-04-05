@@ -1,7 +1,9 @@
-const { connectDB, User, Wallet, Sim, sequelize } = require('../config/db');
-const simManagementService = require('../services/simManagementService');
+const request = require('supertest');
+const app = require('../server');
+const { connectDB, User, Wallet, WalletTransaction, Transaction, Sim, sequelize } = require('../config/db');
 const walletService = require('../services/walletService');
-const logger = require('../utils/logger');
+const smeplugService = require('../services/smeplugService');
+const ogdamsService = require('../services/ogdamsService');
 
 /**
  * Integration Test for Airtime Purchase Flow
@@ -12,97 +14,208 @@ const logger = require('../utils/logger');
  * 3. Atomic failure (insufficient balance)
  */
 
-async function runTests() {
-  try {
-    await connectDB();
-    await sequelize.authenticate();
-    logger.info('Database connected for airtime flow testing.');
+const seedUserWithBalance = async ({ balance }) => {
+  const email = `airtime-${Date.now()}@test.com`;
+  const phone = `080${Date.now().toString().slice(-8)}`;
 
-    // Setup Test User
-    const [user] = await User.findOrCreate({
-      where: { email: 'test_airtime@example.com' },
-      defaults: {
-        name: 'Test User',
-        password: 'password123',
-        phone: '08100000000',
-        role: 'user'
-      }
-    });
+  const regRes = await request(app).post('/api/auth/register').send({
+    name: 'Airtime Tester',
+    email,
+    password: 'password123',
+    phone,
+  });
+  expect(regRes.statusCode).toBe(201);
+  const token = regRes.body.token;
+  expect(token).toBeTruthy();
 
-    // Setup Wallet
-    const [wallet] = await Wallet.findOrCreate({
-      where: { userId: user.id },
-      defaults: { balance: 1000 }
-    });
-    await wallet.update({ balance: 1000 });
+  const user = await User.findOne({ where: { email } });
+  expect(user).toBeTruthy();
 
-    logger.info(`Test User ID: ${user.id}, Initial Balance: ${wallet.balance}`);
+  const [wallet] = await Wallet.findOrCreate({
+    where: { userId: user.id },
+    defaults: { balance: 0 },
+  });
+  await wallet.update({ balance });
 
-    // Scenario 1: Success via Local SIM
-    logger.info('--- Scenario 1: Local SIM Success ---');
-    const [sim] = await Sim.findOrCreate({
-      where: { phoneNumber: '08111111111' },
-      defaults: {
-        userId: user.id,
-        provider: 'mtn',
-        status: 'active',
-        type: 'device_based',
-        airtimeBalance: 5000
-      }
-    });
-    await sim.update({ status: 'active', airtimeBalance: 5000 });
-
-    const amount = 100;
-    const recipient = '08122222222';
-
-    // Simulate the controller logic
-    const t1 = await sequelize.transaction();
-    try {
-      // 1. Debit
-      await walletService.debit(user, amount, 'airtime_purchase', 'Test Airtime', {}, t1);
-      
-      // 2. Process via SIM
-      const optimalSim = await simManagementService.getOptimalSim('mtn', amount);
-      if (!optimalSim || optimalSim.id !== sim.id) {
-          throw new Error('SIM fallback failed: Optimal SIM not found');
-      }
-
-      const result = await simManagementService.processTransaction(optimalSim, { provider: 'mtn', amount }, recipient);
-      if (!result.success) throw new Error(result.error);
-
-      await t1.commit();
-      logger.info('Scenario 1 Success: Wallet debited and SIM processed.');
-    } catch (e) {
-      await t1.rollback();
-      logger.error('Scenario 1 Failed:', e.message);
-    }
-
-    // Scenario 2: Insufficient Balance (Atomic Rollback)
-    logger.info('--- Scenario 2: Insufficient Balance ---');
-    await wallet.update({ balance: 50 }); // Less than 100
-    
-    const t2 = await sequelize.transaction();
-    try {
-        await walletService.debit(user, 100, 'airtime_purchase', 'Test Airtime', {}, t2);
-        await t2.commit();
-        logger.error('Scenario 2 Failed: Debit should have failed');
-    } catch (e) {
-        await t2.rollback();
-        logger.info('Scenario 2 Success: Transaction rolled back due to insufficient balance.');
-    }
-
-    // Final Cleanup (Optional)
-    // await user.destroy(); 
-    
-    logger.info('Tests completed.');
-  } catch (error) {
-    logger.error('Test Runner Failed:', error);
-    throw error;
-  }
-}
+  return { user, token };
+};
 
 describe('Airtime Purchase Flow', () => {
-  it('runs core airtime purchase scenarios', async () => {
-    await runTests();
+  beforeAll(async () => {
+    await connectDB();
+    jest.spyOn(ogdamsService, 'purchaseAirtime').mockImplementation(async ({ reference }) => {
+      return { status: 'success', reference: reference || 'MOCK-OGDAMS-REF' };
+    });
+    jest.spyOn(ogdamsService, 'checkAirtimeStatus').mockResolvedValue(null);
+  });
+
+  afterEach(async () => {
+    await Transaction.destroy({ where: {}, force: true });
+    await WalletTransaction.destroy({ where: {}, force: true });
+    await Sim.destroy({ where: {}, force: true });
+    await Wallet.destroy({ where: {}, force: true });
+    await User.destroy({ where: {}, force: true });
+  });
+
+  it('POST /api/transactions/airtime attempts Ogdams first (even when SIM exists)', async () => {
+    const { user, token } = await seedUserWithBalance({ balance: 1000 });
+
+    await Sim.create({
+      userId: user.id,
+      provider: 'mtn',
+      phoneNumber: '08111111111',
+      status: 'active',
+      type: 'device_based',
+      airtimeBalance: 5000,
+    });
+
+    const res = await request(app)
+      .post('/api/transactions/airtime')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ network: 'mtn', phone: '08122222222', amount: 100 });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.transaction).toBeTruthy();
+    expect(res.body.transaction.smeplug_response.provider).toBe('ogdams');
+    expect(res.body.transaction.metadata.service_provider).toBe('ogdams');
+    expect(ogdamsService.purchaseAirtime).toHaveBeenCalled();
+    expect(smeplugService.purchaseVTU).not.toHaveBeenCalled();
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+  });
+
+  it('POST /api/transactions/airtime falls back to SMEPlug SIM route when Ogdams fails and SIM exists', async () => {
+    const { user, token } = await seedUserWithBalance({ balance: 1000 });
+
+    await Sim.create({
+      userId: user.id,
+      provider: 'mtn',
+      phoneNumber: '08111111111',
+      status: 'active',
+      type: 'device_based',
+      airtimeBalance: 5000,
+    });
+
+    ogdamsService.purchaseAirtime.mockRejectedValueOnce(new Error('OGDAMS down'));
+
+    const res = await request(app)
+      .post('/api/transactions/airtime')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ network: 'mtn', phone: '08133333333', amount: 100 });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.transaction).toBeTruthy();
+    expect(res.body.transaction.smeplug_reference).toBe('MOCK-VTU-REF');
+    expect(res.body.transaction.smeplug_response.provider).toBe('smeplug');
+    expect(res.body.transaction.metadata.service_provider).toBe('smeplug');
+    expect(res.body.transaction.metadata.provider_switch).toBeTruthy();
+
+    expect(smeplugService.purchaseVTU).toHaveBeenCalled();
+    const lastCall = smeplugService.purchaseVTU.mock.calls.at(-1);
+    expect(lastCall[0]).toBe('mtn');
+    expect(lastCall[1]).toBe('08133333333');
+    expect(lastCall[2]).toBe(100);
+    expect(lastCall[3]).toEqual({ mode: 'device_based', sim_number: '08111111111' });
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+  });
+
+  it('POST /api/transactions/airtime falls back to SMEPlug API when Ogdams fails and no SIM exists', async () => {
+    const { user, token } = await seedUserWithBalance({ balance: 1000 });
+
+    ogdamsService.purchaseAirtime.mockResolvedValueOnce({ status: 'failed', message: 'temporary error' });
+
+    const res = await request(app)
+      .post('/api/transactions/airtime')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ network: 'mtn', phone: '08144444444', amount: 100 });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.transaction).toBeTruthy();
+    expect(res.body.transaction.smeplug_reference).toBe('MOCK-VTU-REF');
+    expect(res.body.transaction.smeplug_response.provider).toBe('smeplug');
+
+    expect(smeplugService.purchaseVTU).toHaveBeenCalled();
+    const lastCall = smeplugService.purchaseVTU.mock.calls.at(-1);
+    expect(lastCall[0]).toBe('mtn');
+    expect(lastCall[1]).toBe('08144444444');
+    expect(lastCall[2]).toBe(100);
+    expect(lastCall[3]).toBeUndefined();
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+  });
+
+  it('wallet debit is atomic when insufficient balance', async () => {
+    const { user } = await seedUserWithBalance({ balance: 50 });
+
+    const t = await sequelize.transaction();
+    try {
+      await walletService.debit(user, 100, 'airtime_purchase', 'Test Airtime', {}, t);
+      await t.commit();
+      throw new Error('Debit should have failed');
+    } catch (e) {
+      await t.rollback();
+    }
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(wallet.balance)).toBeCloseTo(50, 2);
+  });
+
+  it('POST /api/purchase/unified airtime works with +234 format and debits full amount', async () => {
+    const { user, token } = await seedUserWithBalance({ balance: 1000 });
+
+    const res = await request(app)
+      .post('/api/purchase/unified')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        phone: '+2348133333333',
+        serviceType: 'airtime',
+        amount: 100,
+        network: 'mtn',
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.transaction).toBeTruthy();
+    expect(res.body.transaction.smeplug_response.provider).toBe('ogdams');
+    expect(res.body.transaction.metadata.service_provider).toBe('ogdams');
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+  });
+
+  it('does not fall back immediately when Ogdams times out (queues for verification)', async () => {
+    const originalTimeout = process.env.OGDAMS_TIMEOUT_MS;
+    process.env.OGDAMS_TIMEOUT_MS = '5';
+
+    const { user, token } = await seedUserWithBalance({ balance: 1000 });
+
+    ogdamsService.purchaseAirtime.mockImplementationOnce(() => new Promise(() => {}));
+    ogdamsService.checkAirtimeStatus.mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .post('/api/transactions/airtime')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ network: 'mtn', phone: '08155555555', amount: 100 });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(String(res.body.message || '').toLowerCase()).toContain('queued');
+    expect(res.body.transaction).toBeTruthy();
+    expect(res.body.transaction.status).toBe('queued');
+    expect(res.body.transaction.metadata?.reconcile_scheduled).toBe(true);
+
+    expect(smeplugService.purchaseVTU).not.toHaveBeenCalled();
+
+    process.env.OGDAMS_TIMEOUT_MS = originalTimeout;
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
   });
 });

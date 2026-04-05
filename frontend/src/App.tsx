@@ -11,7 +11,7 @@ import Layout from './components/Layout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsersPage from './pages/admin/AdminUsersPage';
 import Transactions from './pages/admin/AdminTransactionsPage';
-import Pricing from './pages/Pricing';
+import AdminPricing from './pages/admin/AdminPricing';
 import PlansIndex from './pages/admin/Plans/Index';
 import CreatePlan from './pages/admin/Plans/Create';
 import SimsIndex from './pages/admin/Sims/Index';
@@ -86,7 +86,7 @@ function App() {
             <Route path="users" element={<AdminUsersPage />} />
             <Route path="transactions" element={<Transactions />} />
             <Route path="funding-review" element={<FundingReviews />} />
-            <Route path="pricing" element={<Pricing />} />
+            <Route path="pricing" element={<AdminPricing />} />
             <Route path="kyc" element={<KycIndex />} />
             <Route path="subscriptions" element={<SubscriptionsIndex />} />
             <Route path="subscriptions/create" element={<CreateOrEditSubscriptionPlan />} />

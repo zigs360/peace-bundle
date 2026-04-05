@@ -5,6 +5,8 @@ const DataPlan = require('../models/DataPlan');
 const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
 const simManagementService = require('../services/simManagementService');
+const dataPurchaseService = require('../services/dataPurchaseService');
+const pricingService = require('../services/pricingService');
 const transactionLimitService = require('../services/transactionLimitService');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database');
@@ -73,60 +75,60 @@ const purchaseUnified = async (req, res) => {
       if (serviceType === 'airtime' || serviceType === 'talkmore') {
         transactionType = 'airtime_purchase';
         description = `${network.toUpperCase()} ${serviceType === 'talkmore' ? 'TalkMore' : 'Airtime'} ₦${finalAmount} to ${cleanPhone}`;
+
+        const quote = await pricingService.quoteAirtime({ user, provider: cleanNetwork, faceValue: finalAmount });
+        const chargedAmount = parseFloat(String(quote.charged_amount));
         
         // Debit Wallet
         const newTransaction = await walletService.debit(
           user,
-          finalAmount,
+          chargedAmount,
           transactionType,
           description,
-          { network: cleanNetwork, phone: cleanPhone, amount: finalAmount, serviceType, planId },
+          { network: cleanNetwork, phone: cleanPhone, amount: finalAmount, chargedAmount, serviceType, planId, pricing: quote },
           t
         );
 
-        // 2. Process Purchase (Local SIM or API)
-        let processedViaSim = false;
-        let simReference = null;
-        let simResponse = null;
-
-        // Try to find a local SIM first (for airtime/VTU)
-        const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, finalAmount);
-        if (optimalSim) {
-          try {
-            const simResult = await simManagementService.processTransaction(optimalSim, { provider: cleanNetwork, amount: finalAmount }, cleanPhone);
-            if (simResult.success) {
-              processedViaSim = true;
-              simReference = simResult.reference;
-              simResponse = simResult;
+        await newTransaction.update(
+          {
+            status: 'processing',
+            recipient_phone: cleanPhone,
+            provider: cleanNetwork,
+            metadata: {
+              ...(newTransaction.metadata || {}),
+              vend_amount: finalAmount,
+              charged_amount: chargedAmount,
+              service_type: serviceType,
+              pricing: quote
             }
-          } catch (simError) {
-            logger.error('Local SIM Airtime Failure:', { error: simError.message, phone: cleanPhone });
-          }
-        }
+          },
+          { transaction: t }
+        );
 
-        if (processedViaSim) {
-          newTransaction.smeplug_reference = simReference;
-          newTransaction.smeplug_response = simResponse;
-          await newTransaction.save({ transaction: t });
-        } else {
-          // Call SMEPlug API for airtime as fallback
-          const providerResponse = await smeplugService.purchaseVTU(cleanNetwork, cleanPhone, finalAmount);
-          
-          if (!providerResponse.success) {
-            logger.error('Smeplug Airtime Failure:', providerResponse);
-            throw new Error(providerResponse.error || 'Failed to process airtime purchase');
-          }
-
-          newTransaction.smeplug_reference = providerResponse.data?.reference || providerResponse.data?.transaction_id;
-          newTransaction.smeplug_response = providerResponse.data;
-          await newTransaction.save({ transaction: t });
+        let providerResult;
+        try {
+          providerResult = await dataPurchaseService.dispenseAirtimeWithFallback(
+            newTransaction,
+            { network: cleanNetwork, amount: finalAmount, phoneNumber: cleanPhone },
+            { endpoint: 'POST /api/purchase/unified', userId, serviceType },
+            t
+          );
+        } catch (providerError) {
+          await t.commit();
+          return res.status(502).json({
+            success: false,
+            message: providerError.message || 'Failed to process airtime purchase',
+            transaction: newTransaction
+          });
         }
 
         await t.commit();
         
         return res.json({
           success: true,
-          message: `${serviceType === 'talkmore' ? 'TalkMore' : 'Airtime'} purchase successful`,
+          message: providerResult?.pending
+            ? `${serviceType === 'talkmore' ? 'TalkMore' : 'Airtime'} purchase queued for verification`
+            : `${serviceType === 'talkmore' ? 'TalkMore' : 'Airtime'} purchase successful`,
           transaction: newTransaction,
           activationCode: serviceType === 'talkmore' ? `*234*${finalAmount}#` : null
         });
@@ -140,7 +142,8 @@ const purchaseUnified = async (req, res) => {
           throw new Error('Invalid data plan selected');
         }
 
-        const price = parseFloat(await plan.getPriceForUser(user));
+        const quote = await pricingService.quoteDataPlan({ user, plan });
+        const price = parseFloat(String(quote.charged_amount));
 
         // Debit Wallet
         const newTransaction = await walletService.debit(
@@ -148,7 +151,7 @@ const purchaseUnified = async (req, res) => {
           price,
           transactionType,
           `${network.toUpperCase()} ${plan.size} Data Purchase to ${cleanPhone}`,
-          { network: cleanNetwork, phone: cleanPhone, planId, amount: price, planName: plan.name },
+          { network: cleanNetwork, phone: cleanPhone, planId, amount: price, planName: plan.name, pricing: quote },
           t
         );
 

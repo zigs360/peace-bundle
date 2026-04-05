@@ -4,6 +4,7 @@ import { ArrowLeft, PhoneCall, CheckCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../../services/api';
 import PageTransition from '../../components/animations/PageTransition';
+import { useNotifications } from '../../context/NotificationContext';
 
 interface CallPlan {
   id: string;
@@ -24,18 +25,22 @@ export default function BuyCallSubscription() {
   const [recipientPhoneNumber, setRecipientPhoneNumber] = useState('');
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<CallPlan | null>(null);
+  const { pricingVersion } = useNotifications();
 
   useEffect(() => {
     fetchCallPlans();
-  }, [selectedProvider]);
+  }, [selectedProvider, pricingVersion]);
 
   const fetchCallPlans = async () => {
     setLoading(true);
     try {
       const res = await api.get('/callplans', { params: { provider: selectedProvider, status: 'active' } });
-      if (res.data.success) {
-        setCallPlans(res.data.data);
-      }
+      const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      const mapped = (raw as any[]).map((p: any) => ({
+        ...p,
+        price: p.effective_price ?? p.price,
+      }));
+      setCallPlans(mapped);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to fetch call plans');
     } finally {

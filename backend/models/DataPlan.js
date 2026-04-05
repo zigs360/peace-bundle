@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database'); // Import the instance directly
+const pricingService = require('../services/pricingService');
 
 const DataPlan = sequelize.define('DataPlan', {
   id: {
@@ -99,6 +100,15 @@ const DataPlan = sequelize.define('DataPlan', {
 DataPlan.prototype.getPriceForUser = async function(user) {
   if (!user) {
     return parseFloat(this.admin_price);
+  }
+
+  try {
+    const quote = await pricingService.quoteDataPlan({ user, plan: this });
+    if (quote && quote.ruleId) {
+      return parseFloat(String(quote.charged_amount));
+    }
+  } catch (e) {
+    void e;
   }
 
   // Check if reseller has custom pricing

@@ -1,10 +1,12 @@
 const CallPlan = require('../models/CallPlan');
 const VoiceBundle = require('../models/VoiceBundle');
 const User = require('../models/User');
-const Wallet = require('../models/Wallet');
-const Transaction = require('../models/Transaction');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
+const walletService = require('../services/walletService');
+const pricingService = require('../services/pricingService');
+const sequelize = require('../config/database');
+const jwt = require('jsonwebtoken');
 
 /**
  * @desc    Get voice bundles (TalkMore, etc.)
@@ -95,7 +97,33 @@ const getCallPlans = async (req, res) => {
       order: [['price', 'ASC']],
     });
 
-    res.json(callPlans);
+    let user = null;
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded?.id) user = await User.findByPk(decoded.id);
+      } catch (e) {
+        void e;
+      }
+    }
+
+    const payload = await Promise.all(
+      callPlans.map(async (p) => {
+        const json = p.toJSON();
+        try {
+          const quote = await pricingService.quoteSubscriptionPlan({ user, plan: p });
+          json.effective_price = parseFloat(String(quote.charged_amount));
+        } catch (e) {
+          void e;
+          json.effective_price = parseFloat(String(p.price));
+        }
+        return json;
+      }),
+    );
+
+    res.json(payload);
   } catch (error) {
     logger.error(`[CallPlan] Fetch error: ${error.message}`);
     res.status(500).json({ 
@@ -235,46 +263,35 @@ const purchaseCallPlan = async (req, res) => {
       });
     }
 
-    const user = await User.findByPk(userId, { 
-      include: [{ model: Wallet, as: 'wallet' }] 
-    });
+    const user = await User.findByPk(userId);
 
-    if (!user || !user.wallet) {
+    if (!user) {
       return res.status(404).json({ 
         success: false, 
-        message: 'User wallet account not found' 
+        message: 'User not found' 
       });
     }
 
-    const price = parseFloat(callPlan.price);
-    const balance = parseFloat(user.wallet.balance);
+    const quote = await pricingService.quoteSubscriptionPlan({ user, plan: callPlan });
+    const chargedAmount = parseFloat(String(quote.charged_amount));
 
-    if (balance < price) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Insufficient balance. Required: ₦${price}, Available: ₦${balance}` 
-      });
-    }
-
-    // Deduct from wallet
-    user.wallet.balance = balance - price;
-    await user.wallet.save();
-
-    // Record transaction
-    const transaction = await Transaction.create({
-      userId,
-      type: 'call_plan_purchase',
-      amount: price,
-      status: 'completed',
-      description: `Purchase of ${callPlan.name} for ${recipientPhoneNumber}`,
-      metadata: {
-        callPlanId: callPlan.id,
-        callPlanName: callPlan.name,
-        recipientPhoneNumber,
-        provider: callPlan.provider,
-        minutes: callPlan.minutes,
-        validityDays: callPlan.validityDays,
-      },
+    const transaction = await sequelize.transaction(async (t) => {
+      return walletService.debit(
+        user,
+        chargedAmount,
+        'call_plan_purchase',
+        `Purchase of ${callPlan.name} for ${recipientPhoneNumber}`,
+        {
+          callPlanId: callPlan.id,
+          callPlanName: callPlan.name,
+          recipientPhoneNumber,
+          provider: callPlan.provider,
+          minutes: callPlan.minutes,
+          validityDays: callPlan.validityDays,
+          pricing: quote,
+        },
+        t
+      );
     });
 
     logger.info(`[CallPlan] Purchase successful: User ${userId} bought ${callPlan.name} for ${recipientPhoneNumber}. Transaction: ${transaction.id}`);
@@ -284,7 +301,7 @@ const purchaseCallPlan = async (req, res) => {
       message: 'Call plan purchased successfully. Activation is being processed.',
       data: {
         transactionId: transaction.id,
-        newBalance: user.wallet.balance
+        newBalance: await walletService.getBalance(user)
       }
     });
   } catch (error) {

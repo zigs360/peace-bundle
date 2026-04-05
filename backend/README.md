@@ -63,6 +63,24 @@ The API endpoints are structured under `/api`:
 - `/api/wallet`: Funding, Transfers, Balance
 - `/api/purchase`: Unified VTU purchase (Airtime/Data)
 - `/api/admin`: Management of users, transactions, and SIMs
+- `/api/reports`: Admin reporting endpoints (system stats, charts, provider health)
+
+### Airtime Provider Monitoring
+
+- `GET /api/reports/airtime-providers?timeRange=24h|7d|30d`
+  - Returns success rates and fallback/switch counts for Ogdams vs Smeplug (admin only).
+
+## ⚙️ Required Environment Variables
+
+- `DATABASE_URL` and `JWT_SECRET` are required at runtime. The server will refuse to start if missing.
+- Provider timeouts (optional):
+  - `OGDAMS_TIMEOUT_MS` (default: 12000)
+  - `SMEPLUG_TIMEOUT_MS` (default: 15000)
+- Airtime verification (optional, safety against double-vend on timeouts):
+  - `OGDAMS_STATUS_CHECK_ENABLED` (default: true)
+  - `OGDAMS_STATUS_PATH` (default: `/transactions`)
+  - `AIRTIME_RECONCILE_DELAY_MS` (default: 5000)
+  - `AIRTIME_RECONCILE_MAX_ATTEMPTS` (default: 3)
 
 ## 🛡️ Security Best Practices
 

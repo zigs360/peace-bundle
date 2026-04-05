@@ -5,5 +5,6 @@ const { protect, admin } = require('../middleware/authMiddleware');
 
 router.get('/stats', protect, admin, reportController.getSystemStats);
 router.get('/chart', protect, admin, reportController.getChartData);
+router.get('/airtime-providers', protect, admin, reportController.getAirtimeProviderStats);
 
 module.exports = router;

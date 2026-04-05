@@ -3,11 +3,22 @@ const axiosRetry = require('axios-retry').default;
 const Joi = require('joi');
 const logger = require('../utils/logger');
 
-axiosRetry(axios, { retries: 3, retryDelay: axiosRetry.exponentialDelay });
-
 class OgdamsService {
     constructor() {
         this.baseUrl = 'https://simhosting.ogdams.ng/api/v1';
+        const timeoutRaw = Number.parseInt(process.env.OGDAMS_TIMEOUT_MS || '12000', 10);
+        this.timeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 12000;
+
+        this.http = axios.create();
+        axiosRetry(this.http, {
+            retries: 2,
+            retryDelay: axiosRetry.exponentialDelay,
+            retryCondition: (error) => {
+                const method = String(error?.config?.method || '').toLowerCase();
+                if (method !== 'get') return false;
+                return axiosRetry.isNetworkOrIdempotentRequestError(error);
+            }
+        });
     }
 
     /**
@@ -42,7 +53,7 @@ class OgdamsService {
         };
 
         try {
-            const response = await axios.post(url, data, { headers, timeout: 30000 });
+            const response = await this.http.post(url, data, { headers, timeout: this.timeoutMs });
             logger.info('Ogdams API Response:', { reference: data.reference, response: response.data });
             return response.data;
         } catch (error) {
@@ -57,6 +68,40 @@ class OgdamsService {
                 logger.error('Ogdams API Error', meta);
             }
 
+            const err = new Error(message);
+            err.statusCode = status || 502;
+            throw err;
+        }
+    }
+
+    async checkAirtimeStatus(reference) {
+        const ref = String(reference || '').trim();
+        if (!ref) {
+            throw new Error('Reference is required');
+        }
+
+        const apiKey = process.env.OGDAMS_API_KEY;
+        if (!apiKey) {
+            const err = new Error('OGDAMS_API_KEY is not configured');
+            err.statusCode = 500;
+            throw err;
+        }
+
+        const statusPath = String(process.env.OGDAMS_STATUS_PATH || '/transactions').trim();
+        const basePath = statusPath.startsWith('/') ? statusPath : `/${statusPath}`;
+        const url = `${this.baseUrl}${basePath}/${encodeURIComponent(ref)}`;
+
+        try {
+            const response = await this.http.get(url, {
+                headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+                timeout: this.timeoutMs
+            });
+            return response.data;
+        } catch (error) {
+            const status = error.response?.status;
+            if (status === 404) return null;
+            const responseData = error.response?.data;
+            const message = responseData?.message || responseData?.error || error.message || 'Ogdams status request failed';
             const err = new Error(message);
             err.statusCode = status || 502;
             throw err;

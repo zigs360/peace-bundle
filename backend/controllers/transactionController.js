@@ -10,6 +10,8 @@ const { sendTransactionNotification, sendSMS } = require('../services/notificati
 const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
 const simManagementService = require('../services/simManagementService');
+const dataPurchaseService = require('../services/dataPurchaseService');
+const pricingService = require('../services/pricingService');
 const transactionLimitService = require('../services/transactionLimitService');
 const affiliateService = require('../services/affiliateService');
 const paymentGatewayService = require('../services/paymentGatewayService');
@@ -257,6 +259,7 @@ const buyAirtime = async (req, res) => {
     const { network, phone, amount } = req.body;
     const userId = req.user.id;
     let t;
+    let newTransaction;
 
     try {
         const user = await User.findByPk(userId);
@@ -277,70 +280,69 @@ const buyAirtime = async (req, res) => {
         t = await sequelize.transaction();
 
         const faceValue = parseFloat(amount);
-        const discount = 0.02; // 2%
-        const toPay = faceValue * (1 - discount);
+        const quote = await pricingService.quoteAirtime({ user, provider: network, faceValue });
+        const toPay = parseFloat(String(quote.charged_amount));
 
         // Debit Wallet
-        const newTransaction = await walletService.debit(
+        newTransaction = await walletService.debit(
             user,
             toPay,
             'airtime_purchase',
             `${network.toUpperCase()} Airtime ₦${faceValue} to ${phone}`,
-            { network, phone, faceValue, type: 'airtime' },
+            { network, phone, faceValue, type: 'airtime', pricing: quote },
             t
         );
 
-        // 2. Call Smeplug API or Local SIM for Airtime
-        let processedViaSim = false;
-        let simReference = null;
-        let simResponse = null;
-
-        // Try to find a local SIM first (for airtime/VTU)
-        const optimalSim = await simManagementService.getOptimalSim(network, faceValue);
-        
-        if (optimalSim) {
-            try {
-                const simResult = await simManagementService.processTransaction(optimalSim, { provider: network, amount: faceValue }, phone);
-                if (simResult.success) {
-                    processedViaSim = true;
-                    simReference = simResult.reference;
-                    simResponse = simResult;
+        await newTransaction.update(
+            {
+                status: 'processing',
+                recipient_phone: phone,
+                provider: network,
+                metadata: {
+                    ...(newTransaction.metadata || {}),
+                    vend_amount: faceValue,
+                    charged_amount: toPay,
+                    service_type: 'airtime',
+                    pricing: quote
                 }
-            } catch (simError) {
-                logger.error('Local SIM Airtime transaction failed, falling back to API:', { error: simError.message, phone });
-            }
-        }
+            },
+            { transaction: t }
+        );
 
-        if (processedViaSim) {
-            newTransaction.smeplug_reference = simReference;
-            newTransaction.smeplug_response = simResponse;
-            await newTransaction.save({ transaction: t });
-        } else {
-            const purchaseResult = await smeplugService.purchaseVTU(network, phone, faceValue);
-
-            if (!purchaseResult.success) {
-                throw new Error(purchaseResult.error || 'Airtime purchase failed at provider');
-            }
-
-            // Update transaction with provider reference
-            newTransaction.smeplug_reference = purchaseResult.data?.reference || purchaseResult.data?.transaction_id;
-            newTransaction.smeplug_response = purchaseResult.data;
-            await newTransaction.save({ transaction: t });
+        let providerResult;
+        try {
+            providerResult = await dataPurchaseService.dispenseAirtimeWithFallback(
+                newTransaction,
+                { network, amount: faceValue, phoneNumber: phone },
+                { endpoint: 'POST /api/transactions/airtime', userId },
+                t
+            );
+        } catch (providerError) {
+            await t.commit();
+            const updatedWallet = await walletService.getBalance(user);
+            return res.status(502).json({
+                success: false,
+                message: providerError.message || 'Airtime purchase failed at provider',
+                balance: updatedWallet,
+                transaction: newTransaction
+            });
         }
 
         await t.commit();
-        await sendTransactionNotification(user, newTransaction);
+        if (!providerResult?.pending) {
+            await sendTransactionNotification(user, newTransaction);
+        }
         
         const updatedWallet = await walletService.getBalance(user);
 
         res.json({
             success: true,
-            message: 'Airtime purchase successful',
+            message: providerResult?.pending ? 'Airtime purchase queued for verification' : 'Airtime purchase successful',
             balance: updatedWallet,
             transaction: newTransaction
         });
     } catch (error) {
-        if (t) await t.rollback();
+        if (t && !t.finished) await t.rollback();
         logger.error('Airtime Purchase Error:', { error: error.message, stack: error.stack, userId, phone });
         res.status(500).json({ success: false, message: error.message || 'Server Error' });
     }
@@ -727,8 +729,8 @@ const sendBulkSMS = async (req, res) => {
         // Note: For very large lists, this should be moved to a background job (Queue)
         
         // Fire and forget (or await if critical)
-        Promise.allSettled(recipientList.map(recipient => 
-            sendSMS(recipient, message)
+        Promise.allSettled(recipientList.map((recipient) =>
+            sendSMS(recipient, message, { senderId })
         )).then(results => {
             logger.info(`Bulk SMS Processed: ${results.length} messages`);
         }).catch(err => {

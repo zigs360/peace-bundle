@@ -6,6 +6,7 @@ import { FadeIn, SlideUp } from '../../components/animations/MotionComponents';
 import { detectNetwork, networkServices, recommendations, isValidNigerianNumber } from '../../utils/networkDetection';
 import { toast } from 'react-hot-toast';
 import SelectProvider from '../../components/Forms/SelectProvider';
+import { useNotifications } from '../../context/NotificationContext';
 
 const SERVICE_LABELS: Record<string, string> = {
   airtime: 'Airtime',
@@ -25,6 +26,7 @@ export default function BuyAirtime() {
   const [activationCode, setActivationCode] = useState<string | null>(null);
   const [isPhoneValid, setIsPhoneValid] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
+  const { pricingVersion } = useNotifications();
 
   useEffect(() => {
     setIsPhoneValid(isValidNigerianNumber(phone));
@@ -50,12 +52,21 @@ export default function BuyAirtime() {
     }
   }, [phone, manualOverride]);
 
+  useEffect(() => {
+    if (!network) return;
+    fetchDataPlans(network);
+    fetchVoiceBundles(network);
+  }, [network, pricingVersion]);
+
   const fetchDataPlans = async (provider: string) => {
     try {
       const res = await api.get('/plans', { params: { provider, status: 'active' } });
-      if (res.data.success) {
-        setDataPlans(res.data.data);
-      }
+      const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      const mapped = (raw as any[]).map((p: any) => ({
+        ...p,
+        price: p.effective_price ?? p.admin_price ?? p.price
+      }));
+      setDataPlans(mapped);
     } catch (err) {
       console.error('Failed to fetch data plans', err);
     }
@@ -64,9 +75,8 @@ export default function BuyAirtime() {
   const fetchVoiceBundles = async (network: string) => {
     try {
       const res = await api.get('/plans/voice-bundles', { params: { network, status: 'active' } });
-      if (res.data.success) {
-        setVoiceBundles(res.data.data);
-      }
+      const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      setVoiceBundles(raw);
     } catch (err) {
       console.error('Failed to fetch voice bundles', err);
     }

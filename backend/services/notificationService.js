@@ -1,75 +1,156 @@
 const nodemailer = require('nodemailer');
 const axios = require('axios');
 const Notification = require('../models/Notification');
+const logger = require('../utils/logger');
 
-// Create reusable transporter object using the default SMTP transport
-// In production, use real credentials from .env
-const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-    port: process.env.SMTP_PORT || 587,
-    secure: false, // true for 465, false for other ports
-    auth: {
-        user: process.env.SMTP_USER || 'ethereal_user', // generated ethereal user
-        pass: process.env.SMTP_PASS || 'ethereal_pass', // generated ethereal password
-    },
-});
+const isPlaceholder = (value) => {
+    const str = String(value || '').toLowerCase();
+    return !str || str.includes('your_') || str.includes('example') || str.includes('ethereal_');
+};
+
+const resolveSmtpSettings = () => {
+    const host = isPlaceholder(process.env.SMTP_HOST) ? process.env.gmail_host : (process.env.SMTP_HOST || process.env.gmail_host);
+    const portRaw = isPlaceholder(process.env.SMTP_PORT) ? process.env.gmail_port : (process.env.SMTP_PORT || process.env.gmail_port);
+    const user = isPlaceholder(process.env.SMTP_USER) ? process.env.gmail_user : (process.env.SMTP_USER || process.env.gmail_user);
+    const pass = isPlaceholder(process.env.SMTP_PASS) ? process.env.gmail_pass : (process.env.SMTP_PASS || process.env.gmail_pass);
+    const from = process.env.SMTP_FROM || process.env.smtp_from || `"Peace Bundlle" <noreply@peacebundlle.com>`;
+
+    const port = Number.parseInt(String(portRaw || ''), 10);
+    const encryptionRaw = process.env.SMTP_ENCRYPTION || process.env.encryption || '';
+    const encryption = String(encryptionRaw).trim().toLowerCase();
+
+    const secureExplicit = String(process.env.SMTP_SECURE || '').trim().toLowerCase();
+    const secure =
+        secureExplicit === 'true'
+            ? true
+            : secureExplicit === 'false'
+                ? false
+                : Number.isFinite(port) && port === 465
+                    ? true
+                    : encryption === 'ssl' || encryption === 'smtps';
+
+    const requireTLS = encryption === 'tls' || encryption === 'starttls';
+
+    return {
+        host,
+        port: Number.isFinite(port) ? port : 587,
+        user,
+        pass,
+        from,
+        secure,
+        requireTLS,
+    };
+};
+
+let cachedTransporter = null;
+let cachedTransportKey = null;
+
+const getTransporter = () => {
+    const settings = resolveSmtpSettings();
+    const key = JSON.stringify({
+        host: settings.host,
+        port: settings.port,
+        user: settings.user,
+        secure: settings.secure,
+        requireTLS: settings.requireTLS,
+    });
+
+    if (cachedTransporter && cachedTransportKey === key) return cachedTransporter;
+
+    if (!settings.host || !settings.user || !settings.pass) return null;
+    if (isPlaceholder(settings.user) || isPlaceholder(settings.pass)) return null;
+
+    cachedTransporter = nodemailer.createTransport({
+        host: settings.host,
+        port: settings.port,
+        secure: settings.secure,
+        auth: { user: settings.user, pass: settings.pass },
+        requireTLS: settings.requireTLS,
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 20_000,
+    });
+    cachedTransportKey = key;
+
+    return cachedTransporter;
+};
 
 const sendEmail = async (to, subject, text, html) => {
     try {
         if (process.env.NODE_ENV === 'test') return;
         if (!to) return;
-        
-        // If credentials are still placeholders, log and return to prevent timeout/errors
-        if (process.env.SMTP_USER && process.env.SMTP_USER.includes('your_email')) {
-            console.log(`[Mock Email] (Credentials not set) To: ${to} | Subject: ${subject}`);
+
+        const transporter = getTransporter();
+        if (!transporter) {
+            logger.info('[Mock Email] SMTP not configured', { to, subject });
             return;
         }
 
+        const { from } = resolveSmtpSettings();
         const info = await transporter.sendMail({
-            from: '"Peace Bundlle" <noreply@peacebundlle.com>', // sender address
+            from,
             to, // list of receivers
             subject, // Subject line
             text, // plain text body
-            html, // html body
+            html: html || undefined, // html body
         });
 
-        console.log('Message sent: %s', info.messageId);
+        logger.info('Email sent', { messageId: info.messageId, to });
     } catch (error) {
-        console.error('Error sending email:', error);
+        logger.error('Error sending email', { error: error.message });
     }
 };
 
-const sendSMS = async (phone, message) => {
+const sendSMS = async (phone, message, options = {}) => {
     try {
         if (process.env.NODE_ENV === 'test') return;
         if (!phone) return;
 
-        // Normalize phone number to international format (234...)
-        let formattedPhone = phone;
-        if (phone.startsWith('0')) {
-            formattedPhone = '234' + phone.substring(1);
+        const digitsOnly = String(phone || '').replace(/[^\d+]/g, '');
+        let formattedPhone = digitsOnly.startsWith('+') ? digitsOnly.slice(1) : digitsOnly;
+        if (formattedPhone.startsWith('0')) {
+            formattedPhone = `234${formattedPhone.slice(1)}`;
+        }
+        if (formattedPhone.startsWith('2340')) {
+            formattedPhone = `234${formattedPhone.slice(4)}`;
         }
 
         // Check for Termii configuration
-        if (process.env.SMS_PROVIDER === 'termii' && process.env.SMS_API_KEY && !process.env.SMS_API_KEY.includes('your_')) {
+        const smsProvider = String(process.env.SMS_PROVIDER || '').trim().toLowerCase();
+        const apiKey = String(process.env.SMS_API_KEY || '').trim();
+        if (smsProvider === 'termii' && apiKey && !apiKey.includes('your_')) {
+            const senderId = String(options.senderId || process.env.SMS_SENDER_ID || 'PeaceBundlle').trim();
+            const channel = String(options.channel || process.env.SMS_CHANNEL || 'generic').trim();
             const payload = {
                 to: formattedPhone,
-                from: process.env.SMS_SENDER_ID || 'PeaceBundlle',
+                from: senderId,
                 sms: message,
                 type: 'plain',
-                channel: 'generic',
+                channel,
                 api_key: process.env.SMS_API_KEY,
             };
 
-            const url = `${process.env.SMS_BASE_URL}/api/sms/send`;
-            const response = await axios.post(url, payload);
-            console.log(`[Termii SMS] Sent to ${formattedPhone}. Status: ${response.data.message}`);
+            const baseUrl = String(process.env.SMS_BASE_URL || 'https://v3.api.termii.com').trim().replace(/\/+$/, '');
+            const url = `${baseUrl}/api/sms/send`;
+            const response = await axios.post(url, payload, { timeout: 10_000 });
+            const ok =
+                String(response.data?.code || '').toLowerCase() === 'ok' ||
+                String(response.data?.message || '').toLowerCase().includes('success');
+            if (ok) {
+                logger.info('[Termii SMS] Sent', { to: formattedPhone });
+            } else {
+                logger.warn('[Termii SMS] Non-success response', { to: formattedPhone, response: response.data });
+            }
         } else {
             // Fallback to mock log if credentials are missing
-            console.log(`[Mock SMS] To: ${formattedPhone} | Message: ${message}`);
+            logger.info('[Mock SMS] Missing credentials', { to: formattedPhone });
         }
     } catch (error) {
-        console.error('Error sending SMS:', error.response ? error.response.data : error.message);
+        logger.error('Error sending SMS', {
+            error: error.message,
+            status: error.response?.status,
+            response: error.response?.data,
+        });
     }
 };
 

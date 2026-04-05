@@ -1,5 +1,8 @@
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const logger = require('../utils/logger');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const pricingService = require('../services/pricingService');
 
 // @desc    Get all subscription plans
 // @route   GET /api/plans/subscriptions
@@ -10,7 +13,34 @@ const getSubscriptionPlans = async (req, res) => {
             where: { is_active: true },
             order: [['sort_order', 'ASC']]
         });
-        res.json(plans);
+
+        let user = null;
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                if (decoded?.id) user = await User.findByPk(decoded.id);
+            } catch (e) {
+                void e;
+            }
+        }
+
+        const payload = await Promise.all(
+            plans.map(async (p) => {
+                const json = p.toJSON();
+                try {
+                    const quote = await pricingService.quoteSubscriptionPlan({ user, plan: p });
+                    json.effective_price = parseFloat(String(quote.charged_amount));
+                } catch (e) {
+                    void e;
+                    json.effective_price = parseFloat(String(p.price));
+                }
+                return json;
+            }),
+        );
+
+        res.json(payload);
     } catch (error) {
         logger.error(`[SubscriptionPlan] Fetch error: ${error.message}`);
         res.status(500).json({ 

@@ -46,6 +46,7 @@ const {
     deleteSubscriptionPlan
 } = require('../controllers/subscriptionPlanController');
 // const { getAllTransactions } = require('../controllers/transactionController'); // Replaced by admin controller version
+const pricingController = require('../controllers/pricingController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 router.get('/stats', protect, admin, getAdminStats);
@@ -103,5 +104,14 @@ router.get('/virtual-accounts/health', protect, admin, getVirtualAccountHealth);
 router.get('/funding/pending-review', protect, admin, listPendingFundingReviews);
 router.post('/funding/pending-review/:id/approve', protect, admin, approvePendingFundingReview);
 router.post('/funding/pending-review/:id/reject', protect, admin, rejectPendingFundingReview);
+
+router.get('/pricing/tiers', protect, admin, pricingController.listTiers);
+router.post('/pricing/tiers', protect, admin, pricingController.createTier);
+router.put('/pricing/tiers/:id', protect, admin, pricingController.updateTier);
+router.get('/pricing/rules', protect, admin, pricingController.listRules);
+router.post('/pricing/rules', protect, admin, pricingController.createRule);
+router.put('/pricing/rules/:id', protect, admin, pricingController.updateRule);
+router.delete('/pricing/rules/:id', protect, admin, pricingController.deleteRule);
+router.get('/pricing/audit', protect, admin, pricingController.listAuditLogs);
 
 module.exports = router;
