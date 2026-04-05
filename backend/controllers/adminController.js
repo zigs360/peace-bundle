@@ -1343,6 +1343,7 @@ const getVirtualAccountHealth = async (req, res) => {
             process.env.BILLSTACK_BASE_URL ||
             process.env.BILL_STACK_BASE_URL ||
             process.env.Bill_Stack_BASE_URL ||
+            process.env.BillSTACK_BASE_URL ||
             null;
         let billstackHost = null;
         try {
@@ -1369,7 +1370,10 @@ const getVirtualAccountHealth = async (req, res) => {
             providers: {
                 billstack: {
                     configured: Boolean(
-                        (process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY || process.env.Bill_Stack_SECRET_KEY) &&
+                        (process.env.BILLSTACK_SECRET_KEY ||
+                            process.env.BILL_STACK_SECRET_KEY ||
+                            process.env.Bill_Stack_SECRET_KEY ||
+                            process.env.BillSTACK_SECRET_KEY) &&
                             billstackBaseUrl
                     ),
                     baseUrlHost: billstackHost,
@@ -1377,17 +1381,20 @@ const getVirtualAccountHealth = async (req, res) => {
                         baseUrlSources: {
                             BILLSTACK_BASE_URL: Boolean(process.env.BILLSTACK_BASE_URL),
                             BILL_STACK_BASE_URL: Boolean(process.env.BILL_STACK_BASE_URL),
-                            Bill_Stack_BASE_URL: Boolean(process.env.Bill_Stack_BASE_URL)
+                            Bill_Stack_BASE_URL: Boolean(process.env.Bill_Stack_BASE_URL),
+                            BillSTACK_BASE_URL: Boolean(process.env.BillSTACK_BASE_URL)
                         },
                         secretKeySources: {
                             BILLSTACK: Boolean(process.env.BILLSTACK_SECRET_KEY),
                             BILL_STACK: Boolean(process.env.BILL_STACK_SECRET_KEY),
-                            Bill_Stack: Boolean(process.env.Bill_Stack_SECRET_KEY)
+                            Bill_Stack: Boolean(process.env.Bill_Stack_SECRET_KEY),
+                            BillSTACK: Boolean(process.env.BillSTACK_SECRET_KEY)
                         },
                         publicKeySources: {
                             BILLSTACK: Boolean(process.env.BILLSTACK_PUBLIC_KEY),
                             BILL_STACK: Boolean(process.env.BILL_STACK_PUBLIC_KEY),
-                            Bill_Stack: Boolean(process.env.Bill_Stack_PUBLIC_KEY)
+                            Bill_Stack: Boolean(process.env.Bill_Stack_PUBLIC_KEY),
+                            BillSTACK: Boolean(process.env.BillSTACK_PUBLIC_KEY)
                         },
                         webhookSecretPresent: Boolean(process.env.BILLSTACK_WEBHOOK_SECRET)
                     }

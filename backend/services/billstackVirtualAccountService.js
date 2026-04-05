@@ -7,17 +7,20 @@ class BillstackVirtualAccountService {
     const baseUrlCandidates = [
       { key: 'BILLSTACK_BASE_URL', value: process.env.BILLSTACK_BASE_URL },
       { key: 'BILL_STACK_BASE_URL', value: process.env.BILL_STACK_BASE_URL },
-      { key: 'Bill_Stack_BASE_URL', value: process.env.Bill_Stack_BASE_URL }
+      { key: 'Bill_Stack_BASE_URL', value: process.env.Bill_Stack_BASE_URL },
+      { key: 'BillSTACK_BASE_URL', value: process.env.BillSTACK_BASE_URL }
     ];
     const secretKeyCandidates = [
       { key: 'BILLSTACK_SECRET_KEY', value: process.env.BILLSTACK_SECRET_KEY },
       { key: 'BILL_STACK_SECRET_KEY', value: process.env.BILL_STACK_SECRET_KEY },
-      { key: 'Bill_Stack_SECRET_KEY', value: process.env.Bill_Stack_SECRET_KEY }
+      { key: 'Bill_Stack_SECRET_KEY', value: process.env.Bill_Stack_SECRET_KEY },
+      { key: 'BillSTACK_SECRET_KEY', value: process.env.BillSTACK_SECRET_KEY }
     ];
     const publicKeyCandidates = [
       { key: 'BILLSTACK_PUBLIC_KEY', value: process.env.BILLSTACK_PUBLIC_KEY },
       { key: 'BILL_STACK_PUBLIC_KEY', value: process.env.BILL_STACK_PUBLIC_KEY },
-      { key: 'Bill_Stack_PUBLIC_KEY', value: process.env.Bill_Stack_PUBLIC_KEY }
+      { key: 'Bill_Stack_PUBLIC_KEY', value: process.env.Bill_Stack_PUBLIC_KEY },
+      { key: 'BillSTACK_PUBLIC_KEY', value: process.env.BillSTACK_PUBLIC_KEY }
     ];
 
     const pickFirst = (items) => items.find((i) => Boolean(i.value)) || null;
