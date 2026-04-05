@@ -1,5 +1,5 @@
 const { Transaction, User, Wallet, Sim, Commission } = require('../models');
-const { Op } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
 const sequelize = require('../config/database');
 const logger = require('../utils/logger');
 
@@ -47,16 +47,25 @@ const getSystemStats = async (req, res) => {
 
         // Profit estimation (Admin Price - API Cost for completed data transactions)
         // Note: This requires the DataPlan model to be associated and api_cost to be present
-        const dataProfit = await Transaction.sum(
-            sequelize.literal('amount - (SELECT api_cost FROM data_plans WHERE data_plans.id = transactions.data_plan_id)'),
-            {
-                where: {
-                    source: 'data_purchase',
-                    status: 'completed',
-                    createdAt: { [Op.gte]: startDate }
-                }
-            }
-        ) || 0;
+        let dataProfit = 0;
+        try {
+            const [rows] = await sequelize.query(
+                `
+                SELECT COALESCE(SUM(t.amount - COALESCE(dp.api_cost, 0)), 0) AS profit
+                FROM transactions t
+                LEFT JOIN data_plans dp ON dp.id = t."dataPlanId"
+                WHERE t.source = 'data_purchase'
+                  AND t.status = 'completed'
+                  AND t."createdAt" >= :startDate
+                `,
+                { replacements: { startDate }, type: QueryTypes.SELECT }
+            );
+
+            const profit = rows?.profit ?? 0;
+            dataProfit = parseFloat(String(profit)) || 0;
+        } catch (e) {
+            dataProfit = 0;
+        }
 
         // Active Users (Users who made a transaction in range)
         const activeUsersCount = await Transaction.count({
