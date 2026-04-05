@@ -8,7 +8,7 @@ const sequelize = require('../config/database'); // Added sequelize import
 const notificationService = require('./notificationService');
 const billstackVirtualAccountService = require('./billstackVirtualAccountService');
 
-const { Op } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
 
 const luhnCheckDigit = (input) => {
     const digits = String(input).replace(/\D/g, '').split('').map(Number);
@@ -70,6 +70,44 @@ class VirtualAccountService {
         if (!user?.virtual_account_number) return false;
         const provider = this.getUserProvider(user);
         return this.isApprovedProvider(provider);
+    }
+
+    async findUserByAccountNumber(accountNumber) {
+        const acc = String(accountNumber || '').trim();
+        if (!acc) return null;
+
+        const direct = await User.findOne({ where: { virtual_account_number: acc } });
+        if (direct) return direct;
+
+        if (sequelize.getDialect && sequelize.getDialect() === 'sqlite') {
+            const users = await User.findAll({ where: { metadata: { [Op.ne]: null } } });
+            for (const u of users) {
+                const billstackAcc = u?.metadata?.dual_virtual_accounts?.accounts?.billstack?.accountNumber;
+                const payvesselAcc = u?.metadata?.dual_virtual_accounts?.accounts?.payvessel?.accountNumber;
+                if (String(billstackAcc || '').trim() === acc || String(payvesselAcc || '').trim() === acc) {
+                    return u;
+                }
+            }
+            return null;
+        }
+
+        const sql = `
+            SELECT *
+            FROM "Users"
+            WHERE ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,billstack,accountNumber}') = :acc
+               OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,payvessel,accountNumber}') = :acc
+            LIMIT 1
+        `;
+
+        const userFromMeta = await sequelize.query(sql, {
+            replacements: { acc },
+            model: User,
+            mapToModel: true,
+            plain: true,
+            type: QueryTypes.SELECT,
+        });
+
+        return userFromMeta || null;
     }
 
     async quarantineUnauthorizedVirtualAccount(user, options = {}) {

@@ -78,6 +78,45 @@ describe('BillStack webhook', () => {
     expect(afterBalance2).toBe(afterBalance);
   });
 
+  it('credits wallet when account number exists in dual virtual account metadata', async () => {
+    const accountNumber = '6634530599';
+    const user = await User.create({
+      name: 'Dual VA User',
+      email: `dual_va_${Date.now()}@test.com`,
+      phone: '08011007702',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+      metadata: {
+        dual_virtual_accounts: {
+          accounts: {
+            billstack: { accountNumber, bankName: 'PALMPAY', accountName: 'Dual VA User' }
+          }
+        }
+      }
+    });
+
+    const walletBefore = await Wallet.findOne({ where: { userId: user.id } });
+    const beforeBalance = parseFloat(walletBefore.balance);
+
+    const payload = {
+      event: 'PAYMENT_NOTIFIFICATION',
+      data: {
+        type: 'RESERVED_ACCOUNT_TRANSACTION',
+        reference: `BILLSTACK-TXN-${Date.now()}`,
+        amount: '500',
+        account: { account_number: accountNumber }
+      }
+    };
+
+    const signature = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload)).digest('hex');
+    const res = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', signature).send(payload);
+    expect(res.statusCode).toBe(200);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 500);
+  });
+
   it('rejects invalid signature when secret is set', async () => {
     const payload = {
       event: 'PAYMENT_NOTIFIFICATION',

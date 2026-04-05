@@ -146,6 +146,13 @@ class NotificationService {
     if (!this.io) return;
     this.io.emit(event, payload);
   }
+
+  emitToUser(userId, event, payload) {
+    if (!this.io) return;
+    const key = String(userId || '');
+    if (!this.userSockets.has(key)) return;
+    this.io.to(Array.from(this.userSockets.get(key))).emit(event, payload);
+  }
 }
 
 // Singleton instance

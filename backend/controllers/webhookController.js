@@ -1,6 +1,14 @@
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database');
+const notificationRealtimeService = require('../services/notificationRealtimeService');
+
+const maskAccountNumber = (value) => {
+    const s = String(value || '').replace(/\s+/g, '');
+    if (!s) return null;
+    const last4 = s.slice(-4);
+    return `****${last4}`;
+};
 
 // @desc    Handle Paystack Webhook
 // @route   POST /api/webhooks/paystack
@@ -10,7 +18,8 @@ const handlePaystackWebhook = async (req, res) => {
     const { Transaction, User } = require('../models');
     try {
         const secret = process.env.PAYSTACK_SECRET_KEY;
-        const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
+        const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
+        const hash = crypto.createHmac('sha512', secret).update(raw).digest('hex');
         
         if (hash !== req.headers['x-paystack-signature']) {
             logger.warn('[Webhook] Paystack: Invalid signature');
@@ -34,6 +43,7 @@ const handlePaystackWebhook = async (req, res) => {
                     }
 
                     const creditAmount = amount / 100; // kobo to Naira
+                    let creditedTxn = null;
                     try {
                         const result = await walletService.creditFundingWithFraudChecks(
                             user,
@@ -47,6 +57,7 @@ const handlePaystackWebhook = async (req, res) => {
                             logger.warn(`[Webhook] Paystack: Funding held for review ${reference}`, { userId: user.id });
                             return res.status(200).json({ success: true, message: 'Pending review' });
                         }
+                        creditedTxn = result.transaction || null;
                     } catch (error) {
                         if (error?.name === 'SequelizeUniqueConstraintError') {
                             await t.rollback();
@@ -58,6 +69,16 @@ const handlePaystackWebhook = async (req, res) => {
                     
                     await t.commit();
                     logger.info(`[Webhook] Paystack: Wallet funded successfully for ${user.email} - ₦${creditAmount}`);
+                    try {
+                        notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+                            reference,
+                            amount: creditAmount,
+                            gateway: 'paystack',
+                            balance: creditedTxn?.balance_after ?? null
+                        });
+                    } catch (e) {
+                        void e;
+                    }
                 } catch (error) {
                     if (t && !t.finished) await t.rollback();
                     logger.error(`[Webhook] Paystack processing error: ${error.message}`, { reference });
@@ -86,7 +107,8 @@ const handlePayvesselWebhook = async (req, res) => {
         const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
         const allowedIps = ["3.255.23.38", "162.246.254.36"];
 
-        const isValidSignature = payvesselService.verifySignature(payload, signature);
+        const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
+        const isValidSignature = payvesselService.verifySignature(raw, signature);
         const isAllowedIp = allowedIps.some(ip => ipAddress.includes(ip));
 
         if (!isValidSignature || !isAllowedIp) {
@@ -107,6 +129,7 @@ const handlePayvesselWebhook = async (req, res) => {
                 return res.status(404).json({ success: false, message: 'user not found' });
             }
 
+            let creditedTxn = null;
             try {
                 const result = await walletService.creditFundingWithFraudChecks(
                     user,
@@ -125,6 +148,7 @@ const handlePayvesselWebhook = async (req, res) => {
                     logger.warn(`[Webhook] PayVessel: Funding held for review ${reference}`, { userId: user.id });
                     return res.status(200).json({ success: true, message: 'pending_review' });
                 }
+                creditedTxn = result.transaction || null;
             } catch (error) {
                 if (error?.name === 'SequelizeUniqueConstraintError') {
                     await t.rollback();
@@ -136,6 +160,16 @@ const handlePayvesselWebhook = async (req, res) => {
 
             await t.commit();
             logger.info(`[Webhook] PayVessel: Wallet funded successfully for ${user.email} - ₦${amount}`);
+            try {
+                notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+                    reference,
+                    amount,
+                    gateway: 'payvessel',
+                    balance: creditedTxn?.balance_after ?? null
+                });
+            } catch (e) {
+                void e;
+            }
             res.status(200).json({ success: true, message: 'success' });
 
         } catch (error) {
@@ -164,9 +198,8 @@ const handleMonnifyWebhook = async (req, res) => {
             return res.status(400).send('No signature provided');
         }
 
-        const hash = crypto.createHmac('sha512', secret)
-            .update(JSON.stringify(req.body))
-            .digest('hex');
+        const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
+        const hash = crypto.createHmac('sha512', secret).update(raw).digest('hex');
         
         if (hash !== signature) {
             logger.warn('[Webhook] Monnify: Invalid signature');
@@ -188,6 +221,7 @@ const handleMonnifyWebhook = async (req, res) => {
                         return res.status(404).send('User not found');
                     }
 
+                    let creditedTxn = null;
                     try {
                         const result = await walletService.creditFundingWithFraudChecks(
                             user,
@@ -201,6 +235,7 @@ const handleMonnifyWebhook = async (req, res) => {
                             logger.warn(`[Webhook] Monnify: Funding held for review ${transactionReference}`, { userId: user.id });
                             return res.status(200).json({ success: true, message: 'Transaction pending review' });
                         }
+                        creditedTxn = result.transaction || null;
                     } catch (error) {
                         if (error?.name === 'SequelizeUniqueConstraintError') {
                             await t.rollback();
@@ -212,6 +247,16 @@ const handleMonnifyWebhook = async (req, res) => {
                     
                     await t.commit();
                     logger.info(`[Webhook] Monnify: Wallet funded successfully for ${user.email} - ₦${amountPaid}`);
+                    try {
+                        notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+                            reference: transactionReference,
+                            amount: amountPaid,
+                            gateway: 'monnify',
+                            balance: creditedTxn?.balance_after ?? null
+                        });
+                    } catch (e) {
+                        void e;
+                    }
                 } catch (error) {
                     if (t && !t.finished) await t.rollback();
                     logger.error(`[Webhook] Monnify processing error: ${error.message}`, { reference: transactionReference });
@@ -280,7 +325,8 @@ const handleBillstackWebhook = async (req, res) => {
             }
             logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
         } else {
-            const computed = crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
+            const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
+            const computed = crypto.createHmac('sha256', secret).update(raw).digest('hex');
             if (!signature || computed !== signature) {
                 logger.warn('[Webhook] BillStack: Invalid signature');
                 return res.status(400).json({ message: 'Invalid signature' });
@@ -298,13 +344,15 @@ const handleBillstackWebhook = async (req, res) => {
 
         const t = await sequelize.transaction();
         try {
-            const user = await User.findOne({ where: { virtual_account_number: accountNumber } });
+            const virtualAccountService = require('../services/virtualAccountService');
+            const user = await virtualAccountService.findUserByAccountNumber(accountNumber);
             if (!user) {
                 await t.rollback();
-                logger.error(`[Webhook] BillStack: User not found for account ${accountNumber}`);
+                logger.error(`[Webhook] BillStack: User not found for account ${maskAccountNumber(accountNumber)}`);
                 return res.status(404).json({ message: 'User not found' });
             }
 
+            let creditedTxn = null;
             try {
                 const result = await walletService.creditFundingWithFraudChecks(
                     user,
@@ -325,6 +373,7 @@ const handleBillstackWebhook = async (req, res) => {
                     logger.warn(`[Webhook] BillStack: Funding held for review ${reference}`, { userId: user.id });
                     return res.status(200).json({ success: true, message: 'pending_review' });
                 }
+                creditedTxn = result.transaction || null;
             } catch (error) {
                 if (error?.name === 'SequelizeUniqueConstraintError') {
                     await t.rollback();
@@ -336,6 +385,16 @@ const handleBillstackWebhook = async (req, res) => {
 
             await t.commit();
             logger.info(`[Webhook] BillStack: Wallet funded successfully for ${user.email} - ₦${amount}`);
+            try {
+                notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+                    reference,
+                    amount,
+                    gateway: 'billstack',
+                    balance: creditedTxn?.balance_after ?? null
+                });
+            } catch (e) {
+                void e;
+            }
             return res.status(200).json({ success: true });
         } catch (error) {
             if (t && !t.finished) await t.rollback();

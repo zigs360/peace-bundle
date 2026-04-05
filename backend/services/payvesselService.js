@@ -192,10 +192,8 @@ class PayVesselService {
      */
     verifySignature(payload, signature) {
         if (!signature) return false;
-        
-        const hash = crypto.createHmac('sha512', this.secretKey)
-            .update(JSON.stringify(payload))
-            .digest('hex');
+        const body = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(payload));
+        const hash = crypto.createHmac('sha512', this.secretKey).update(body).digest('hex');
             
         return hash === signature;
     }

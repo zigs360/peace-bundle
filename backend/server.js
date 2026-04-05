@@ -91,7 +91,16 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '10mb' }));
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req, res, buf) => {
+      if (req.originalUrl && req.originalUrl.startsWith('/api/webhooks')) {
+        req.rawBody = buf;
+      }
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.get('/api/meta', (req, res) => {
