@@ -74,13 +74,15 @@ const requestVirtualAccount = async (req, res) => {
         
         const account = await virtualAccountService.assignVirtualAccount(user);
         await virtualAccountService.recordProvisioningSuccess(userId);
-        
-        // Notify user immediately
-        await virtualAccountService.notifyUserOfNewAccount(user);
 
         res.json({
             message: 'Virtual account generated successfully!',
             ...account
+        });
+        setImmediate(() => {
+            virtualAccountService.notifyUserOfNewAccount(user).catch((e) => {
+                logger.error(`[VirtualAccount] Notification failed for user ${userId}: ${e.message}`);
+            });
         });
     } catch (error) {
         logger.error(`[VirtualAccount] Manual request failed for user ${userId}: ${error.message}`);
@@ -131,13 +133,8 @@ const getVirtualAccountSummary = async (req, res) => {
                 const account = await virtualAccountService.assignVirtualAccount(user);
                 if (account) {
                     await virtualAccountService.recordProvisioningSuccess(user.id);
-                    try {
-                        await virtualAccountService.notifyUserOfNewAccount(user);
-                    } catch (e) {
-                        void e;
-                    }
                     const masked = maskAccountNumber(user.virtual_account_number);
-                    return res.json({
+                    res.json({
                         success: true,
                         hasVirtualAccount: true,
                         accountNumberMasked: masked,
@@ -145,6 +142,12 @@ const getVirtualAccountSummary = async (req, res) => {
                         bankName: user.virtual_account_bank,
                         accountName: user.virtual_account_name
                     });
+                    setImmediate(() => {
+                        virtualAccountService.notifyUserOfNewAccount(user).catch((err) => {
+                            logger.error(`[VirtualAccount] Notification failed for user ${user.id}: ${err.message}`);
+                        });
+                    });
+                    return;
                 }
                 return res.json({
                   success: true,
