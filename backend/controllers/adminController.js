@@ -1181,14 +1181,21 @@ const getBulkSMSHistory = async (req, res) => {
 
         const { count, rows } = await Transaction.findAndCountAll({
             where,
-            include: [{ model: User, attributes: ['name', 'email'] }],
+            include: [{ model: User, as: 'user', attributes: ['name', 'email'] }],
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset)
         });
 
         res.json({
-            history: rows,
+            success: true,
+            history: rows.map((r) => {
+                const json = r.toJSON();
+                if (json.user && !json.User) {
+                    json.User = json.user;
+                }
+                return json;
+            }),
             total: count,
             totalPages: Math.ceil(count / limit),
             currentPage: parseInt(page)
