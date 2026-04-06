@@ -330,10 +330,33 @@ const handleBillstackWebhook = async (req, res) => {
             logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
         } else {
             const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
-            const sig = String(signature || '').trim().toLowerCase();
-            const computed256 = crypto.createHmac('sha256', secret).update(raw).digest('hex').toLowerCase();
-            const computed512 = crypto.createHmac('sha512', secret).update(raw).digest('hex').toLowerCase();
-            if (!sig || (sig !== computed256 && sig !== computed512)) {
+            const normalizeSig = (value) => {
+                const s = String(value || '').trim();
+                if (!s) return { raw: '', algo: null };
+                const cleaned = s.replace(/^sha(256|512)=/i, '');
+                const lower = cleaned.toLowerCase();
+                const isHex = /^[0-9a-f]+$/.test(lower) && lower.length >= 32;
+                return { raw: cleaned, algo: isHex ? 'hex' : 'base64', lowerHex: isHex ? lower : null };
+            };
+
+            const sigInfo = normalizeSig(signature);
+            const computed = {
+                sha256: {
+                    hex: crypto.createHmac('sha256', secret).update(raw).digest('hex'),
+                    base64: crypto.createHmac('sha256', secret).update(raw).digest('base64'),
+                },
+                sha512: {
+                    hex: crypto.createHmac('sha512', secret).update(raw).digest('hex'),
+                    base64: crypto.createHmac('sha512', secret).update(raw).digest('base64'),
+                },
+            };
+
+            const matches =
+                sigInfo.algo === 'hex'
+                    ? sigInfo.lowerHex === computed.sha256.hex.toLowerCase() || sigInfo.lowerHex === computed.sha512.hex.toLowerCase()
+                    : sigInfo.raw === computed.sha256.base64 || sigInfo.raw === computed.sha512.base64;
+
+            if (!sigInfo.raw || !matches) {
                 logger.warn('[Webhook] BillStack: Invalid signature');
                 return res.status(400).json({ message: 'Invalid signature' });
             }
