@@ -13,7 +13,7 @@ export default function UserDashboard() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const { state: va, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
-  const { walletVersion, walletBalance } = useNotifications();
+  const { walletVersion, walletBalance, isConnected } = useNotifications();
 
   useEffect(() => {
     const initDashboard = async () => {
@@ -51,6 +51,15 @@ export default function UserDashboard() {
     if (!user?.id) return;
     void fetchStats(user.id);
   }, [walletVersion, user?.id, fetchStats]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (isConnected) return;
+    const timer = setInterval(() => {
+      void fetchStats(user.id);
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [isConnected, user?.id, fetchStats]);
 
   const fetchStats = useCallback(async (userId: string) => {
     try {
