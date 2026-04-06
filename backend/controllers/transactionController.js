@@ -21,6 +21,7 @@ const { Op } = require('sequelize');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const logger = require('../utils/logger');
+const Joi = require('joi');
 
 // Helper for Affiliate Commission
 const processAffiliateCommission = async (user, amount, transaction, t) => {
@@ -256,7 +257,34 @@ const buyData = async (req, res) => {
 // @route   POST /api/transactions/airtime
 // @access  Private
 const buyAirtime = async (req, res) => {
-    const { network, phone, amount } = req.body;
+    const normalizePhone = (value) => {
+        const digits = String(value || '').replace(/\D/g, '');
+        if (digits.startsWith('234') && digits.length === 13) return `0${digits.slice(3)}`;
+        return digits;
+    };
+
+    const rawNetwork = req.body?.network;
+    const rawPhone = req.body?.phone;
+    const rawAmount = req.body?.amount;
+    const rawReference = req.body?.reference || req.headers['idempotency-key'];
+
+    const schema = Joi.object({
+        network: Joi.string().valid('mtn', 'airtel', 'glo', '9mobile').required(),
+        phone: Joi.string().custom((v, helpers) => {
+            const normalized = normalizePhone(v);
+            if (!/^[0-9]{11}$/.test(normalized)) return helpers.error('any.invalid');
+            return normalized;
+        }, 'phone normalization').required(),
+        amount: Joi.number().integer().min(50).max(Number.parseInt(process.env.AIRTIME_MAX_NGN || '100000', 10)).required(),
+        reference: Joi.string().pattern(/^[A-Za-z0-9_-]{6,64}$/).optional(),
+    });
+
+    const { value, error } = schema.validate({ network: rawNetwork, phone: rawPhone, amount: rawAmount, reference: rawReference }, { abortEarly: false });
+    if (error) {
+        return res.status(400).json({ success: false, message: 'Invalid request', details: error.details.map((d) => d.message) });
+    }
+
+    const { network, phone, amount, reference } = value;
     const userId = req.user.id;
     let t;
     let newTransaction;
@@ -279,19 +307,36 @@ const buyAirtime = async (req, res) => {
 
         t = await sequelize.transaction();
 
-        const faceValue = parseFloat(amount);
+        const faceValue = Number(amount);
         const quote = await pricingService.quoteAirtime({ user, provider: network, faceValue });
         const toPay = parseFloat(String(quote.charged_amount));
 
         // Debit Wallet
-        newTransaction = await walletService.debit(
-            user,
-            toPay,
-            'airtime_purchase',
-            `${network.toUpperCase()} Airtime ₦${faceValue} to ${phone}`,
-            { network, phone, faceValue, type: 'airtime', pricing: quote },
-            t
-        );
+        try {
+            newTransaction = await walletService.debit(
+                user,
+                toPay,
+                'airtime_purchase',
+                `${network.toUpperCase()} Airtime ₦${faceValue} to ${phone}`,
+                { network, phone, faceValue, type: 'airtime', pricing: quote, reference: reference || undefined, client_reference: reference || undefined },
+                t
+            );
+        } catch (debitError) {
+            if (debitError?.name === 'SequelizeUniqueConstraintError' && reference) {
+                if (t && !t.finished) await t.rollback();
+                const existing = await Transaction.findOne({ where: { reference } });
+                const updatedWallet = await walletService.getBalance(user);
+                return res.status(200).json({
+                    success: true,
+                    message: 'Duplicate request (idempotent replay)',
+                    balance: updatedWallet,
+                    transaction: existing
+                });
+            }
+            throw debitError;
+        }
+
+        logger.info('[Airtime] Purchase initiated', { userId, reference: newTransaction.reference, network, amount: faceValue });
 
         await newTransaction.update(
             {
@@ -344,7 +389,13 @@ const buyAirtime = async (req, res) => {
     } catch (error) {
         if (t && !t.finished) await t.rollback();
         logger.error('Airtime Purchase Error:', { error: error.message, stack: error.stack, userId, phone });
-        res.status(500).json({ success: false, message: error.message || 'Server Error' });
+        const msg = String(error?.message || 'Server Error');
+        const status =
+            msg.includes('Insufficient wallet balance') ? 400 :
+            msg.includes('Daily transaction limit exceeded') ? 403 :
+            msg.includes('Wallet is') ? 403 :
+            500;
+        res.status(status).json({ success: false, message: msg });
     }
 };
 

@@ -31,6 +31,9 @@ dist/
 build/
 coverage/
 
+# Test artifacts
+backend/test_reports/
+
 # IDE
 .vscode/
 .idea/

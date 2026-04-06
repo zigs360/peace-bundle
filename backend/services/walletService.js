@@ -188,7 +188,7 @@ class WalletService {
         balance_before: balanceBefore,
         balance_after: balanceAfter,
         source: source,
-        reference: this.generateReference(),
+        reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
         description: description,
         metadata: metadata,
         status: 'completed' 
