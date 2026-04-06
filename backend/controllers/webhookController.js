@@ -316,7 +316,11 @@ const handleBillstackWebhook = async (req, res) => {
     try {
         const payload = req.body;
         const secret = process.env.BILLSTACK_WEBHOOK_SECRET;
-        const signature = req.headers['x-billstack-signature'];
+        const signature =
+            req.headers['x-billstack-signature'] ||
+            req.headers['x-wiaxy-signature'] ||
+            req.headers['x-signature'] ||
+            req.headers['wiaxy-signature'];
 
         if (!secret) {
             if (process.env.NODE_ENV === 'production') {
@@ -326,8 +330,10 @@ const handleBillstackWebhook = async (req, res) => {
             logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
         } else {
             const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
-            const computed = crypto.createHmac('sha256', secret).update(raw).digest('hex');
-            if (!signature || computed !== signature) {
+            const sig = String(signature || '').trim().toLowerCase();
+            const computed256 = crypto.createHmac('sha256', secret).update(raw).digest('hex').toLowerCase();
+            const computed512 = crypto.createHmac('sha512', secret).update(raw).digest('hex').toLowerCase();
+            if (!sig || (sig !== computed256 && sig !== computed512)) {
                 logger.warn('[Webhook] BillStack: Invalid signature');
                 return res.status(400).json({ message: 'Invalid signature' });
             }
