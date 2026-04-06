@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -22,6 +22,8 @@ interface NotificationContextType {
   markAllAsRead: () => Promise<void>;
   isConnected: boolean;
   pricingVersion: number;
+  walletVersion: number;
+  walletBalance: number | null;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -30,6 +32,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [pricingVersion, setPricingVersion] = useState(0);
+  const [walletVersion, setWalletVersion] = useState(0);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const lastWalletRef = useRef<string | null>(null);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -40,6 +45,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     }
+  }, []);
+
+  useEffect(() => {
+    const cached = localStorage.getItem('wallet_balance');
+    const n = cached ? Number(cached) : NaN;
+    if (Number.isFinite(n)) setWalletBalance(n);
   }, []);
 
   const markAsRead = async (id: string) => {
@@ -105,6 +116,51 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setPricingVersion((v) => v + 1);
     });
 
+    newSocket.on('wallet_balance_updated', async (payload: any) => {
+      try {
+        const reference = String(payload?.reference || '');
+        if (reference && reference === lastWalletRef.current) return;
+        if (reference) lastWalletRef.current = reference;
+
+        const balanceNum = payload?.balance;
+        if (typeof balanceNum === 'number' && Number.isFinite(balanceNum)) {
+          setWalletBalance(balanceNum);
+          localStorage.setItem('wallet_balance', String(balanceNum));
+        }
+        setWalletVersion((v) => v + 1);
+
+        const amount = payload?.amount;
+        const gateway = payload?.gateway;
+        if (typeof amount === 'number' && Number.isFinite(amount)) {
+          toast.success(`Wallet funded ₦${amount.toLocaleString()}${gateway ? ` (${String(gateway)})` : ''}`);
+        }
+
+        const stored = localStorage.getItem('user');
+        const userId = stored ? JSON.parse(stored)?.id : null;
+        if (userId) {
+          setTimeout(async () => {
+            try {
+              const res = await api.get(`/transactions/stats/${userId}`);
+              const serverBalance = res.data?.balance;
+              if (typeof serverBalance === 'number' && Number.isFinite(serverBalance)) {
+                setWalletBalance((prev) => {
+                  if (prev !== null && Math.abs(prev - serverBalance) > 0.009) {
+                    toast.error('Wallet balance adjusted after verification');
+                  }
+                  return serverBalance;
+                });
+                localStorage.setItem('wallet_balance', String(serverBalance));
+              }
+            } catch (e) {
+              void e;
+            }
+          }, 2500);
+        }
+      } catch (e) {
+        void e;
+      }
+    });
+
     newSocket.on('disconnect', () => {
       setIsConnected(false);
       console.log('Disconnected from notification socket');
@@ -125,7 +181,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       markAsRead,
       markAllAsRead,
       isConnected,
-      pricingVersion
+      pricingVersion,
+      walletVersion,
+      walletBalance
     }}>
       {children}
     </NotificationContext.Provider>

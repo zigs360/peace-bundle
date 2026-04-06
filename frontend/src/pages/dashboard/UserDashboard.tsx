@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
 import { Wallet, Wifi, Phone, Activity } from 'lucide-react';
@@ -6,12 +6,14 @@ import { FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../componen
 import { User, DashboardStats } from '../../types';
 import { useVirtualAccount } from '../../hooks/useVirtualAccount';
 import VirtualAccountWidget from '../../components/VirtualAccountWidget';
+import { useNotifications } from '../../context/NotificationContext';
 
 export default function UserDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const { state: va, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
+  const { walletVersion, walletBalance } = useNotifications();
 
   useEffect(() => {
     const initDashboard = async () => {
@@ -45,7 +47,12 @@ export default function UserDashboard() {
     initDashboard();
   }, []);
 
-  const fetchStats = async (userId: string) => {
+  useEffect(() => {
+    if (!user?.id) return;
+    void fetchStats(user.id);
+  }, [walletVersion, user?.id, fetchStats]);
+
+  const fetchStats = useCallback(async (userId: string) => {
     try {
       const res = await api.get(`/transactions/stats/${userId}`);
       setStats(res.data);
@@ -54,9 +61,10 @@ export default function UserDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
+  const displayBalance = walletBalance ?? stats?.balance ?? 0;
 
   return (
     <FadeIn className="p-6">
@@ -72,7 +80,7 @@ export default function UserDashboard() {
         <StaggerItem>
           <StatCard 
             title="Wallet Balance" 
-            value={`₦${stats?.balance?.toLocaleString() || 0}`} 
+            value={`₦${Number(displayBalance).toLocaleString() || 0}`} 
             icon={<Wallet className="w-6 h-6 text-primary-600" />} 
             borderClass="border-primary-500"
           />
