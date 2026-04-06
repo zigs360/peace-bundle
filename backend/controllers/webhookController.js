@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database');
 const notificationRealtimeService = require('../services/notificationRealtimeService');
+const webhookEventService = require('../services/webhookEventService');
 
 const maskAccountNumber = (value) => {
     const s = String(value || '').replace(/\s+/g, '');
@@ -321,13 +322,35 @@ const handleBillstackWebhook = async (req, res) => {
             req.headers['x-wiaxy-signature'] ||
             req.headers['x-signature'] ||
             req.headers['wiaxy-signature'];
+        const signatureHeader =
+            req.headers['x-billstack-signature'] ? 'x-billstack-signature' :
+            req.headers['x-wiaxy-signature'] ? 'x-wiaxy-signature' :
+            req.headers['x-signature'] ? 'x-signature' :
+            req.headers['wiaxy-signature'] ? 'wiaxy-signature' :
+            null;
+
+        const data = payload?.data;
+        const reference = data?.reference;
+        const amount = parseFloat(data?.amount);
+        const accountNumber = data?.account?.account_number;
+
+        const webhookEvent = await webhookEventService.recordReceived({
+            provider: 'billstack',
+            reference: reference || null,
+            amount: Number.isFinite(amount) ? amount : null,
+            currency: data?.currency || null,
+            payload,
+            req
+        });
 
         if (!secret) {
             if (process.env.NODE_ENV === 'production') {
                 logger.error('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; rejecting webhook');
+                await webhookEventService.markFailed(webhookEvent.id, { error: 'Webhook secret not configured' });
                 return res.status(500).json({ message: 'Webhook not configured' });
             }
             logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
+            await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
         } else {
             const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
             const normalizeSig = (value) => {
@@ -358,26 +381,32 @@ const handleBillstackWebhook = async (req, res) => {
 
             if (!sigInfo.raw || !matches) {
                 logger.warn('[Webhook] BillStack: Invalid signature');
+                await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signatureHeader, signaturePresent: Boolean(signature) });
                 return res.status(400).json({ message: 'Invalid signature' });
             }
+            await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
         }
 
-        const data = payload?.data;
-        const reference = data?.reference;
-        const amount = parseFloat(data?.amount);
-        const accountNumber = data?.account?.account_number;
-
         if (!reference || !accountNumber || Number.isNaN(amount)) {
+            await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid payload', signatureHeader, signaturePresent: Boolean(signature) });
             return res.status(400).json({ message: 'Invalid payload' });
         }
 
         const t = await sequelize.transaction();
         try {
             const virtualAccountService = require('../services/virtualAccountService');
-            const user = await virtualAccountService.findUserByAccountNumber(accountNumber);
+            let user = await virtualAccountService.findUserByAccountNumber(accountNumber);
+            if (!user) {
+                const merchantRef = String(data?.merchant_reference || '').trim();
+                const pbPrefix = merchantRef.startsWith('PB-') ? merchantRef.slice(3) : null;
+                if (pbPrefix && /^[0-9a-fA-F-]{36}$/.test(pbPrefix)) {
+                    user = await User.findByPk(pbPrefix);
+                }
+            }
             if (!user) {
                 await t.rollback();
                 logger.error(`[Webhook] BillStack: User not found for account ${maskAccountNumber(accountNumber)}`);
+                await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found', userId: null });
                 return res.status(404).json({ message: 'User not found' });
             }
 
@@ -414,6 +443,7 @@ const handleBillstackWebhook = async (req, res) => {
 
             await t.commit();
             logger.info(`[Webhook] BillStack: Wallet funded successfully for ${user.email} - ₦${amount}`);
+            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
             try {
                 notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
                     reference,
@@ -424,10 +454,18 @@ const handleBillstackWebhook = async (req, res) => {
             } catch (e) {
                 void e;
             }
+            try {
+                const { sendTransactionNotification } = require('../services/notificationService');
+                const txnForNotify = creditedTxn || (await Transaction.findOne({ where: { reference } }));
+                if (txnForNotify) await sendTransactionNotification(user, txnForNotify);
+            } catch (e) {
+                void e;
+            }
             return res.status(200).json({ success: true });
         } catch (error) {
             if (t && !t.finished) await t.rollback();
             logger.error(`[Webhook] BillStack processing error: ${error.message}`, { reference });
+            await webhookEventService.markFailed(webhookEvent.id, { error: error.message });
             return res.status(500).json({ message: 'Processing failed' });
         }
     } catch (error) {

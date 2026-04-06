@@ -32,6 +32,7 @@ const CallPlan = require('../models/CallPlan');
 const PricingTier = require('../models/PricingTier');
 const PricingRule = require('../models/PricingRule');
 const PricingAuditLog = require('../models/PricingAuditLog');
+const WebhookEvent = require('../models/WebhookEvent');
 
 // Define Associations (Top Level)
 
@@ -306,5 +307,6 @@ module.exports = {
   CallPlan,
   PricingTier,
   PricingRule,
-  PricingAuditLog
+  PricingAuditLog,
+  WebhookEvent
 };
