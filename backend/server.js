@@ -13,6 +13,7 @@ const validateEnv = require('./config/validateEnv');
 const notificationRealtimeService = require('./services/notificationRealtimeService');
 const { startVirtualAccountProvisioningJob } = require('./jobs/virtualAccountProvisioningJob');
 const { startAirtimeReconcileJob } = require('./jobs/airtimeReconcileJob');
+const { startWebhookAlertJob } = require('./jobs/webhookAlertJob');
 
 const path = require('path');
 const fs = require('fs');
@@ -215,6 +216,7 @@ if (require.main === module) {
       logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
       startVirtualAccountProvisioningJob();
       startAirtimeReconcileJob();
+      startWebhookAlertJob();
     });
   })();
 }

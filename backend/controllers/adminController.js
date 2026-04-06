@@ -439,6 +439,7 @@ const getTransactions = async (req, res) => {
             limit = 20, 
             status, 
             provider, 
+            reference,
             user_id, 
             date_from, 
             date_to 
@@ -454,6 +455,10 @@ const getTransactions = async (req, res) => {
 
         if (provider) {
             where.provider = provider;
+        }
+
+        if (reference) {
+            where.reference = reference;
         }
 
         if (user_id) {

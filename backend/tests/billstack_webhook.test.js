@@ -67,7 +67,7 @@ describe('BillStack webhook', () => {
     const afterBalance = parseFloat(walletAfter.balance);
     expect(afterBalance).toBe(beforeBalance + 1500);
 
-    const txn = await Transaction.findOne({ where: { reference: payload.data.reference } });
+    const txn = await Transaction.findOne({ where: { reference: payload.data.wiaxy_ref } });
     expect(txn).toBeTruthy();
 
     const res2 = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', signature).send(payload);
@@ -76,6 +76,55 @@ describe('BillStack webhook', () => {
     const walletAfter2 = await Wallet.findOne({ where: { userId: user.id } });
     const afterBalance2 = parseFloat(walletAfter2.balance);
     expect(afterBalance2).toBe(afterBalance);
+  });
+
+  it('is idempotent across billstack reference changes when wiaxy_ref is the same', async () => {
+    const user = await User.create({
+      name: 'Webhook VA User 3',
+      email: `webhook_va3_${Date.now()}@test.com`,
+      phone: '08011007704',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+      virtual_account_number: '6634530577',
+      virtual_account_bank: 'PALMPAY',
+      virtual_account_name: 'Webhook VA User 3',
+    });
+
+    const walletBefore = await Wallet.findOne({ where: { userId: user.id } });
+    const beforeBalance = parseFloat(walletBefore.balance);
+
+    const wiaxy_ref = `MI-${Date.now()}`;
+    const payload1 = {
+      event: 'PAYMENT_NOTIFICATION',
+      data: {
+        type: 'RESERVED_ACCOUNT_TRANSACTION',
+        reference: `R-${Date.now()}-A`,
+        wiaxy_ref,
+        transaction_ref: wiaxy_ref,
+        amount: 500,
+        account: { account_number: '6634530577' }
+      }
+    };
+
+    const sig1 = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload1)).digest('hex');
+    const res1 = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', sig1).send(payload1);
+    expect(res1.statusCode).toBe(200);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 500);
+
+    const payload2 = {
+      ...payload1,
+      data: { ...payload1.data, reference: `R-${Date.now()}-B` }
+    };
+
+    const sig2 = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload2)).digest('hex');
+    const res2 = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', sig2).send(payload2);
+    expect(res2.statusCode).toBe(200);
+
+    const walletAfter2 = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter2.balance)).toBe(beforeBalance + 500);
   });
 
   it('accepts signature via x-wiaxy-signature header', async () => {
