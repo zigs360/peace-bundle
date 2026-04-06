@@ -5,11 +5,14 @@ const logger = require('../utils/logger');
 
 class OgdamsService {
     constructor() {
-        this.baseUrl = 'https://simhosting.ogdams.ng/api/v1';
+        this.baseUrl = String(process.env.OGDAMS_BASE_URL || 'https://simhosting.ogdams.ng/api/v1').replace(/\/+$/, '');
         const timeoutRaw = Number.parseInt(process.env.OGDAMS_TIMEOUT_MS || '12000', 10);
         this.timeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 12000;
 
-        this.http = axios.create();
+        this.http = axios.create({
+            baseURL: this.baseUrl,
+            timeout: this.timeoutMs
+        });
         axiosRetry(this.http, {
             retries: 2,
             retryDelay: axiosRetry.exponentialDelay,
@@ -19,6 +22,13 @@ class OgdamsService {
                 return axiosRetry.isNetworkOrIdempotentRequestError(error);
             }
         });
+    }
+
+    maskPhone(value) {
+        const digits = String(value || '').replace(/\D/g, '');
+        if (!digits) return null;
+        const last3 = digits.slice(-3);
+        return `********${last3}`;
     }
 
     /**
@@ -40,7 +50,8 @@ class OgdamsService {
             throw new Error(`Invalid payload: ${error.details[0].message}`);
         }
 
-        const url = `${this.baseUrl}/vend/airtime`;
+        const airtimePath = String(process.env.OGDAMS_AIRTIME_PATH || '/vend/airtime').trim();
+        const url = airtimePath.startsWith('/') ? airtimePath : `/${airtimePath}`;
         const apiKey = process.env.OGDAMS_API_KEY;
         if (!apiKey) {
             const err = new Error('OGDAMS_API_KEY is not configured');
@@ -53,15 +64,20 @@ class OgdamsService {
         };
 
         try {
-            const response = await this.http.post(url, data, { headers, timeout: this.timeoutMs });
-            logger.info('Ogdams API Response:', { reference: data.reference, response: response.data });
+            const response = await this.http.post(url, data, { headers });
+            logger.info('[OGDAMS] Airtime vend response', {
+                reference: data.reference,
+                status: response.data?.status,
+                provider_reference: response.data?.reference || response.data?.data?.reference || null,
+                phone: this.maskPhone(data.phoneNumber)
+            });
             return response.data;
         } catch (error) {
             const status = error.response?.status;
             const responseData = error.response?.data;
             const message = responseData?.message || responseData?.error || error.message || 'Ogdams API request failed';
 
-            const meta = { reference: data.reference, status, error: responseData || message };
+            const meta = { reference: data.reference, status, error: responseData || message, phone: this.maskPhone(data.phoneNumber) };
             if (process.env.NODE_ENV === 'test') {
                 logger.debug('Ogdams API Error', meta);
             } else {
@@ -89,12 +105,11 @@ class OgdamsService {
 
         const statusPath = String(process.env.OGDAMS_STATUS_PATH || '/transactions').trim();
         const basePath = statusPath.startsWith('/') ? statusPath : `/${statusPath}`;
-        const url = `${this.baseUrl}${basePath}/${encodeURIComponent(ref)}`;
+        const url = `${basePath}/${encodeURIComponent(ref)}`;
 
         try {
             const response = await this.http.get(url, {
                 headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-                timeout: this.timeoutMs
             });
             return response.data;
         } catch (error) {

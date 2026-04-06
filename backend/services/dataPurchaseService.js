@@ -53,6 +53,7 @@ class DataPurchaseService {
   scheduleAirtimeReconciliation(transactionId, attempt = 1) {
     const { delayMs, maxAttempts } = this.getAirtimeReconcileConfig();
     if (attempt > maxAttempts) return;
+    if (String(process.env.AIRTIME_RECONCILE_WORKER_ENABLED || 'false').toLowerCase() === 'true') return;
     const delay = attempt <= 1 ? delayMs : Math.min(delayMs * attempt, 60000);
     setTimeout(() => {
       this.reconcileAirtimeTransaction(transactionId, attempt).catch((e) => {
@@ -125,7 +126,7 @@ class DataPurchaseService {
 
     await txn.update({
       status: 'queued',
-      metadata: { ...meta, reconcile_attempt: attempt, reconcile_scheduled: true }
+      metadata: { ...meta, reconcile_attempt: nextAttempt, reconcile_scheduled: true }
     });
     this.scheduleAirtimeReconciliation(transactionId, nextAttempt);
   }
