@@ -36,6 +36,139 @@ const notifyFundingSuccess = (user, { reference, amount, gateway, balance }) => 
     }
 };
 
+const processBillstackFunding = async ({
+    webhookEventId,
+    payload,
+    data,
+    providerReference,
+    amount,
+    accountNumber,
+    billstackReference
+}) => {
+    const walletService = require('../services/walletService');
+    const { Transaction, User } = require('../models');
+    const virtualAccountService = require('../services/virtualAccountService');
+
+    const t = await sequelize.transaction();
+    try {
+        let user = await virtualAccountService.findUserByAccountNumber(accountNumber);
+        if (!user) {
+            const merchantRef = String(data?.merchant_reference || '').trim();
+            const pbPrefix = merchantRef.startsWith('PB-') ? merchantRef.slice(3) : null;
+            if (pbPrefix && /^[0-9a-fA-F-]{36}$/.test(pbPrefix)) {
+                user = await User.findByPk(pbPrefix);
+            }
+        }
+        if (!user) {
+            await t.rollback();
+            logger.error(`[Webhook] BillStack: User not found for account ${maskAccountNumber(accountNumber)}`);
+            await webhookEventService.markFailed(webhookEventId, { error: 'User not found', userId: null });
+            return { ok: false, reason: 'user_not_found' };
+        }
+
+        const existingByRef = await Transaction.findOne({ where: { reference: providerReference }, transaction: t });
+        if (existingByRef) {
+            await t.rollback();
+            logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${providerReference}`);
+            await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+            return { ok: true, duplicate: true, userId: user.id };
+        }
+
+        if (sequelize.getDialect && sequelize.getDialect() !== 'sqlite') {
+            const possibleMerchantRef = String(data?.merchant_reference || '').trim();
+            const possibleWiaxyRef = String(data?.wiaxy_ref || '').trim();
+            const possibleTxnRef = String(data?.transaction_ref || '').trim();
+            const possibleBillstackRef = String(data?.reference || '').trim();
+
+            const duplicateSql = `
+                SELECT "id", "reference"
+                FROM "Transactions"
+                WHERE "type" = 'credit'
+                  AND "source" = 'funding'
+                  AND (
+                    ("metadata"::jsonb #>> '{inter_bank_reference}') = :wiaxy_ref
+                    OR ("metadata"::jsonb #>> '{transaction_ref}') = :transaction_ref
+                    OR ("metadata"::jsonb #>> '{merchant_reference}') = :merchant_reference
+                    OR ("metadata"::jsonb #>> '{billstack_reference}') = :billstack_reference
+                  )
+                LIMIT 1
+            `;
+
+            const { QueryTypes } = require('sequelize');
+            const existing = await sequelize.query(duplicateSql, {
+                replacements: {
+                    wiaxy_ref: possibleWiaxyRef || null,
+                    transaction_ref: possibleTxnRef || null,
+                    merchant_reference: possibleMerchantRef || null,
+                    billstack_reference: possibleBillstackRef || null
+                },
+                type: QueryTypes.SELECT,
+                transaction: t
+            });
+
+            if (Array.isArray(existing) && existing.length) {
+                await t.rollback();
+                logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${providerReference}`);
+                await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+                return { ok: true, duplicate: true, userId: user.id };
+            }
+        }
+
+        let creditedTxn = null;
+        try {
+            const result = await walletService.creditFundingWithFraudChecks(
+                user,
+                amount,
+                `BillStack Funding: ${providerReference}`,
+                {
+                    reference: providerReference,
+                    gateway: 'billstack',
+                    billstack_reference: billstackReference,
+                    merchant_reference: data?.merchant_reference,
+                    inter_bank_reference: data?.wiaxy_ref,
+                    transaction_ref: data?.transaction_ref,
+                    payer: data?.payer,
+                    account: data?.account
+                },
+                t
+            );
+            if (result.status === 'pending_review') {
+                await t.commit();
+                logger.warn(`[Webhook] BillStack: Funding held for review ${providerReference}`, { userId: user.id });
+                await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+                return { ok: true, pending_review: true, userId: user.id };
+            }
+            creditedTxn = result.transaction || null;
+        } catch (error) {
+            if (error?.name === 'SequelizeUniqueConstraintError') {
+                await t.rollback();
+                logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${providerReference}`);
+                await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+                return { ok: true, duplicate: true, userId: user.id };
+            }
+            throw error;
+        }
+
+        await t.commit();
+        logger.info(`[Webhook] BillStack: Wallet funded successfully for ${user.email} - ₦${amount}`);
+        await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+        notifyFundingSuccess(user, { reference: providerReference, amount, gateway: 'billstack', balance: creditedTxn?.balance_after ?? null });
+        try {
+            const { sendTransactionNotification } = require('../services/notificationService');
+            const txnForNotify = creditedTxn || (await Transaction.findOne({ where: { reference: providerReference } }));
+            if (txnForNotify) await sendTransactionNotification(user, txnForNotify);
+        } catch (e) {
+            void e;
+        }
+        return { ok: true, userId: user.id, balance: creditedTxn?.balance_after ?? null };
+    } catch (error) {
+        if (t && !t.finished) await t.rollback();
+        logger.error(`[Webhook] BillStack processing error: ${error.message}`, { reference: providerReference });
+        await webhookEventService.markFailed(webhookEventId, { error: error.message });
+        return { ok: false, reason: 'processing_failed' };
+    }
+};
+
 // @desc    Handle Paystack Webhook
 // @route   POST /api/webhooks/paystack
 // @access  Public (Secured by Signature)
@@ -375,8 +508,6 @@ const handleSmeplugWebhook = async (req, res) => {
 };
 
 const handleBillstackWebhook = async (req, res) => {
-    const walletService = require('../services/walletService');
-    const { Transaction, User } = require('../models');
     try {
         const payload = req.body;
         const secret = process.env.BILLSTACK_WEBHOOK_SECRET;
@@ -457,123 +588,32 @@ const handleBillstackWebhook = async (req, res) => {
             return res.status(400).json({ message: 'Invalid payload' });
         }
 
-        const t = await sequelize.transaction();
-        try {
-            const virtualAccountService = require('../services/virtualAccountService');
-            let user = await virtualAccountService.findUserByAccountNumber(accountNumber);
-            if (!user) {
-                const merchantRef = String(data?.merchant_reference || '').trim();
-                const pbPrefix = merchantRef.startsWith('PB-') ? merchantRef.slice(3) : null;
-                if (pbPrefix && /^[0-9a-fA-F-]{36}$/.test(pbPrefix)) {
-                    user = await User.findByPk(pbPrefix);
-                }
-            }
-            if (!user) {
-                await t.rollback();
-                logger.error(`[Webhook] BillStack: User not found for account ${maskAccountNumber(accountNumber)}`);
-                await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found', userId: null });
-                return res.status(404).json({ message: 'User not found' });
-            }
-
-            const existingByRef = await Transaction.findOne({ where: { reference: providerReference }, transaction: t });
-            if (existingByRef) {
-                await t.rollback();
-                logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${providerReference}`);
-                await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                return res.status(200).json({ success: true, message: 'Transaction already exists' });
-            }
-
-            if (sequelize.getDialect && sequelize.getDialect() !== 'sqlite') {
-                const possibleMerchantRef = String(data?.merchant_reference || '').trim();
-                const possibleWiaxyRef = String(data?.wiaxy_ref || '').trim();
-                const possibleTxnRef = String(data?.transaction_ref || '').trim();
-                const possibleBillstackRef = String(data?.reference || '').trim();
-
-                const duplicateSql = `
-                    SELECT "id", "reference"
-                    FROM "Transactions"
-                    WHERE "type" = 'credit'
-                      AND "source" = 'funding'
-                      AND (
-                        ("metadata"::jsonb #>> '{inter_bank_reference}') = :wiaxy_ref
-                        OR ("metadata"::jsonb #>> '{transaction_ref}') = :transaction_ref
-                        OR ("metadata"::jsonb #>> '{merchant_reference}') = :merchant_reference
-                        OR ("metadata"::jsonb #>> '{billstack_reference}') = :billstack_reference
-                      )
-                    LIMIT 1
-                `;
-
-                const { QueryTypes } = require('sequelize');
-                const existing = await sequelize.query(duplicateSql, {
-                    replacements: {
-                        wiaxy_ref: possibleWiaxyRef || null,
-                        transaction_ref: possibleTxnRef || null,
-                        merchant_reference: possibleMerchantRef || null,
-                        billstack_reference: possibleBillstackRef || null
-                    },
-                    type: QueryTypes.SELECT,
-                    transaction: t
-                });
-
-                if (Array.isArray(existing) && existing.length) {
-                    await t.rollback();
-                    logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${providerReference}`);
-                    await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                    return res.status(200).json({ success: true, message: 'Transaction already exists' });
-                }
-            }
-
-            let creditedTxn = null;
-            try {
-                const result = await walletService.creditFundingWithFraudChecks(
-                    user,
+        if (process.env.NODE_ENV !== 'test') {
+            res.status(200).json({ success: true });
+            setImmediate(() => {
+                void processBillstackFunding({
+                    webhookEventId: webhookEvent.id,
+                    payload,
+                    data,
+                    providerReference,
                     amount,
-                    `BillStack Funding: ${providerReference}`,
-                    {
-                        reference: providerReference,
-                        gateway: 'billstack',
-                        billstack_reference: billstackReference,
-                        merchant_reference: data?.merchant_reference,
-                        inter_bank_reference: data?.wiaxy_ref,
-                        transaction_ref: data?.transaction_ref,
-                        payer: data?.payer,
-                        account: data?.account
-                    },
-                    t
-                );
-                if (result.status === 'pending_review') {
-                    await t.commit();
-                    logger.warn(`[Webhook] BillStack: Funding held for review ${providerReference}`, { userId: user.id });
-                    return res.status(200).json({ success: true, message: 'pending_review' });
-                }
-                creditedTxn = result.transaction || null;
-            } catch (error) {
-                if (error?.name === 'SequelizeUniqueConstraintError') {
-                    await t.rollback();
-                    logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${providerReference}`);
-                    return res.status(200).json({ success: true, message: 'Transaction already exists' });
-                }
-                throw error;
-            }
-
-            await t.commit();
-            logger.info(`[Webhook] BillStack: Wallet funded successfully for ${user.email} - ₦${amount}`);
-            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-            notifyFundingSuccess(user, { reference: providerReference, amount, gateway: 'billstack', balance: creditedTxn?.balance_after ?? null });
-            try {
-                const { sendTransactionNotification } = require('../services/notificationService');
-                const txnForNotify = creditedTxn || (await Transaction.findOne({ where: { reference: providerReference } }));
-                if (txnForNotify) await sendTransactionNotification(user, txnForNotify);
-            } catch (e) {
-                void e;
-            }
-            return res.status(200).json({ success: true });
-        } catch (error) {
-            if (t && !t.finished) await t.rollback();
-            logger.error(`[Webhook] BillStack processing error: ${error.message}`, { reference: providerReference });
-            await webhookEventService.markFailed(webhookEvent.id, { error: error.message });
-            return res.status(500).json({ message: 'Processing failed' });
+                    accountNumber,
+                    billstackReference
+                });
+            });
+            return;
         }
+
+        await processBillstackFunding({
+            webhookEventId: webhookEvent.id,
+            payload,
+            data,
+            providerReference,
+            amount,
+            accountNumber,
+            billstackReference
+        });
+        return res.status(200).json({ success: true });
     } catch (error) {
         logger.error(`[Webhook] BillStack error: ${error.message}`);
         return res.sendStatus(500);
