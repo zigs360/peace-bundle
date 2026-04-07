@@ -7,6 +7,7 @@ import { User, DashboardStats } from '../../types';
 import { useVirtualAccount } from '../../hooks/useVirtualAccount';
 import VirtualAccountWidget from '../../components/VirtualAccountWidget';
 import { useNotifications } from '../../context/NotificationContext';
+import { getStoredUser } from '../../utils/storage';
 
 export default function UserDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -33,9 +34,8 @@ export default function UserDashboard() {
       } catch (err) {
         console.error('Failed to refresh user data', err);
         // Fallback: use stored user if API fails
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          const parsedUser = JSON.parse(storedUser);
+        const parsedUser = getStoredUser<User>();
+        if (parsedUser) {
           setUser(parsedUser);
           await fetchStats(parsedUser.id);
         } else {

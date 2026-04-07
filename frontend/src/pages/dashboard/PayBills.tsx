@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import api from '../../services/api';
 import { Tv, Zap, Smartphone, Banknote, CreditCard, CheckCircle } from 'lucide-react';
+import { getStoredUser } from '../../utils/storage';
 
 const CABLE_PROVIDERS = ['DSTV', 'GOTV', 'STARTIMES'];
 const POWER_PROVIDERS = ['IKEDC', 'EKEDC', 'AEDC', 'IBEDC', 'EEDC', 'KEDCO', 'JEDC'];
@@ -31,9 +32,8 @@ export default function PayBills() {
     setMessage(null);
 
     try {
-      const userStr = localStorage.getItem('user');
-      if (!userStr) throw new Error('User not found');
-      const user = JSON.parse(userStr);
+      const user = getStoredUser<any>();
+      if (!user?.id) throw new Error('User not found');
 
       await api.post('/transactions/bill', {
         userId: user.id,

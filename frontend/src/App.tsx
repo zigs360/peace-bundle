@@ -44,14 +44,16 @@ import MyReviews from './pages/dashboard/MyReviews';
 import Support from './pages/dashboard/Support';
 import Beneficiaries from './pages/dashboard/Beneficiaries';
 import { NotificationProvider } from './context/NotificationContext';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 function App() {
   return (
     <Router>
-      <NotificationProvider>
-        <CookieConsent />
-        <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
-        <Routes>
+      <ErrorBoundary>
+        <NotificationProvider>
+          <CookieConsent />
+          <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+          <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Home />} />
           <Route path="/about" element={<About />} />
@@ -106,8 +108,9 @@ function App() {
 
           {/* Catch all */}
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </NotificationProvider>
+          </Routes>
+        </NotificationProvider>
+      </ErrorBoundary>
     </Router>
   );
 }

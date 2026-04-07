@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import api from '../../services/api';
 import { GraduationCap, CheckCircle, Copy } from 'lucide-react';
+import { getStoredUser } from '../../utils/storage';
 
 const EXAM_TYPES = [
   { id: 'WAEC', name: 'WAEC Result', price: 3500 },
@@ -22,9 +23,8 @@ export default function EducationPins() {
     setPins([]);
 
     try {
-      const userStr = localStorage.getItem('user');
-      if (!userStr) throw new Error('User not found');
-      const user = JSON.parse(userStr);
+      const user = getStoredUser<any>();
+      if (!user?.id) throw new Error('User not found');
 
       const res = await api.post('/transactions/result-checker', {
         userId: user.id,

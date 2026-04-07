@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import api from '../services/api';
+import { getStoredUser } from '../utils/storage';
 
 interface Notification {
   id: string;
@@ -135,8 +136,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           toast.success(`Wallet funded ₦${amount.toLocaleString()}${gateway ? ` (${String(gateway)})` : ''}`);
         }
 
-        const stored = localStorage.getItem('user');
-        const userId = stored ? JSON.parse(stored)?.id : null;
+        const userId = getStoredUser<any>()?.id || null;
         if (userId) {
           setTimeout(async () => {
             try {

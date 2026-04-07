@@ -4,6 +4,7 @@ import { Wifi, Smartphone, CheckCircle } from 'lucide-react';
 import { SlideUp, FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
 import SelectProvider from '../../components/Forms/SelectProvider';
 import { useNotifications } from '../../context/NotificationContext';
+import { getStoredUser } from '../../utils/storage';
 
 const NETWORKS = ['mtn', 'airtel', 'glo', '9mobile'];
 
@@ -59,10 +60,8 @@ export default function BuyData() {
     setMessage(null);
 
     try {
-      const userStr = localStorage.getItem('user');
-      if (!userStr) throw new Error('User not found');
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const user = JSON.parse(userStr); 
+      const user = getStoredUser<any>();
+      if (!user?.id) throw new Error('User not found');
 
       // Find selected plan details
       const selectedPlan = plans.find(p => p.id === selectedPlanId);

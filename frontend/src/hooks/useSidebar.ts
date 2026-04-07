@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
+import { getStoredBoolean } from '../utils/storage';
 
 export function useSidebar() {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sidebarCollapsed');
-      return saved ? JSON.parse(saved) : false;
+      return getStoredBoolean('sidebarCollapsed', false);
     }
     return false;
   });

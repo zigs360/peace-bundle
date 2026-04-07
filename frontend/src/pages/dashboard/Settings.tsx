@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { User, Lock, Save, AlertCircle, FileText, Upload } from 'lucide-react';
 import api, { SERVER_ROOT_URL } from '../../services/api';
 import { StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
+import { getStoredUser } from '../../utils/storage';
 
 export default function Settings() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,9 +28,8 @@ export default function Settings() {
   const [kycMessage, setKycMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      const userData = JSON.parse(userStr);
+    const userData = getStoredUser<any>();
+    if (userData) {
       setUser(userData);
       setFormData({
         fullName: userData.fullName || '',
