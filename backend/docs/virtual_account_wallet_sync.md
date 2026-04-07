@@ -63,6 +63,26 @@
   - `wallet_balance_updated` to the specific user’s connected sockets with `{ amount, reference, gateway, balance }`
 - This enables immediate UI refresh without requiring manual reload/polling.
 
+## Mobile / Real-Time Client Integration
+
+Any client (web or mobile) can subscribe to real-time balance updates using Socket.IO:
+
+- **Socket URL**: `https://www.peacebundlle.com` (same origin as API in production)
+- **Auth**: send the JWT access token as:
+  - `auth: { token }` (preferred), or
+  - `?token=<JWT>` query (fallback)
+
+### Events
+
+- `wallet_balance_updated`
+  - Payload: `{ reference, amount, gateway, balance }`
+  - Recommended behavior:
+    - Optimistically update the UI wallet balance immediately.
+    - Re-verify by calling `GET /api/transactions/stats/my` (or `GET /api/transactions/stats/:userId`) shortly after to confirm server state.
+    - Deduplicate by `reference` to avoid double updates on webhook retries.
+- `notification`
+  - Persisted in-app alerts (wallet funding uses this to show “Wallet funded” messages).
+
 ## Common Failure Modes (and how to detect them)
 
 - **Invalid/missing webhook secret** → webhook rejected.
@@ -80,3 +100,7 @@
 - BillStack webhook wallet credit + idempotency:
   - [billstack_webhook.test.js](file:///c:/Users/7410/peace%20bundle/backend/tests/billstack_webhook.test.js)
   - Includes both legacy `virtual_account_number` and dual-metadata mapping scenarios.
+- Paystack webhook wallet credit + idempotency:
+  - [paystack_webhook.test.js](file:///c:/Users/7410/peace%20bundle/backend/tests/paystack_webhook.test.js)
+- Monnify webhook wallet credit + idempotency:
+  - [monnify_webhook.test.js](file:///c:/Users/7410/peace%20bundle/backend/tests/monnify_webhook.test.js)

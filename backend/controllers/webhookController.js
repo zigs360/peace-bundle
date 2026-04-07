@@ -11,6 +11,31 @@ const maskAccountNumber = (value) => {
     return `****${last4}`;
 };
 
+const notifyFundingSuccess = (user, { reference, amount, gateway, balance }) => {
+    try {
+        notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+            reference,
+            amount,
+            gateway,
+            balance
+        });
+    } catch (e) {
+        void e;
+    }
+    try {
+        void notificationRealtimeService.sendToUser(user.id, {
+            title: 'Wallet funded',
+            message: `Your wallet has been credited with ₦${Number(amount).toLocaleString()}${gateway ? ` via ${String(gateway)}` : ''}. Ref: ${reference}`,
+            type: 'success',
+            priority: 'medium',
+            link: '/dashboard',
+            metadata: { kind: 'wallet_funding', reference, amount, gateway, balance }
+        });
+    } catch (e) {
+        void e;
+    }
+};
+
 // @desc    Handle Paystack Webhook
 // @route   POST /api/webhooks/paystack
 // @access  Public (Secured by Signature)
@@ -19,19 +44,40 @@ const handlePaystackWebhook = async (req, res) => {
     const { Transaction, User } = require('../models');
     try {
         const secret = process.env.PAYSTACK_SECRET_KEY;
-        const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
-        const hash = crypto.createHmac('sha512', secret).update(raw).digest('hex');
-        
-        if (hash !== req.headers['x-paystack-signature']) {
-            logger.warn('[Webhook] Paystack: Invalid signature');
-            return res.status(400).send('Invalid signature');
+        const event = req.body;
+        const reference = event?.data?.reference || null;
+        const creditAmount = event?.data?.amount ? Number(event.data.amount) / 100 : null;
+        const webhookEvent = await webhookEventService.recordReceived({
+            provider: 'paystack',
+            reference,
+            amount: Number.isFinite(creditAmount) ? creditAmount : null,
+            currency: event?.data?.currency || null,
+            payload: event,
+            req
+        });
+
+        const signature = req.headers['x-paystack-signature'];
+        if (!secret) {
+            if (process.env.NODE_ENV === 'production') {
+                await webhookEventService.markFailed(webhookEvent.id, { error: 'PAYSTACK_SECRET_KEY not configured', signatureHeader: 'x-paystack-signature', signaturePresent: Boolean(signature) });
+                return res.status(500).send('Webhook not configured');
+            }
+            await webhookEventService.markVerified(webhookEvent.id, { signatureHeader: 'x-paystack-signature', signaturePresent: Boolean(signature) });
+        } else {
+            const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
+            const hash = crypto.createHmac('sha512', secret).update(raw).digest('hex');
+            if (hash !== signature) {
+                logger.warn('[Webhook] Paystack: Invalid signature');
+                await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signatureHeader: 'x-paystack-signature', signaturePresent: Boolean(signature) });
+                return res.status(400).send('Invalid signature');
+            }
+            await webhookEventService.markVerified(webhookEvent.id, { signatureHeader: 'x-paystack-signature', signaturePresent: true });
         }
 
-        const event = req.body;
         logger.info(`[Webhook] Paystack received: ${event.event}`, { reference: event.data?.reference });
         
         if (event.event === 'charge.success') {
-            const { reference, amount, status, customer } = event.data;
+            const { amount, status, customer } = event.data;
             
             if (status === 'success') {
                 const t = await sequelize.transaction();
@@ -40,10 +86,10 @@ const handlePaystackWebhook = async (req, res) => {
                     if (!user) {
                         await t.rollback();
                         logger.error(`[Webhook] Paystack: User with email ${customer.email} not found`);
+                        await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found', userId: null });
                         return res.status(404).send('User not found');
                     }
 
-                    const creditAmount = amount / 100; // kobo to Naira
                     let creditedTxn = null;
                     try {
                         const result = await walletService.creditFundingWithFraudChecks(
@@ -56,6 +102,7 @@ const handlePaystackWebhook = async (req, res) => {
                         if (result.status === 'pending_review') {
                             await t.commit();
                             logger.warn(`[Webhook] Paystack: Funding held for review ${reference}`, { userId: user.id });
+                            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
                             return res.status(200).json({ success: true, message: 'Pending review' });
                         }
                         creditedTxn = result.transaction || null;
@@ -63,6 +110,7 @@ const handlePaystackWebhook = async (req, res) => {
                         if (error?.name === 'SequelizeUniqueConstraintError') {
                             await t.rollback();
                             logger.info(`[Webhook] Paystack: Duplicate transaction ignored ${reference}`);
+                            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
                             return res.status(200).json({ success: true, message: 'Transaction already exists' });
                         }
                         throw error;
@@ -70,19 +118,12 @@ const handlePaystackWebhook = async (req, res) => {
                     
                     await t.commit();
                     logger.info(`[Webhook] Paystack: Wallet funded successfully for ${user.email} - ₦${creditAmount}`);
-                    try {
-                        notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
-                            reference,
-                            amount: creditAmount,
-                            gateway: 'paystack',
-                            balance: creditedTxn?.balance_after ?? null
-                        });
-                    } catch (e) {
-                        void e;
-                    }
+                    await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
+                    notifyFundingSuccess(user, { reference, amount: creditAmount, gateway: 'paystack', balance: creditedTxn?.balance_after ?? null });
                 } catch (error) {
                     if (t && !t.finished) await t.rollback();
                     logger.error(`[Webhook] Paystack processing error: ${error.message}`, { reference });
+                    await webhookEventService.markFailed(webhookEvent.id, { error: error.message });
                     return res.status(500).send('Processing failed');
                 }
             }
@@ -108,18 +149,30 @@ const handlePayvesselWebhook = async (req, res) => {
         const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
         const allowedIps = ["3.255.23.38", "162.246.254.36"];
 
+        const reference = payload?.transaction?.reference || null;
+        const amountParsed = payload?.order?.settlement_amount || payload?.order?.amount || null;
+        const amount = amountParsed !== null ? Number(amountParsed) : null;
+        const webhookEvent = await webhookEventService.recordReceived({
+            provider: 'payvessel',
+            reference,
+            amount: Number.isFinite(amount) ? amount : null,
+            currency: payload?.order?.currency || null,
+            payload,
+            req
+        });
+
         const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
         const isValidSignature = payvesselService.verifySignature(raw, signature);
         const isAllowedIp = allowedIps.some(ip => ipAddress.includes(ip));
 
         if (!isValidSignature || !isAllowedIp) {
             logger.warn(`[Webhook] PayVessel: Permission denied (Invalid signature or IP: ${ipAddress})`);
+            await webhookEventService.markRejected(webhookEvent.id, { error: 'Permission denied', signatureHeader: 'http_payvessel_http_signature', signaturePresent: Boolean(signature) });
             return res.status(400).json({ message: 'Permission denied, invalid hash or ip address.' });
         }
+        await webhookEventService.markVerified(webhookEvent.id, { signatureHeader: 'http_payvessel_http_signature', signaturePresent: Boolean(signature) });
 
         const { order, transaction, customer } = payload;
-        const reference = transaction.reference;
-        const amount = parseFloat(order.settlement_amount || order.amount);
         
         const t = await sequelize.transaction();
         try {
@@ -127,6 +180,7 @@ const handlePayvesselWebhook = async (req, res) => {
             if (!user) {
                 await t.rollback();
                 logger.error(`[Webhook] PayVessel: User with email ${customer.email} not found`);
+                await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found', userId: null });
                 return res.status(404).json({ success: false, message: 'user not found' });
             }
 
@@ -147,6 +201,7 @@ const handlePayvesselWebhook = async (req, res) => {
                 if (result.status === 'pending_review') {
                     await t.commit();
                     logger.warn(`[Webhook] PayVessel: Funding held for review ${reference}`, { userId: user.id });
+                    await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
                     return res.status(200).json({ success: true, message: 'pending_review' });
                 }
                 creditedTxn = result.transaction || null;
@@ -154,6 +209,7 @@ const handlePayvesselWebhook = async (req, res) => {
                 if (error?.name === 'SequelizeUniqueConstraintError') {
                     await t.rollback();
                     logger.info(`[Webhook] PayVessel: Duplicate transaction ignored ${reference}`);
+                    await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
                     return res.status(200).json({ success: true, message: 'transaction already exist' });
                 }
                 throw error;
@@ -161,21 +217,14 @@ const handlePayvesselWebhook = async (req, res) => {
 
             await t.commit();
             logger.info(`[Webhook] PayVessel: Wallet funded successfully for ${user.email} - ₦${amount}`);
-            try {
-                notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
-                    reference,
-                    amount,
-                    gateway: 'payvessel',
-                    balance: creditedTxn?.balance_after ?? null
-                });
-            } catch (e) {
-                void e;
-            }
+            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
+            notifyFundingSuccess(user, { reference, amount, gateway: 'payvessel', balance: creditedTxn?.balance_after ?? null });
             res.status(200).json({ success: true, message: 'success' });
 
         } catch (error) {
             if (t && !t.finished) await t.rollback();
             logger.error(`[Webhook] PayVessel processing error: ${error.message}`, { reference });
+            await webhookEventService.markFailed(webhookEvent.id, { error: error.message });
             res.status(500).json({ success: false, message: 'Internal server error during processing' });
         }
 
@@ -194,23 +243,41 @@ const handleMonnifyWebhook = async (req, res) => {
     try {
         const secret = process.env.MONNIFY_SECRET_KEY;
         const signature = req.headers['monnify-signature'];
-
-        if (!signature) {
-            return res.status(400).send('No signature provided');
-        }
-
-        const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
-        const hash = crypto.createHmac('sha512', secret).update(raw).digest('hex');
-        
-        if (hash !== signature) {
-            logger.warn('[Webhook] Monnify: Invalid signature');
-            return res.status(400).send('Invalid signature');
-        }
-
         const event = req.body;
+        const reference = event?.eventData?.transactionReference || null;
+        const amountPaid = event?.eventData?.amountPaid ?? null;
+        const webhookEvent = await webhookEventService.recordReceived({
+            provider: 'monnify',
+            reference,
+            amount: amountPaid !== null ? Number(amountPaid) : null,
+            currency: event?.eventData?.currencyCode || null,
+            payload: event,
+            req
+        });
+
+        if (!secret) {
+            if (process.env.NODE_ENV === 'production') {
+                await webhookEventService.markFailed(webhookEvent.id, { error: 'MONNIFY_SECRET_KEY not configured', signatureHeader: 'monnify-signature', signaturePresent: Boolean(signature) });
+                return res.status(500).send('Webhook not configured');
+            }
+            await webhookEventService.markVerified(webhookEvent.id, { signatureHeader: 'monnify-signature', signaturePresent: Boolean(signature) });
+        } else {
+            if (!signature) {
+                await webhookEventService.markRejected(webhookEvent.id, { error: 'No signature provided', signatureHeader: 'monnify-signature', signaturePresent: false });
+                return res.status(400).send('No signature provided');
+            }
+            const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
+            const hash = crypto.createHmac('sha512', secret).update(raw).digest('hex');
+            if (hash !== signature) {
+                logger.warn('[Webhook] Monnify: Invalid signature');
+                await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signatureHeader: 'monnify-signature', signaturePresent: true });
+                return res.status(400).send('Invalid signature');
+            }
+            await webhookEventService.markVerified(webhookEvent.id, { signatureHeader: 'monnify-signature', signaturePresent: true });
+        }
         
         if (event.eventType === 'SUCCESSFUL_TRANSACTION') {
-            const { transactionReference, amountPaid, paymentStatus, customerDTO } = event.eventData;
+            const { transactionReference, paymentStatus, customerDTO } = event.eventData;
             
             if (paymentStatus === 'PAID') {
                 const t = await sequelize.transaction();
@@ -219,6 +286,7 @@ const handleMonnifyWebhook = async (req, res) => {
                     if (!user) {
                         await t.rollback();
                         logger.error(`[Webhook] Monnify: User with email ${customerDTO.email} not found`);
+                        await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found', userId: null });
                         return res.status(404).send('User not found');
                     }
 
@@ -234,6 +302,7 @@ const handleMonnifyWebhook = async (req, res) => {
                         if (result.status === 'pending_review') {
                             await t.commit();
                             logger.warn(`[Webhook] Monnify: Funding held for review ${transactionReference}`, { userId: user.id });
+                            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
                             return res.status(200).json({ success: true, message: 'Transaction pending review' });
                         }
                         creditedTxn = result.transaction || null;
@@ -241,6 +310,7 @@ const handleMonnifyWebhook = async (req, res) => {
                         if (error?.name === 'SequelizeUniqueConstraintError') {
                             await t.rollback();
                             logger.info(`[Webhook] Monnify: Duplicate transaction ignored ${transactionReference}`);
+                            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
                             return res.status(200).json({ success: true, message: 'Transaction already exists' });
                         }
                         throw error;
@@ -248,19 +318,12 @@ const handleMonnifyWebhook = async (req, res) => {
                     
                     await t.commit();
                     logger.info(`[Webhook] Monnify: Wallet funded successfully for ${user.email} - ₦${amountPaid}`);
-                    try {
-                        notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
-                            reference: transactionReference,
-                            amount: amountPaid,
-                            gateway: 'monnify',
-                            balance: creditedTxn?.balance_after ?? null
-                        });
-                    } catch (e) {
-                        void e;
-                    }
+                    await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
+                    notifyFundingSuccess(user, { reference: transactionReference, amount: amountPaid, gateway: 'monnify', balance: creditedTxn?.balance_after ?? null });
                 } catch (error) {
                     if (t && !t.finished) await t.rollback();
                     logger.error(`[Webhook] Monnify processing error: ${error.message}`, { reference: transactionReference });
+                    await webhookEventService.markFailed(webhookEvent.id, { error: error.message });
                     return res.status(500).send('Processing failed');
                 }
             }
@@ -496,16 +559,7 @@ const handleBillstackWebhook = async (req, res) => {
             await t.commit();
             logger.info(`[Webhook] BillStack: Wallet funded successfully for ${user.email} - ₦${amount}`);
             await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-            try {
-                notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
-                    reference: providerReference,
-                    amount,
-                    gateway: 'billstack',
-                    balance: creditedTxn?.balance_after ?? null
-                });
-            } catch (e) {
-                void e;
-            }
+            notifyFundingSuccess(user, { reference: providerReference, amount, gateway: 'billstack', balance: creditedTxn?.balance_after ?? null });
             try {
                 const { sendTransactionNotification } = require('../services/notificationService');
                 const txnForNotify = creditedTxn || (await Transaction.findOne({ where: { reference: providerReference } }));
