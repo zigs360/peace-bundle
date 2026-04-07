@@ -13,13 +13,15 @@ export default function UserDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [statsFetchedAt, setStatsFetchedAt] = useState(0);
   const { state: va, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
-  const { walletVersion, walletBalance, isConnected } = useNotifications();
+  const { walletVersion, walletBalance, walletBalanceUpdatedAt, isConnected } = useNotifications();
 
   const fetchStats = useCallback(async (userId: string) => {
     try {
       const res = await api.get(`/transactions/stats/${userId}`);
       setStats(res.data);
+      setStatsFetchedAt(Date.now());
     } catch (err) {
       console.error('Failed to fetch stats', err);
     } finally {
@@ -73,7 +75,9 @@ export default function UserDashboard() {
   }, [isConnected, user?.id, fetchStats]);
 
   if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
-  const displayBalance = walletBalance ?? stats?.balance ?? 0;
+  const balanceFromStats = Number((stats as any)?.balance ?? 0);
+  const hasRealtime = walletBalance !== null && walletBalanceUpdatedAt > statsFetchedAt;
+  const displayBalance = hasRealtime ? walletBalance : balanceFromStats;
 
   return (
     <FadeIn className="p-6">

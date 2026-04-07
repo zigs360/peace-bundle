@@ -1035,9 +1035,9 @@ const getDashboardStats = async (req, res) => {
             totalSpent,
             totalFunded,
             transactionsCount,
-            balance: user.wallet.balance,
-            commission: user.wallet.commission_balance,
-            bonus: user.wallet.bonus_balance,
+            balance: parseFloat(user.wallet.balance || 0),
+            commission: parseFloat(user.wallet.commission_balance || 0),
+            bonus: parseFloat(user.wallet.bonus_balance || 0),
             recentTransactions
         });
     } catch (error) {

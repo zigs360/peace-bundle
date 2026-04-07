@@ -25,6 +25,7 @@ interface NotificationContextType {
   pricingVersion: number;
   walletVersion: number;
   walletBalance: number | null;
+  walletBalanceUpdatedAt: number;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -35,6 +36,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [pricingVersion, setPricingVersion] = useState(0);
   const [walletVersion, setWalletVersion] = useState(0);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [walletBalanceUpdatedAt, setWalletBalanceUpdatedAt] = useState(0);
   const lastWalletRef = useRef<string | null>(null);
 
   const fetchNotifications = useCallback(async () => {
@@ -52,6 +54,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const cached = localStorage.getItem('wallet_balance');
     const n = cached ? Number(cached) : NaN;
     if (Number.isFinite(n)) setWalletBalance(n);
+    const cachedAt = localStorage.getItem('wallet_balance_updated_at');
+    const at = cachedAt ? Number(cachedAt) : NaN;
+    if (Number.isFinite(at)) setWalletBalanceUpdatedAt(at);
   }, []);
 
   const markAsRead = async (id: string) => {
@@ -123,17 +128,20 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (reference && reference === lastWalletRef.current) return;
         if (reference) lastWalletRef.current = reference;
 
-        const balanceNum = payload?.balance;
-        if (typeof balanceNum === 'number' && Number.isFinite(balanceNum)) {
-          setWalletBalance(balanceNum);
-          localStorage.setItem('wallet_balance', String(balanceNum));
+        const parsedBalance = typeof payload?.balance === 'number' ? payload.balance : Number(payload?.balance);
+        if (Number.isFinite(parsedBalance)) {
+          setWalletBalance(parsedBalance);
+          const now = Date.now();
+          setWalletBalanceUpdatedAt(now);
+          localStorage.setItem('wallet_balance', String(parsedBalance));
+          localStorage.setItem('wallet_balance_updated_at', String(now));
         }
         setWalletVersion((v) => v + 1);
 
-        const amount = payload?.amount;
+        const amount = typeof payload?.amount === 'number' ? payload.amount : Number(payload?.amount);
         const gateway = payload?.gateway;
-        if (typeof amount === 'number' && Number.isFinite(amount)) {
-          toast.success(`Wallet funded ₦${amount.toLocaleString()}${gateway ? ` (${String(gateway)})` : ''}`);
+        if (Number.isFinite(amount)) {
+          toast.success(`Wallet funded ₦${Number(amount).toLocaleString()}${gateway ? ` (${String(gateway)})` : ''}`);
         }
 
         const userId = getStoredUser<any>()?.id || null;
@@ -142,14 +150,18 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             try {
               const res = await api.get(`/transactions/stats/${userId}`);
               const serverBalance = res.data?.balance;
-              if (typeof serverBalance === 'number' && Number.isFinite(serverBalance)) {
+              const serverBalanceNum = typeof serverBalance === 'number' ? serverBalance : Number(serverBalance);
+              if (Number.isFinite(serverBalanceNum)) {
                 setWalletBalance((prev) => {
-                  if (prev !== null && Math.abs(prev - serverBalance) > 0.009) {
+                  if (prev !== null && Math.abs(prev - serverBalanceNum) > 0.009) {
                     toast.error('Wallet balance adjusted after verification');
                   }
-                  return serverBalance;
+                  return serverBalanceNum;
                 });
-                localStorage.setItem('wallet_balance', String(serverBalance));
+                const now = Date.now();
+                setWalletBalanceUpdatedAt(now);
+                localStorage.setItem('wallet_balance', String(serverBalanceNum));
+                localStorage.setItem('wallet_balance_updated_at', String(now));
               }
             } catch (e) {
               void e;
@@ -183,7 +195,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       isConnected,
       pricingVersion,
       walletVersion,
-      walletBalance
+      walletBalance,
+      walletBalanceUpdatedAt
     }}>
       {children}
     </NotificationContext.Provider>

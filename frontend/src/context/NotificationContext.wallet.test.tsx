@@ -70,7 +70,7 @@ describe('NotificationContext wallet_balance_updated', () => {
     const listeners = handlers['wallet_balance_updated'] || [];
     expect(listeners.length).toBeGreaterThan(0);
     await act(async () => {
-      await listeners[0]({ reference: 'R1', amount: 500, balance: 1500, gateway: 'billstack' });
+      await listeners[0]({ reference: 'R1', amount: 500, balance: '1500.00', gateway: 'billstack' });
     });
 
     expect(screen.getByTestId('balance').textContent).toBe('1500');
