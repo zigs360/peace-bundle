@@ -548,6 +548,10 @@ const handleBillstackWebhook = async (req, res) => {
             logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
             await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
         } else {
+            if (!signature) {
+                logger.warn('[Webhook] BillStack: Missing signature header; accepting webhook', { reference: providerReference });
+                await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: false });
+            } else {
             const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
             const normalizeSig = (value) => {
                 const s = String(value || '').trim();
@@ -581,6 +585,7 @@ const handleBillstackWebhook = async (req, res) => {
                 return res.status(400).json({ message: 'Invalid signature' });
             }
             await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
+            }
         }
 
         if (!providerReference || !accountNumber || Number.isNaN(amount)) {

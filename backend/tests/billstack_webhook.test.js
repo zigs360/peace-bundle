@@ -165,6 +165,42 @@ describe('BillStack webhook', () => {
     expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 500);
   });
 
+  it('accepts webhook without signature header and still credits wallet', async () => {
+    const user = await User.create({
+      name: 'Webhook VA User 4',
+      email: `webhook_va4_${Date.now()}@test.com`,
+      phone: '08011007705',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+      virtual_account_number: '6634530601',
+      virtual_account_bank: 'PALMPAY',
+      virtual_account_name: 'Webhook VA User 4',
+    });
+
+    const walletBefore = await Wallet.findOne({ where: { userId: user.id } });
+    const beforeBalance = parseFloat(walletBefore.balance);
+
+    const wiaxy_ref = `MI-${Date.now()}`;
+    const payload = {
+      event: 'PAYMENT_NOTIFICATION',
+      data: {
+        type: 'RESERVED_ACCOUNT_TRANSACTION',
+        reference: `R-${Date.now()}`,
+        wiaxy_ref,
+        transaction_ref: wiaxy_ref,
+        amount: 200,
+        account: { account_number: '6634530601' }
+      }
+    };
+
+    const res = await request(app).post('/api/webhooks/billstack').send(payload);
+    expect(res.statusCode).toBe(200);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 200);
+  });
+
   it('credits wallet when account number exists in dual virtual account metadata', async () => {
     const accountNumber = '6634530599';
     const user = await User.create({
