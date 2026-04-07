@@ -16,6 +16,17 @@ export default function UserDashboard() {
   const { state: va, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
   const { walletVersion, walletBalance, isConnected } = useNotifications();
 
+  const fetchStats = useCallback(async (userId: string) => {
+    try {
+      const res = await api.get(`/transactions/stats/${userId}`);
+      setStats(res.data);
+    } catch (err) {
+      console.error('Failed to fetch stats', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const initDashboard = async () => {
       try {
@@ -60,17 +71,6 @@ export default function UserDashboard() {
     }, 30000);
     return () => clearInterval(timer);
   }, [isConnected, user?.id, fetchStats]);
-
-  const fetchStats = useCallback(async (userId: string) => {
-    try {
-      const res = await api.get(`/transactions/stats/${userId}`);
-      setStats(res.data);
-    } catch (err) {
-      console.error('Failed to fetch stats', err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
   const displayBalance = walletBalance ?? stats?.balance ?? 0;
