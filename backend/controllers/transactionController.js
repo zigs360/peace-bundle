@@ -127,6 +127,26 @@ const fundWallet = async (req, res) => {
         // Fetch updated wallet for response
         const updatedWallet = await walletService.getBalance(user);
 
+        try {
+            const notificationRealtimeService = require('../services/notificationRealtimeService');
+            notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+                reference: newTransaction.reference,
+                amount: value,
+                gateway: 'funding',
+                balance: newTransaction.balance_after ?? updatedWallet
+            });
+            await notificationRealtimeService.sendToUser(user.id, {
+                title: 'Wallet funded',
+                message: `Your wallet has been credited with ₦${Number(value).toLocaleString()}. Ref: ${newTransaction.reference}`,
+                type: 'success',
+                priority: 'medium',
+                link: '/dashboard',
+                metadata: { kind: 'wallet_funding', reference: newTransaction.reference, amount: value, balance: newTransaction.balance_after ?? updatedWallet }
+            });
+        } catch (e) {
+            void e;
+        }
+
         res.json({
             success: true,
             message: 'Wallet funded successfully',

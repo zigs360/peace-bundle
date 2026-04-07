@@ -767,6 +767,7 @@ const toggleBlockUser = async (req, res) => {
 const fundUserWallet = async (req, res) => {
     const walletService = require('../services/walletService');
     const { sendEmail } = require('../services/notificationService');
+    const notificationRealtimeService = require('../services/notificationRealtimeService');
     const t = await sequelize.transaction();
     try {
         const { amount } = req.body;
@@ -795,7 +796,7 @@ const fundUserWallet = async (req, res) => {
         await user.wallet.save({ transaction: t });
 
         // Create Transaction Record
-        await Transaction.create({
+        const txn = await Transaction.create({
             userId: user.id,
             type: 'credit',
             amount: numericAmount,
@@ -806,6 +807,32 @@ const fundUserWallet = async (req, res) => {
         }, { transaction: t });
 
         await t.commit();
+
+        try {
+            const balance = parseFloat(user.wallet.balance);
+            notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+                reference: txn.reference,
+                amount: numericAmount,
+                gateway: 'admin',
+                balance
+            });
+            await notificationRealtimeService.sendToUser(user.id, {
+                title: 'Wallet funded',
+                message: `Your wallet has been credited with ₦${Number(numericAmount).toLocaleString()} by admin.`,
+                type: 'success',
+                priority: 'medium',
+                link: '/dashboard',
+                metadata: { kind: 'wallet_funding_admin', reference: txn.reference, amount: numericAmount, balance }
+            });
+        } catch (e) {
+            void e;
+        }
+
+        try {
+            await sendEmail(user.email, 'Wallet Funded', `Your wallet has been funded with ₦${numericAmount}.`);
+        } catch (e) {
+            void e;
+        }
 
         res.json({
             message: 'Wallet funded successfully',

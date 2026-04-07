@@ -7,6 +7,7 @@ import { User } from '../../types';
 import toast from 'react-hot-toast';
 import { useVirtualAccount } from '../../hooks/useVirtualAccount';
 import VirtualAccountWidget from '../../components/VirtualAccountWidget';
+import { useNotifications } from '../../context/NotificationContext';
 
 export default function FundWallet() {
   const [amount, setAmount] = useState('');
@@ -16,16 +17,69 @@ export default function FundWallet() {
   const [user, setUser] = useState<User | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const { state: va, hasVirtualAccount, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
+  const { walletVersion } = useNotifications();
+  const [pendingReference, setPendingReference] = useState<string | null>(null);
+  const [lastKnownBalance, setLastKnownBalance] = useState<number | null>(null);
 
   useEffect(() => {
     fetchUserProfile();
   }, []);
 
   useEffect(() => {
+    if (!user?.id) return;
+    void refreshBalance(user.id);
+  }, [walletVersion, user?.id]);
+
+  useEffect(() => {
+    if (!pendingReference || !user?.id) return;
+    let alive = true;
+    const startedAt = Date.now();
+    const poll = async () => {
+      if (!alive) return;
+      try {
+        const res = await api.get(`/transactions/stats/${user.id}`);
+        const b = res.data?.balance;
+        const bn = typeof b === 'number' ? b : Number(b);
+        if (Number.isFinite(bn)) {
+          if (lastKnownBalance !== null && bn > lastKnownBalance) {
+            toast.success('Wallet balance updated');
+            setPendingReference(null);
+            return;
+          }
+          setLastKnownBalance(bn);
+        }
+      } catch (e) {
+        void e;
+      }
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 20000) {
+        setTimeout(poll, 1500);
+      } else {
+        setPendingReference(null);
+      }
+    };
+    setTimeout(poll, 1500);
+    return () => {
+      alive = false;
+    };
+  }, [pendingReference, user?.id, lastKnownBalance]);
+
+  useEffect(() => {
     if (hasVirtualAccount) {
       setMethod('virtual');
     }
   }, [hasVirtualAccount]);
+
+  const refreshBalance = async (userId: string) => {
+    try {
+      const res = await api.get(`/transactions/stats/${userId}`);
+      const b = res.data?.balance;
+      const bn = typeof b === 'number' ? b : Number(b);
+      if (Number.isFinite(bn)) setLastKnownBalance(bn);
+    } catch (e) {
+      void e;
+    }
+  };
 
   const fetchUserProfile = async () => {
     setFetchingUser(true);
@@ -73,6 +127,10 @@ export default function FundWallet() {
       });
 
       toast.success('Wallet funding initiated successfully!');
+      if (user?.id) {
+        await refreshBalance(user.id);
+      }
+      setPendingReference(reference);
       setAmount('');
       // Optionally redirect or refresh balance
     } catch (err: any) {
