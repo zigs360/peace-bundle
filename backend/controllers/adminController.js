@@ -2,6 +2,7 @@ const { User, Transaction, Wallet, Sim, DataPlan, SystemSetting, SupportTicket }
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const walletService = require('../services/walletService');
+const WebhookEvent = require('../models/WebhookEvent');
 const fs = require('fs');
 const path = require('path');
 const { decrypt } = require('../utils/cryptoUtils');
@@ -499,6 +500,39 @@ const getTransactions = async (req, res) => {
     } catch (error) {
         logger.error('Admin Get Transactions Error:', { error: error.message });
         res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
+// @desc    List webhook events (Admin)
+// @route   GET /api/admin/webhook-events
+// @access  Private (Admin)
+const getWebhookEvents = async (req, res) => {
+    try {
+        const { page = 1, limit = 20, provider, reference, status } = req.query;
+        const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+        const where = {};
+        if (provider) where.provider = String(provider).toLowerCase();
+        if (status) where.status = String(status).toLowerCase();
+        if (reference) where.reference = { [Op.iLike]: `%${String(reference).trim()}%` };
+
+        const { count, rows } = await WebhookEvent.findAndCountAll({
+            where,
+            limit: parseInt(limit, 10),
+            offset,
+            order: [['createdAt', 'DESC']],
+        });
+
+        return res.json({
+            success: true,
+            page: parseInt(page, 10),
+            limit: parseInt(limit, 10),
+            total: count,
+            data: rows,
+        });
+    } catch (error) {
+        logger.error('Admin Get Webhook Events Error:', { error: error.message });
+        return res.status(500).json({ success: false, message: 'Server error' });
     }
 };
 
@@ -1625,6 +1659,7 @@ module.exports = {
     syncSmeplugSims,
     getSimAnalytics,
     getTransactions,
+    getWebhookEvents,
     refundTransaction,
     getKycRequests,
     viewKycDocument,

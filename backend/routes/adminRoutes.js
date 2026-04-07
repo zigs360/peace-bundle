@@ -15,6 +15,7 @@ const {
     updateDataPlan,
     deleteDataPlan,
     getTransactions,
+    getWebhookEvents,
     refundTransaction,
     getSims,
     approveSim,
@@ -51,6 +52,7 @@ const { protect, admin } = require('../middleware/authMiddleware');
 
 router.get('/stats', protect, admin, getAdminStats);
 router.get('/transactions', protect, admin, getTransactions);
+router.get('/webhook-events', protect, admin, getWebhookEvents);
 router.post('/transactions/:id/refund', protect, admin, refundTransaction);
 
 // Subscription Plan Routes
