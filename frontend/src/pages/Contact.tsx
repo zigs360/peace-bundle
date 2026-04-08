@@ -72,9 +72,9 @@ export default function Contact() {
                     <div className="ml-4">
                       <h3 className="text-lg font-medium text-gray-900">Email Us</h3>
                       <p className="mt-1 text-gray-500">
-                        <a href="mailto:sales@peacebundlle.com" className="hover:text-primary-600 transition">sales@peacebundlle.com</a>
+                        <a href="mailto:sales@peacebundle.com" className="hover:text-primary-600 transition">sales@peacebundle.com</a>
                         <br />
-                        <a href="mailto:support@peacebundlle.com" className="hover:text-primary-600 transition">support@peacebundlle.com</a>
+                        <a href="mailto:support@peacebundle.com" className="hover:text-primary-600 transition">support@peacebundle.com</a>
                       </p>
                     </div>
                   </div>

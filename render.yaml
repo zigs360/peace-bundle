@@ -22,10 +22,10 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: FRONTEND_URL
-        value: https://www.peacebundlle.com
+        value: https://www.peacebundle.com
 
 databases:
-  - name: peace-bundlle-db
+  - name: peace-bundle-db
     plan: free
-    databaseName: peacebundlle
-    user: peacebundlle_user
+    databaseName: peacebundle
+    user: peacebundle_user

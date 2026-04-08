@@ -74,7 +74,7 @@ export default function Terms() {
             <section>
               <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Limitation of Liability</h2>
               <p>
-                In no event shall Peace Bundlle, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential or punitive damages, 
+                In no event shall Peace Bundle, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential or punitive damages, 
                 including without limitation, loss of profits, data, use, goodwill, or other intangible losses, resulting from your access to or use of or inability to access or use the Service.
               </p>
             </section>
@@ -82,7 +82,7 @@ export default function Terms() {
             <section>
               <h2 className="text-xl font-semibold text-gray-900 mb-3">8. Contact Information</h2>
               <p>
-                Questions about the Terms of Service should be sent to us at support@peacebundlle.com.
+                Questions about the Terms of Service should be sent to us at support@peacebundle.com.
               </p>
             </section>
           </div>
