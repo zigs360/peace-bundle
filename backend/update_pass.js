@@ -11,7 +11,7 @@ const updatePassword = async () => {
 
     await User.update(
       { password: hashedPassword },
-      { where: { email: 'admin@peacebundlle.com' } }
+      { where: { email: 'admin@peacebundle.com' } }
     );
 
     console.log('✅ Admin password updated to: admin123');

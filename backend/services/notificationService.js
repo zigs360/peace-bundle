@@ -13,7 +13,7 @@ const resolveSmtpSettings = () => {
     const portRaw = isPlaceholder(process.env.SMTP_PORT) ? process.env.gmail_port : (process.env.SMTP_PORT || process.env.gmail_port);
     const user = isPlaceholder(process.env.SMTP_USER) ? process.env.gmail_user : (process.env.SMTP_USER || process.env.gmail_user);
     const pass = isPlaceholder(process.env.SMTP_PASS) ? process.env.gmail_pass : (process.env.SMTP_PASS || process.env.gmail_pass);
-    const from = process.env.SMTP_FROM || process.env.smtp_from || `"Peace Bundlle" <noreply@peacebundlle.com>`;
+    const from = process.env.SMTP_FROM || process.env.smtp_from || `"Peace Bundle" <noreply@peacebundle.com>`;
 
     const port = Number.parseInt(String(portRaw || ''), 10);
     const encryptionRaw = process.env.SMTP_ENCRYPTION || process.env.encryption || '';

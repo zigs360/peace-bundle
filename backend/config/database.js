@@ -7,25 +7,7 @@ let sequelize;
 if (globalThis.__peacebundle_sequelize) {
   sequelize = globalThis.__peacebundle_sequelize;
 } else {
-  const normalizeDatabaseUrl = (databaseUrl) => {
-    if (!databaseUrl) return databaseUrl;
-    try {
-      const url = new URL(databaseUrl);
-      if (url.hostname && !url.hostname.includes('.')) {
-        const renderRegion = process.env.RENDER_REGION;
-        if (renderRegion) {
-          url.hostname = `${url.hostname}.${renderRegion}-postgres.render.com`;
-          return url.toString();
-        }
-      }
-      return databaseUrl;
-    } catch (e) {
-      void e;
-      return databaseUrl;
-    }
-  };
-
-  const databaseUrl = normalizeDatabaseUrl(process.env.DATABASE_URL);
+  const databaseUrl = process.env.DATABASE_URL;
   const useTestPostgres = String(process.env.USE_TEST_POSTGRES || 'false').toLowerCase() === 'true';
   if (process.env.NODE_ENV === 'test' && !useTestPostgres) {
     sequelize = new Sequelize('sqlite::memory:', {
@@ -33,6 +15,11 @@ if (globalThis.__peacebundle_sequelize) {
       dialect: 'sqlite',
     });
   } else {
+    // Determine if SSL is needed. Render usually requires it for external connections.
+    // Internal connections usually do not.
+    const isRenderExternal = databaseUrl && databaseUrl.includes('render.com');
+    const isProduction = process.env.NODE_ENV === 'production';
+    
     sequelize = new Sequelize(databaseUrl || 'postgres://postgres:postgres@localhost:5432/peacebundle', {
       dialect: 'postgres',
       logging: false,
@@ -44,13 +31,12 @@ if (globalThis.__peacebundle_sequelize) {
       },
       dialectOptions: {
         connectTimeout: 60000,
-        ssl:
-          databaseUrl && databaseUrl.includes('render.com')
-            ? {
-                require: true,
-                rejectUnauthorized: false,
-              }
-            : false,
+        ssl: isRenderExternal || (isProduction && databaseUrl && !databaseUrl.includes('localhost'))
+          ? {
+              require: true,
+              rejectUnauthorized: false,
+            }
+          : false,
       },
     });
   }

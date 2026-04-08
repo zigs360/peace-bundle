@@ -13,8 +13,8 @@ const seedDatabase = async () => {
         // console.log('Database connected...');
         // await sequelize.sync(); // connectDB does this
 
-        // 1. Seed Admin User (Peace Bundlle Default)
-        const adminEmail = 'admin@peacebundlle.com';
+        // 1. Seed Admin User (Peace Bundle Default)
+        const adminEmail = 'admin@peacebundle.com';
         const adminExists = await User.findOne({ where: { email: adminEmail } });
 
         if (!adminExists) {

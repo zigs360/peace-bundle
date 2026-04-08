@@ -410,7 +410,7 @@ const getAffiliateStats = async (req, res) => {
 
         res.json({
             referralCode: user.referral_code,
-            referralLink: `https://peacebundlle.com/register?ref=${user.referral_code}`,
+            referralLink: `https://peacebundle.com/register?ref=${user.referral_code}`,
             totalEarnings,
             referredUsersCount: referrals.length,
             recentReferrals
