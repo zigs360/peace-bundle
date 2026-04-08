@@ -4,6 +4,8 @@ const sequelize = require('../config/database');
 const notificationRealtimeService = require('../services/notificationRealtimeService');
 const webhookEventService = require('../services/webhookEventService');
 
+const webhookRetryService = require('../services/webhookRetryService');
+
 const maskAccountNumber = (value) => {
     const s = String(value || '').replace(/\s+/g, '');
     if (!s) return null;
@@ -12,6 +14,9 @@ const maskAccountNumber = (value) => {
 };
 
 const notifyFundingSuccess = (user, { reference, amount, gateway, balance }) => {
+    const startTime = Date.now();
+    logger.info(`[Notification] Sending funding success for user ${user.id}, amount ${amount}, gateway ${gateway}`);
+    
     try {
         notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
             reference,
@@ -20,8 +25,9 @@ const notifyFundingSuccess = (user, { reference, amount, gateway, balance }) => 
             balance
         });
     } catch (e) {
-        void e;
+        logger.error(`[Notification] Socket emit failed: ${e.message}`);
     }
+
     try {
         void notificationRealtimeService.sendToUser(user.id, {
             title: 'Wallet funded',
@@ -32,8 +38,10 @@ const notifyFundingSuccess = (user, { reference, amount, gateway, balance }) => 
             metadata: { kind: 'wallet_funding', reference, amount, gateway, balance }
         });
     } catch (e) {
-        void e;
+        logger.error(`[Notification] Persistent notification failed: ${e.message}`);
     }
+
+    logger.info(`[Notification] Notifications sent in ${Date.now() - startTime}ms`);
 };
 
 const processBillstackFunding = async ({
@@ -169,6 +177,65 @@ const processBillstackFunding = async ({
     }
 };
 
+const processPaystackFunding = async ({
+    webhookEventId,
+    payload,
+    reference,
+    creditAmount,
+    email
+}) => {
+    const walletService = require('../services/walletService');
+    const { User, Transaction } = require('../models');
+
+    const t = await sequelize.transaction();
+    try {
+        const user = await User.findOne({ where: { email }, transaction: t });
+        if (!user) {
+            await t.rollback();
+            logger.error(`[Webhook] Paystack: User with email ${email} not found`);
+            await webhookEventService.markFailed(webhookEventId, { error: 'User not found', userId: null });
+            return { ok: false, reason: 'user_not_found' };
+        }
+
+        let creditedTxn = null;
+        try {
+            const result = await walletService.creditFundingWithFraudChecks(
+                user,
+                creditAmount,
+                `Paystack Funding: ${reference}`,
+                { reference, gateway: 'paystack' },
+                t
+            );
+            if (result.status === 'pending_review') {
+                await t.commit();
+                logger.warn(`[Webhook] Paystack: Funding held for review ${reference}`, { userId: user.id });
+                await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+                return { ok: true, pending_review: true, userId: user.id };
+            }
+            creditedTxn = result.transaction || null;
+        } catch (error) {
+            if (error?.name === 'SequelizeUniqueConstraintError') {
+                await t.rollback();
+                logger.info(`[Webhook] Paystack: Duplicate transaction ignored ${reference}`);
+                await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+                return { ok: true, duplicate: true, userId: user.id };
+            }
+            throw error;
+        }
+        
+        await t.commit();
+        logger.info(`[Webhook] Paystack: Wallet funded successfully for ${user.email} - ₦${creditAmount}`);
+        await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+        notifyFundingSuccess(user, { reference, amount: creditAmount, gateway: 'paystack', balance: creditedTxn?.balance_after ?? null });
+        return { ok: true, userId: user.id, balance: creditedTxn?.balance_after ?? null };
+    } catch (error) {
+        if (t && !t.finished) await t.rollback();
+        logger.error(`[Webhook] Paystack processing error: ${error.message}`, { reference });
+        await webhookEventService.markFailed(webhookEventId, { error: error.message });
+        return { ok: false, reason: 'processing_failed', error: error.message };
+    }
+};
+
 // @desc    Handle Paystack Webhook
 // @route   POST /api/webhooks/paystack
 // @access  Public (Secured by Signature)
@@ -213,51 +280,26 @@ const handlePaystackWebhook = async (req, res) => {
             const { amount, status, customer } = event.data;
             
             if (status === 'success') {
-                const t = await sequelize.transaction();
-                try {
-                    const user = await User.findOne({ where: { email: customer.email } });
-                    if (!user) {
-                        await t.rollback();
-                        logger.error(`[Webhook] Paystack: User with email ${customer.email} not found`);
-                        await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found', userId: null });
-                        return res.status(404).send('User not found');
+                const startTime = Date.now();
+                const result = await webhookRetryService.processWithRetry(
+                    webhookEvent.id,
+                    processPaystackFunding,
+                    {
+                        webhookEventId: webhookEvent.id,
+                        payload: event,
+                        reference,
+                        creditAmount,
+                        email: customer.email
                     }
-
-                    let creditedTxn = null;
-                    try {
-                        const result = await walletService.creditFundingWithFraudChecks(
-                            user,
-                            creditAmount,
-                            `Paystack Funding: ${reference}`,
-                            { reference, gateway: 'paystack' },
-                            t
-                        );
-                        if (result.status === 'pending_review') {
-                            await t.commit();
-                            logger.warn(`[Webhook] Paystack: Funding held for review ${reference}`, { userId: user.id });
-                            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                            return res.status(200).json({ success: true, message: 'Pending review' });
-                        }
-                        creditedTxn = result.transaction || null;
-                    } catch (error) {
-                        if (error?.name === 'SequelizeUniqueConstraintError') {
-                            await t.rollback();
-                            logger.info(`[Webhook] Paystack: Duplicate transaction ignored ${reference}`);
-                            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                            return res.status(200).json({ success: true, message: 'Transaction already exists' });
-                        }
-                        throw error;
-                    }
-                    
-                    await t.commit();
-                    logger.info(`[Webhook] Paystack: Wallet funded successfully for ${user.email} - ₦${creditAmount}`);
-                    await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                    notifyFundingSuccess(user, { reference, amount: creditAmount, gateway: 'paystack', balance: creditedTxn?.balance_after ?? null });
-                } catch (error) {
-                    if (t && !t.finished) await t.rollback();
-                    logger.error(`[Webhook] Paystack processing error: ${error.message}`, { reference });
-                    await webhookEventService.markFailed(webhookEvent.id, { error: error.message });
-                    return res.status(500).send('Processing failed');
+                );
+                
+                const duration = Date.now() - startTime;
+                logger.info(`[Webhook] Paystack processed in ${duration}ms (Status: ${result.ok ? 'OK' : 'FAIL'})`);
+                
+                if (result.ok) {
+                    return res.status(200).json({ success: true, balance: result.balance });
+                } else {
+                    return res.status(200).json({ success: false, reason: result.reason });
                 }
             }
         }
@@ -593,23 +635,7 @@ const handleBillstackWebhook = async (req, res) => {
             return res.status(400).json({ message: 'Invalid payload' });
         }
 
-        if (process.env.NODE_ENV !== 'test') {
-            res.status(200).json({ success: true });
-            setImmediate(() => {
-                void processBillstackFunding({
-                    webhookEventId: webhookEvent.id,
-                    payload,
-                    data,
-                    providerReference,
-                    amount,
-                    accountNumber,
-                    billstackReference
-                });
-            });
-            return;
-        }
-
-        await processBillstackFunding({
+        const processingArgs = {
             webhookEventId: webhookEvent.id,
             payload,
             data,
@@ -617,8 +643,27 @@ const handleBillstackWebhook = async (req, res) => {
             amount,
             accountNumber,
             billstackReference
-        });
-        return res.status(200).json({ success: true });
+        };
+
+        // In production, we process synchronously to ensure immediate balance update.
+        // If it fails, the retry service handles internal retries, but we still acknowledge the webhook.
+        const startTime = Date.now();
+        const result = await webhookRetryService.processWithRetry(
+            webhookEvent.id,
+            processBillstackFunding,
+            processingArgs
+        );
+
+        const duration = Date.now() - startTime;
+        logger.info(`[Webhook] BillStack processed in ${duration}ms (Status: ${result.ok ? 'OK' : 'FAIL'})`);
+
+        if (result.ok) {
+            return res.status(200).json({ success: true, balance: result.balance });
+        } else {
+            // Even if processing fails (after retries), we acknowledge to stop provider retries
+            // if it's a permanent failure, but for transient errors, we might have already retried.
+            return res.status(200).json({ success: false, reason: result.reason });
+        }
     } catch (error) {
         logger.error(`[Webhook] BillStack error: ${error.message}`);
         return res.sendStatus(500);
