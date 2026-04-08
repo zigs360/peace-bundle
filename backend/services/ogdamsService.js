@@ -32,6 +32,17 @@ class OgdamsService {
     }
 
     /**
+     * Get and sanitize Ogdams API Key
+     * @returns {string}
+     */
+    getApiKey() {
+        const key = process.env.OGDAMS_API_KEY;
+        if (!key) return null;
+        // Trim and remove any non-printable characters or whitespace that might break headers
+        return String(key).trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    }
+
+    /**
      * Vend airtime using Ogdams API
      * @param {object} data - The payload for the airtime purchase
      * @returns {Promise<object>} - The response from the API
@@ -52,7 +63,7 @@ class OgdamsService {
 
         const airtimePath = String(process.env.OGDAMS_AIRTIME_PATH || '/vend/airtime').trim();
         const url = airtimePath.startsWith('/') ? airtimePath : `/${airtimePath}`;
-        const apiKey = process.env.OGDAMS_API_KEY;
+        const apiKey = this.getApiKey();
         if (!apiKey) {
             const err = new Error('OGDAMS_API_KEY is not configured');
             err.statusCode = 500;
@@ -62,6 +73,14 @@ class OgdamsService {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
         };
+
+        // Debug header construction (only log in non-production or when explicitly needed)
+        if (process.env.NODE_ENV !== 'production') {
+            const maskedKey = apiKey.length > 8 
+                ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` 
+                : '****';
+            logger.info(`[OGDAMS] Header Auth: Bearer ${maskedKey} (Length: ${apiKey.length})`);
+        }
 
         try {
             const response = await this.http.post(url, data, { headers });
@@ -96,7 +115,7 @@ class OgdamsService {
             throw new Error('Reference is required');
         }
 
-        const apiKey = process.env.OGDAMS_API_KEY;
+        const apiKey = this.getApiKey();
         if (!apiKey) {
             const err = new Error('OGDAMS_API_KEY is not configured');
             err.statusCode = 500;

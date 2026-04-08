@@ -3,9 +3,9 @@ const logger = require('../utils/logger');
 
 class BillStackService {
   constructor() {
-    this.baseUrl = process.env.BILLSTACK_BASE_URL || process.env.BILL_STACK_BASE_URL || '';
-    this.secretKey = process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY || '';
-    this.publicKey = process.env.BILLSTACK_PUBLIC_KEY || process.env.BILL_STACK_PUBLIC_KEY || '';
+    this.baseUrl = (process.env.BILLSTACK_BASE_URL || process.env.BILL_STACK_BASE_URL || '').trim();
+    this.secretKey = (process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    this.publicKey = (process.env.BILLSTACK_PUBLIC_KEY || process.env.BILL_STACK_PUBLIC_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
     this.timeoutMs = parseInt(process.env.BILLSTACK_TIMEOUT_MS || '30000', 10);
   }
 

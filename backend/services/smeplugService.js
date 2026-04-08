@@ -3,10 +3,10 @@ const logger = require('../utils/logger');
 
 class SmeplugService {
   constructor() {
-    this.baseUrl = process.env.SMEPLUG_BASE_URL || 'https://smeplug.ng';
-    this.apiKey = process.env.SMEPLUG_API_KEY;
-    this.publicKey = process.env.SMEPLUG_PUBLIC_KEY;
-    this.secretKey = process.env.SMEPLUG_SECRET_KEY;
+    this.baseUrl = (process.env.SMEPLUG_BASE_URL || 'https://smeplug.ng').trim();
+    this.apiKey = (process.env.SMEPLUG_API_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    this.publicKey = (process.env.SMEPLUG_PUBLIC_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    this.secretKey = (process.env.SMEPLUG_SECRET_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
     this.timeout = parseInt(process.env.SMEPLUG_TIMEOUT) || 30000; // Default 30s
   }
 
