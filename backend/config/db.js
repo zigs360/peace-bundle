@@ -148,14 +148,9 @@ const connectDB = async () => {
       return;
     }
 
-    let dbUrl = process.env.DATABASE_URL || 'unknown';
+    const dbUrl = process.env.DATABASE_URL || 'unknown';
+    // database.js already corrected typos and synced them back to process.env.DATABASE_URL
     
-    // Fix common typo if present in DATABASE_URL from Render or other sources
-    if (dbUrl.includes('/peacebundlle')) {
-      console.warn('[DB] Correcting typo in DATABASE_URL: peacebundlle -> peacebundle');
-      dbUrl = dbUrl.replace('/peacebundlle', '/peacebundle');
-    }
-
     console.log(`Attempting to connect to DB at ${dbUrl.split('@')[1] || 'default'}`);
 
     globalState.connectPromise = (async () => {
