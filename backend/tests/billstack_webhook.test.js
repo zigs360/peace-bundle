@@ -58,7 +58,7 @@ describe('BillStack webhook', () => {
       },
     };
 
-    const signature = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload)).digest('hex');
+    const signature = crypto.createHash('md5').update(process.env.BILLSTACK_WEBHOOK_SECRET).digest('hex');
 
     const res1 = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', signature).send(payload);
     expect(res1.statusCode).toBe(200);
@@ -107,7 +107,7 @@ describe('BillStack webhook', () => {
       }
     };
 
-    const sig1 = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload1)).digest('hex');
+    const sig1 = crypto.createHash('md5').update(process.env.BILLSTACK_WEBHOOK_SECRET).digest('hex');
     const res1 = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', sig1).send(payload1);
     expect(res1.statusCode).toBe(200);
 
@@ -119,7 +119,7 @@ describe('BillStack webhook', () => {
       data: { ...payload1.data, reference: `R-${Date.now()}-B` }
     };
 
-    const sig2 = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload2)).digest('hex');
+    const sig2 = crypto.createHash('md5').update(process.env.BILLSTACK_WEBHOOK_SECRET).digest('hex');
     const res2 = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', sig2).send(payload2);
     expect(res2.statusCode).toBe(200);
 
@@ -154,8 +154,8 @@ describe('BillStack webhook', () => {
     };
 
     const signature = crypto
-      .createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET)
-      .update(JSON.stringify(payload))
+      .createHash('md5')
+      .update(process.env.BILLSTACK_WEBHOOK_SECRET)
       .digest('hex');
 
     const res = await request(app).post('/api/webhooks/billstack').set('x-wiaxy-signature', signature).send(payload);
@@ -232,7 +232,7 @@ describe('BillStack webhook', () => {
       }
     };
 
-    const signature = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload)).digest('hex');
+    const signature = crypto.createHash('md5').update(process.env.BILLSTACK_WEBHOOK_SECRET).digest('hex');
     const res = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', signature).send(payload);
     expect(res.statusCode).toBe(200);
 
@@ -303,7 +303,7 @@ describe('BillStack webhook', () => {
       }
     };
 
-    const signature = crypto.createHmac('sha256', process.env.BILLSTACK_WEBHOOK_SECRET).update(JSON.stringify(payload)).digest('hex');
+    const signature = crypto.createHash('md5').update(process.env.BILLSTACK_WEBHOOK_SECRET).digest('hex');
     const res = await request(app).post('/api/webhooks/billstack').set('x-billstack-signature', signature).send(payload);
     expect(res.statusCode).toBe(200);
 

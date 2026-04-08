@@ -597,45 +597,36 @@ const handleBillstackWebhook = async (req, res) => {
                 logger.warn('[Webhook] BillStack: Missing signature header; accepting webhook', { reference: providerReference });
                 await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: false });
             } else {
-            const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
-            const normalizeSig = (value) => {
-                const s = String(value || '').trim();
-                if (!s) return { raw: '', algo: null };
-                const cleaned = s.replace(/^sha(256|512)=/i, '');
-                const lower = cleaned.toLowerCase();
-                const isHex = /^[0-9a-f]+$/.test(lower) && lower.length >= 32;
-                return { raw: cleaned, algo: isHex ? 'hex' : 'base64', lowerHex: isHex ? lower : null };
-            };
+                const expectedSignature = crypto.createHash('md5').update(secret).digest('hex');
+                const incomingSignature = String(signature).trim().toLowerCase();
 
-            const sigInfo = normalizeSig(signature);
-            const computed = {
-                sha256: {
-                    hex: crypto.createHmac('sha256', secret).update(raw).digest('hex'),
-                    base64: crypto.createHmac('sha256', secret).update(raw).digest('base64'),
-                },
-                sha512: {
-                    hex: crypto.createHmac('sha512', secret).update(raw).digest('hex'),
-                    base64: crypto.createHmac('sha512', secret).update(raw).digest('base64'),
-                },
-            };
-
-            const matches =
-                sigInfo.algo === 'hex'
-                    ? sigInfo.lowerHex === computed.sha256.hex.toLowerCase() || sigInfo.lowerHex === computed.sha512.hex.toLowerCase()
-                    : sigInfo.raw === computed.sha256.base64 || sigInfo.raw === computed.sha512.base64;
-
-            if (!sigInfo.raw || !matches) {
-                logger.warn('[Webhook] BillStack: Invalid signature');
-                await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signatureHeader, signaturePresent: Boolean(signature) });
-                return res.status(400).json({ message: 'Invalid signature' });
-            }
-            await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
+                if (incomingSignature !== expectedSignature.toLowerCase()) {
+                    logger.warn('[Webhook] BillStack: Invalid signature');
+                    await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signatureHeader, signaturePresent: Boolean(signature) });
+                    return res.status(400).json({ message: 'Invalid signature' });
+                }
+                await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
             }
         }
 
         // Handle PING or other non-payment events gracefully with 200 OK
         const isPaymentNotification = eventName === 'PAYMENT_NOTIFICATION' || eventName === 'PAYMENT_NOTIFIFICATION' || eventName === 'RESERVED_ACCOUNT_TRANSACTION';
         
+        // Security: Basic Replay Protection (Optional: only if the provider sends a timestamp)
+        // Check if payload has a timestamp and it's within a reasonable window (e.g. 5 minutes)
+        const eventTimestamp = payload?.created_at || data?.created_at || payload?.timestamp;
+        if (eventTimestamp) {
+            const now = Date.now();
+            const ts = new Date(eventTimestamp).getTime();
+            const fiveMinutes = 5 * 60 * 1000;
+            if (Math.abs(now - ts) > fiveMinutes) {
+                logger.warn(`[Webhook] BillStack: Replay attack suspected or delayed event. Timestamp: ${eventTimestamp}`, { reference: providerReference });
+                // We mark it as failed but still return 200 to acknowledge receipt of the 'stale' event
+                await webhookEventService.markFailed(webhookEvent.id, { error: 'Event timestamp outside allowed window' });
+                return res.status(200).json({ success: false, message: 'Event timestamp too old' });
+            }
+        }
+
         if (!isPaymentNotification && !data) {
             logger.info(`[Webhook] BillStack: Ignoring non-payment event ${eventName}`);
             await webhookEventService.markProcessed(webhookEvent.id, { userId: null });
