@@ -148,11 +148,29 @@ const connectDB = async () => {
       return;
     }
 
-    const dbUrl = process.env.DATABASE_URL || 'unknown';
+    let dbUrl = process.env.DATABASE_URL || 'unknown';
+    
+    // Fix common typo if present in DATABASE_URL from Render or other sources
+    if (dbUrl.includes('/peacebundlle')) {
+      console.warn('[DB] Correcting typo in DATABASE_URL: peacebundlle -> peacebundle');
+      dbUrl = dbUrl.replace('/peacebundlle', '/peacebundle');
+    }
+
     console.log(`Attempting to connect to DB at ${dbUrl.split('@')[1] || 'default'}`);
+
     globalState.connectPromise = (async () => {
-      await sequelize.authenticate();
-      console.log('PostgreSQL Connected via Sequelize');
+      try {
+        await sequelize.authenticate();
+        console.log('PostgreSQL Connected via Sequelize');
+      } catch (authError) {
+        console.error('CRITICAL: Authentication failed during connectDB sequence');
+        console.error(`Database URL Host: ${dbUrl.split('@')[1] || 'unknown'}`);
+        console.error(`Error details: ${authError.message}`);
+        if (authError.original) {
+          console.error(`Original Error: ${authError.original.message}`);
+        }
+        throw authError;
+      }
 
       try {
         await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL');

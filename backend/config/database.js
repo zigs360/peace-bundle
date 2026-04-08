@@ -7,7 +7,14 @@ let sequelize;
 if (globalThis.__peacebundle_sequelize) {
   sequelize = globalThis.__peacebundle_sequelize;
 } else {
-  const databaseUrl = process.env.DATABASE_URL;
+  let databaseUrl = process.env.DATABASE_URL;
+  
+  // Fix common typo if present in DATABASE_URL from Render or other sources
+  if (databaseUrl && databaseUrl.includes('/peacebundlle')) {
+    console.warn('[DB Config] Correcting typo in DATABASE_URL: peacebundlle -> peacebundle');
+    databaseUrl = databaseUrl.replace('/peacebundlle', '/peacebundle');
+  }
+
   const useTestPostgres = String(process.env.USE_TEST_POSTGRES || 'false').toLowerCase() === 'true';
   if (process.env.NODE_ENV === 'test' && !useTestPostgres) {
     sequelize = new Sequelize('sqlite::memory:', {
@@ -15,10 +22,14 @@ if (globalThis.__peacebundle_sequelize) {
       dialect: 'sqlite',
     });
   } else {
-    // Determine if SSL is needed. Render usually requires it for external connections.
-    // Internal connections usually do not.
+    // Render internal hostnames (dpg-*) usually do not require SSL
+    // Render external URLs (*.render.com) always require SSL
     const isRenderExternal = databaseUrl && databaseUrl.includes('render.com');
+    const isRenderInternal = databaseUrl && databaseUrl.includes('dpg-');
     const isProduction = process.env.NODE_ENV === 'production';
+    
+    // Only use SSL for external Render URLs or non-local production connections that aren't internal
+    const useSSL = isRenderExternal || (isProduction && databaseUrl && !databaseUrl.includes('localhost') && !isRenderInternal);
     
     sequelize = new Sequelize(databaseUrl || 'postgres://postgres:postgres@localhost:5432/peacebundle', {
       dialect: 'postgres',
@@ -31,7 +42,7 @@ if (globalThis.__peacebundle_sequelize) {
       },
       dialectOptions: {
         connectTimeout: 60000,
-        ssl: isRenderExternal || (isProduction && databaseUrl && !databaseUrl.includes('localhost'))
+        ssl: useSSL
           ? {
               require: true,
               rejectUnauthorized: false,
