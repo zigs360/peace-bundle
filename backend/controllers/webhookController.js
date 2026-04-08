@@ -566,6 +566,7 @@ const handleBillstackWebhook = async (req, res) => {
             null;
 
         const data = payload?.data;
+        const eventName = String(payload?.event || payload?.event_type || '').toUpperCase();
         const billstackReference = data?.reference;
         const wiaxyRef = data?.wiaxy_ref || data?.transaction_ref || data?.transactionRef || null;
         const providerReference = String(wiaxyRef || billstackReference || '').trim();
@@ -580,6 +581,8 @@ const handleBillstackWebhook = async (req, res) => {
             payload,
             req
         });
+
+        logger.info(`[Webhook] BillStack received: ${eventName}`, { reference: providerReference });
 
         if (!secret) {
             if (process.env.NODE_ENV === 'production') {
@@ -630,9 +633,24 @@ const handleBillstackWebhook = async (req, res) => {
             }
         }
 
+        // Handle PING or other non-payment events gracefully with 200 OK
+        const isPaymentNotification = eventName === 'PAYMENT_NOTIFICATION' || eventName === 'PAYMENT_NOTIFIFICATION' || eventName === 'RESERVED_ACCOUNT_TRANSACTION';
+        
+        if (!isPaymentNotification && !data) {
+            logger.info(`[Webhook] BillStack: Ignoring non-payment event ${eventName}`);
+            await webhookEventService.markProcessed(webhookEvent.id, { userId: null });
+            return res.status(200).json({ success: true, message: 'Event ignored' });
+        }
+
         if (!providerReference || !accountNumber || Number.isNaN(amount)) {
-            await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid payload', signatureHeader, signaturePresent: Boolean(signature) });
-            return res.status(400).json({ message: 'Invalid payload' });
+            const missing = [];
+            if (!providerReference) missing.push('reference');
+            if (!accountNumber) missing.push('accountNumber');
+            if (Number.isNaN(amount)) missing.push('amount');
+            
+            logger.warn(`[Webhook] BillStack: Invalid payload (Missing: ${missing.join(', ')})`, { event: eventName });
+            await webhookEventService.markRejected(webhookEvent.id, { error: `Invalid payload (Missing: ${missing.join(', ')})`, signatureHeader, signaturePresent: Boolean(signature) });
+            return res.status(400).json({ message: 'Invalid payload', missing });
         }
 
         const processingArgs = {
