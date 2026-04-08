@@ -552,12 +552,24 @@ const handleSmeplugWebhook = async (req, res) => {
 const handleBillstackWebhook = async (req, res) => {
     try {
         const payload = req.body;
-        const secret = process.env.BILLSTACK_WEBHOOK_SECRET;
+        const secret = process.env.BILLSTACK_WEBHOOK_SECRET || process.env.BILLSTACK_SECRET_KEY;
+        
         const signature =
             req.headers['x-billstack-signature'] ||
             req.headers['x-wiaxy-signature'] ||
             req.headers['x-signature'] ||
-            req.headers['wiaxy-signature'];
+            req.headers['wiaxy-signature'] ||
+            req.headers['X-BillStack-Signature'] ||
+            req.headers['X-Wiaxy-Signature'] ||
+            req.headers['X-Signature'] ||
+            req.headers['Wiaxy-Signature'];
+
+        // DEBUG LOGGING
+        const expectedDebug = secret ? crypto.createHash('md5').update(secret).digest('hex') : 'no_secret';
+        logger.info('[Webhook Debug] BillStack Headers:', req.headers);
+        logger.info('[Webhook Debug] BillStack Payload:', JSON.stringify(payload));
+        logger.info('[Webhook Debug] BillStack Expected MD5:', expectedDebug);
+        logger.info('[Webhook Debug] BillStack Incoming Sig:', signature);
         const signatureHeader =
             req.headers['x-billstack-signature'] ? 'x-billstack-signature' :
             req.headers['x-wiaxy-signature'] ? 'x-wiaxy-signature' :
@@ -565,13 +577,19 @@ const handleBillstackWebhook = async (req, res) => {
             req.headers['wiaxy-signature'] ? 'wiaxy-signature' :
             null;
 
-        const data = payload?.data;
-        const eventName = String(payload?.event || payload?.event_type || '').toUpperCase();
-        const billstackReference = data?.reference;
-        const wiaxyRef = data?.wiaxy_ref || data?.transaction_ref || data?.transactionRef || null;
+        const data = payload?.data || payload;
+        const eventName = String(payload?.event || payload?.event_type || data?.event || data?.event_type || '').toUpperCase();
+        const billstackReference = data?.reference || data?.transaction_ref || data?.wiaxy_ref || data?.transactionReference || payload?.reference || payload?.transaction_ref;
+        const wiaxyRef = data?.wiaxy_ref || data?.transaction_ref || data?.transactionRef || data?.transactionReference || payload?.wiaxy_ref || payload?.transaction_ref || null;
         const providerReference = String(wiaxyRef || billstackReference || '').trim();
-        const amount = parseFloat(data?.amount);
-        const accountNumber = data?.account?.account_number;
+        const amountRaw = data?.amount || data?.amount_paid || data?.total_amount || payload?.amount || payload?.amount_paid;
+        const sanitizeAmount = (val) => {
+            if (typeof val === 'number') return val;
+            if (typeof val !== 'string') return NaN;
+            return parseFloat(val.replace(/,/g, ''));
+        };
+        const amount = sanitizeAmount(amountRaw);
+        const accountNumber = data?.account?.account_number || data?.account_number || data?.accountNumber || data?.account?.accountNumber || payload?.account_number || payload?.account?.account_number || payload?.accountNumber;
 
         const webhookEvent = await webhookEventService.recordReceived({
             provider: 'billstack',
@@ -600,8 +618,17 @@ const handleBillstackWebhook = async (req, res) => {
                 const expectedSignature = crypto.createHash('md5').update(secret).digest('hex');
                 const incomingSignature = String(signature).trim().toLowerCase();
 
-                if (incomingSignature !== expectedSignature.toLowerCase()) {
-                    logger.warn('[Webhook] BillStack: Invalid signature');
+                const fallbackSecret = process.env.BILLSTACK_PUBLIC_KEY;
+                const expectedFallback = fallbackSecret ? crypto.createHash('md5').update(fallbackSecret).digest('hex') : null;
+
+                if (incomingSignature !== expectedSignature.toLowerCase() && incomingSignature !== expectedFallback?.toLowerCase()) {
+                    logger.warn('[Webhook] BillStack: Invalid signature', {
+                        incoming: incomingSignature,
+                        expected: expectedSignature.toLowerCase(),
+                        expectedFallback: expectedFallback?.toLowerCase(),
+                        headerUsed: signatureHeader,
+                        secretSet: Boolean(secret)
+                    });
                     await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signatureHeader, signaturePresent: Boolean(signature) });
                     return res.status(400).json({ message: 'Invalid signature' });
                 }
@@ -610,7 +637,15 @@ const handleBillstackWebhook = async (req, res) => {
         }
 
         // Handle PING or other non-payment events gracefully with 200 OK
-        const isPaymentNotification = eventName === 'PAYMENT_NOTIFICATION' || eventName === 'PAYMENT_NOTIFIFICATION' || eventName === 'RESERVED_ACCOUNT_TRANSACTION';
+        const isPaymentNotification = 
+            eventName === 'PAYMENT_NOTIFICATION' || 
+            eventName === 'PAYMENT_NOTIFIFICATION' || 
+            eventName === 'RESERVED_ACCOUNT_TRANSACTION' ||
+            eventName === 'SUCCESSFUL_TRANSACTION' ||
+            eventName === 'TRANSACTION_SUCCESS' ||
+            eventName === 'CREDIT_SUCCESS' ||
+            eventName === 'CHARGE.SUCCESS' ||
+            eventName === 'PAYMENT.SUCCESS';
         
         // Security: Basic Replay Protection (Optional: only if the provider sends a timestamp)
         // Check if payload has a timestamp and it's within a reasonable window (e.g. 5 minutes)
@@ -639,7 +674,13 @@ const handleBillstackWebhook = async (req, res) => {
             if (!accountNumber) missing.push('accountNumber');
             if (Number.isNaN(amount)) missing.push('amount');
             
-            logger.warn(`[Webhook] BillStack: Invalid payload (Missing: ${missing.join(', ')})`, { event: eventName });
+            logger.warn(`[Webhook] BillStack: Invalid payload (Missing: ${missing.join(', ')})`, { 
+                event: eventName,
+                providerReference,
+                accountNumber,
+                amount,
+                payload: JSON.stringify(payload)
+            });
             await webhookEventService.markRejected(webhookEvent.id, { error: `Invalid payload (Missing: ${missing.join(', ')})`, signatureHeader, signaturePresent: Boolean(signature) });
             return res.status(400).json({ message: 'Invalid payload', missing });
         }
