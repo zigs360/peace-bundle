@@ -13,7 +13,7 @@ const maskAccountNumber = (value) => {
     return `****${last4}`;
 };
 
-const notifyFundingSuccess = (user, { reference, amount, gateway, balance }) => {
+const notifyFundingSuccess = (user, { reference, amount, gateway, balance, grossAmount = null, feeAmount = null, netAmount = null }) => {
     const startTime = Date.now();
     logger.info(`[Notification] Sending funding success for user ${user.id}, amount ${amount}, gateway ${gateway}`);
     
@@ -21,6 +21,9 @@ const notifyFundingSuccess = (user, { reference, amount, gateway, balance }) => 
         notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
             reference,
             amount,
+            grossAmount,
+            feeAmount,
+            netAmount,
             gateway,
             balance
         });
@@ -29,13 +32,18 @@ const notifyFundingSuccess = (user, { reference, amount, gateway, balance }) => 
     }
 
     try {
+        const g = grossAmount !== null && grossAmount !== undefined ? Number(grossAmount) : null;
+        const f = feeAmount !== null && feeAmount !== undefined ? Number(feeAmount) : null;
+        const n = netAmount !== null && netAmount !== undefined ? Number(netAmount) : Number(amount);
         void notificationRealtimeService.sendToUser(user.id, {
             title: 'Wallet funded',
-            message: `Your wallet has been credited with ₦${Number(amount).toLocaleString()}${gateway ? ` via ${String(gateway)}` : ''}. Ref: ${reference}`,
+            message: Number.isFinite(g) && Number.isFinite(f) && f > 0
+                ? `Received ₦${g.toLocaleString()} - Fee ₦${f.toLocaleString()} = Credited ₦${n.toLocaleString()}${gateway ? ` via ${String(gateway)}` : ''}. Ref: ${reference}`
+                : `Your wallet has been credited with ₦${Number(n).toLocaleString()}${gateway ? ` via ${String(gateway)}` : ''}. Ref: ${reference}`,
             type: 'success',
             priority: 'medium',
             link: '/dashboard',
-            metadata: { kind: 'wallet_funding', reference, amount, gateway, balance }
+            metadata: { kind: 'wallet_funding', reference, amount: Number(n), grossAmount: g, feeAmount: f, netAmount: n, gateway, balance }
         });
     } catch (e) {
         logger.error(`[Notification] Persistent notification failed: ${e.message}`);
@@ -160,7 +168,10 @@ const processBillstackFunding = async ({
         await t.commit();
         logger.info(`[Webhook] BillStack: Wallet funded successfully for ${user.email} - ₦${amount}`);
         await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
-        notifyFundingSuccess(user, { reference: providerReference, amount, gateway: 'billstack', balance: creditedTxn?.balance_after ?? null });
+        const feeAmount = parseFloat(creditedTxn?.metadata?.fee_amount || 0);
+        const grossAmount = parseFloat(creditedTxn?.metadata?.gross_amount || amount);
+        const netAmount = parseFloat(creditedTxn?.amount || 0);
+        notifyFundingSuccess(user, { reference: providerReference, amount: netAmount, grossAmount, feeAmount, netAmount, gateway: 'billstack', balance: creditedTxn?.balance_after ?? null });
         try {
             const { sendTransactionNotification } = require('../services/notificationService');
             const txnForNotify = creditedTxn || (await Transaction.findOne({ where: { reference: providerReference } }));
@@ -226,7 +237,10 @@ const processPaystackFunding = async ({
         await t.commit();
         logger.info(`[Webhook] Paystack: Wallet funded successfully for ${user.email} - ₦${creditAmount}`);
         await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
-        notifyFundingSuccess(user, { reference, amount: creditAmount, gateway: 'paystack', balance: creditedTxn?.balance_after ?? null });
+        const feeAmount = parseFloat(creditedTxn?.metadata?.fee_amount || 0);
+        const grossAmount = parseFloat(creditedTxn?.metadata?.gross_amount || creditAmount);
+        const netAmount = parseFloat(creditedTxn?.amount || 0);
+        notifyFundingSuccess(user, { reference, amount: netAmount, grossAmount, feeAmount, netAmount, gateway: 'paystack', balance: creditedTxn?.balance_after ?? null });
         return { ok: true, userId: user.id, balance: creditedTxn?.balance_after ?? null };
     } catch (error) {
         if (t && !t.finished) await t.rollback();
@@ -393,7 +407,10 @@ const handlePayvesselWebhook = async (req, res) => {
             await t.commit();
             logger.info(`[Webhook] PayVessel: Wallet funded successfully for ${user.email} - ₦${amount}`);
             await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-            notifyFundingSuccess(user, { reference, amount, gateway: 'payvessel', balance: creditedTxn?.balance_after ?? null });
+            const feeAmount = parseFloat(creditedTxn?.metadata?.fee_amount || 0);
+            const grossAmount = parseFloat(creditedTxn?.metadata?.gross_amount || amount);
+            const netAmount = parseFloat(creditedTxn?.amount || 0);
+            notifyFundingSuccess(user, { reference, amount: netAmount, grossAmount, feeAmount, netAmount, gateway: 'payvessel', balance: creditedTxn?.balance_after ?? null });
             res.status(200).json({ success: true, message: 'success' });
 
         } catch (error) {
@@ -494,7 +511,10 @@ const handleMonnifyWebhook = async (req, res) => {
                     await t.commit();
                     logger.info(`[Webhook] Monnify: Wallet funded successfully for ${user.email} - ₦${amountPaid}`);
                     await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                    notifyFundingSuccess(user, { reference: transactionReference, amount: amountPaid, gateway: 'monnify', balance: creditedTxn?.balance_after ?? null });
+                    const feeAmount = parseFloat(creditedTxn?.metadata?.fee_amount || 0);
+                    const grossAmount = parseFloat(creditedTxn?.metadata?.gross_amount || amountPaid);
+                    const netAmount = parseFloat(creditedTxn?.amount || 0);
+                    notifyFundingSuccess(user, { reference: transactionReference, amount: netAmount, grossAmount, feeAmount, netAmount, gateway: 'monnify', balance: creditedTxn?.balance_after ?? null });
                 } catch (error) {
                     if (t && !t.finished) await t.rollback();
                     logger.error(`[Webhook] Monnify processing error: ${error.message}`, { reference: transactionReference });

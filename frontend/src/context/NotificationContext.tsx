@@ -139,8 +139,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         setWalletVersion((v) => v + 1);
 
         const amount = typeof payload?.amount === 'number' ? payload.amount : Number(payload?.amount);
+        const grossAmount = typeof payload?.grossAmount === 'number' ? payload.grossAmount : Number(payload?.grossAmount);
+        const feeAmount = typeof payload?.feeAmount === 'number' ? payload.feeAmount : Number(payload?.feeAmount);
+        const netAmount = typeof payload?.netAmount === 'number' ? payload.netAmount : Number(payload?.netAmount);
         const gateway = payload?.gateway;
-        if (Number.isFinite(amount)) {
+        if (Number.isFinite(grossAmount) && Number.isFinite(feeAmount) && feeAmount > 0 && Number.isFinite(netAmount)) {
+          toast.success(`Received ₦${grossAmount.toLocaleString()} - Fee ₦${feeAmount.toLocaleString()} = Credited ₦${netAmount.toLocaleString()}${gateway ? ` (${String(gateway)})` : ''}`);
+        } else if (Number.isFinite(amount)) {
           toast.success(`Wallet funded ₦${Number(amount).toLocaleString()}${gateway ? ` (${String(gateway)})` : ''}`);
         }
 

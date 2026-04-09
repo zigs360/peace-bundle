@@ -107,14 +107,18 @@ const fundWallet = async (req, res) => {
         t = await sequelize.transaction();
 
         // Use WalletService
-        const newTransaction = await walletService.credit(
-            user, 
-            value, 
-            'funding', 
-            'Wallet Funding', 
-            { reference }, 
+        const creditResult = await walletService.creditFundingWithFraudChecks(
+            user,
+            value,
+            'Wallet Funding',
+            { reference, gateway: 'manual' },
             t
         );
+        if (creditResult.status === 'failed_fee') {
+            await t.commit();
+            return res.status(400).json({ success: false, message: 'Amount too low to cover processing fee' });
+        }
+        const newTransaction = creditResult.transaction;
 
         // Process Affiliate Commission
         await affiliateService.processFundingCommission(user, newTransaction, t);
@@ -129,19 +133,27 @@ const fundWallet = async (req, res) => {
 
         try {
             const notificationRealtimeService = require('../services/notificationRealtimeService');
+            const grossAmount = value;
+            const feeAmount = parseFloat(newTransaction?.metadata?.fee_amount || 0);
+            const netAmount = parseFloat(newTransaction?.amount || 0);
             notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
                 reference: newTransaction.reference,
-                amount: value,
-                gateway: 'funding',
+                amount: netAmount,
+                grossAmount,
+                feeAmount,
+                netAmount,
+                gateway: 'manual',
                 balance: newTransaction.balance_after ?? updatedWallet
             });
             await notificationRealtimeService.sendToUser(user.id, {
                 title: 'Wallet funded',
-                message: `Your wallet has been credited with ₦${Number(value).toLocaleString()}. Ref: ${newTransaction.reference}`,
+                message: feeAmount > 0
+                    ? `Received ₦${Number(grossAmount).toLocaleString()} - Fee ₦${Number(feeAmount).toLocaleString()} = Credited ₦${Number(netAmount).toLocaleString()}. Ref: ${newTransaction.reference}`
+                    : `Your wallet has been credited with ₦${Number(netAmount).toLocaleString()}. Ref: ${newTransaction.reference}`,
                 type: 'success',
                 priority: 'medium',
                 link: '/dashboard',
-                metadata: { kind: 'wallet_funding', reference: newTransaction.reference, amount: value, balance: newTransaction.balance_after ?? updatedWallet }
+                metadata: { kind: 'wallet_funding', reference: newTransaction.reference, grossAmount, feeAmount, netAmount, balance: newTransaction.balance_after ?? updatedWallet }
             });
         } catch (e) {
             void e;
