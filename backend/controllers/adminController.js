@@ -536,6 +536,109 @@ const getWebhookEvents = async (req, res) => {
     }
 };
 
+// @desc    Webhook latency metrics (Admin)
+// @route   GET /api/admin/webhook-metrics
+// @access  Private (Admin)
+const getWebhookMetrics = async (req, res) => {
+    try {
+        const provider = String(req.query.provider || 'billstack').toLowerCase();
+        const windowMinutes = parseInt(String(req.query.windowMinutes || 60), 10);
+        const since = new Date(Date.now() - (Number.isFinite(windowMinutes) ? windowMinutes : 60) * 60 * 1000);
+
+        const dialect = WebhookEvent.sequelize.getDialect ? WebhookEvent.sequelize.getDialect() : null;
+        if (dialect === 'sqlite') {
+            const events = await WebhookEvent.findAll({ where: { provider, createdAt: { [Op.gte]: since } } });
+            const processed = events.filter((e) => e.status === 'processed' && e.processed_at);
+            const ms = processed
+                .map((e) => (new Date(e.processed_at).getTime() - new Date(e.createdAt).getTime()))
+                .filter((n) => Number.isFinite(n) && n >= 0)
+                .sort((a, b) => a - b);
+            const p95 = ms.length ? ms[Math.floor(ms.length * 0.95) - 1] : null;
+            return res.json({
+                success: true,
+                provider,
+                since: since.toISOString(),
+                counts: {
+                    processed: processed.length,
+                    failed: events.filter((e) => e.status === 'failed' || e.status === 'rejected').length,
+                    pending: events.filter((e) => e.status === 'received' || e.status === 'verified').length,
+                    total: events.length,
+                },
+                latencyMs: {
+                    avg: ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : null,
+                    p95,
+                    max: ms.length ? ms[ms.length - 1] : null,
+                },
+            });
+        }
+
+        const sql = `
+            WITH base AS (
+                SELECT *
+                FROM "WebhookEvents"
+                WHERE "provider" = :provider
+                  AND "createdAt" >= :since
+            ),
+            proc AS (
+                SELECT EXTRACT(EPOCH FROM ("processed_at" - "createdAt")) * 1000 AS ms
+                FROM base
+                WHERE "status" = 'processed'
+                  AND "processed_at" IS NOT NULL
+            )
+            SELECT
+                (SELECT COUNT(*) FROM base) AS total,
+                (SELECT COUNT(*) FROM base WHERE "status" = 'processed') AS processed,
+                (SELECT COUNT(*) FROM base WHERE "status" IN ('failed','rejected')) AS failed,
+                (SELECT COUNT(*) FROM base WHERE "status" IN ('received','verified')) AS pending,
+                (SELECT AVG(ms) FROM proc) AS avg_ms,
+                (SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ms) FROM proc) AS p95_ms,
+                (SELECT MAX(ms) FROM proc) AS max_ms
+        `;
+
+        const [row] = await sequelize.query(sql, {
+            replacements: { provider, since },
+            type: require('sequelize').QueryTypes.SELECT,
+        });
+
+        const slowSql = `
+            SELECT "id", "reference", "status", "createdAt", "processed_at",
+                   EXTRACT(EPOCH FROM ("processed_at" - "createdAt")) * 1000 AS ms
+            FROM "WebhookEvents"
+            WHERE "provider" = :provider
+              AND "status" = 'processed'
+              AND "processed_at" IS NOT NULL
+              AND "createdAt" >= :since
+            ORDER BY ms DESC
+            LIMIT 10
+        `;
+        const slow = await sequelize.query(slowSql, {
+            replacements: { provider, since },
+            type: require('sequelize').QueryTypes.SELECT,
+        });
+
+        return res.json({
+            success: true,
+            provider,
+            since: since.toISOString(),
+            counts: {
+                total: Number(row?.total || 0),
+                processed: Number(row?.processed || 0),
+                failed: Number(row?.failed || 0),
+                pending: Number(row?.pending || 0),
+            },
+            latencyMs: {
+                avg: row?.avg_ms !== null && row?.avg_ms !== undefined ? Number(row.avg_ms) : null,
+                p95: row?.p95_ms !== null && row?.p95_ms !== undefined ? Number(row.p95_ms) : null,
+                max: row?.max_ms !== null && row?.max_ms !== undefined ? Number(row.max_ms) : null,
+            },
+            slowest: slow,
+        });
+    } catch (error) {
+        logger.error('Admin Get Webhook Metrics Error:', { error: error.message });
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
 // @desc    Refund Transaction
 // @route   POST /api/admin/transactions/:id/refund
 // @access  Private (Admin)
@@ -1660,6 +1763,7 @@ module.exports = {
     getSimAnalytics,
     getTransactions,
     getWebhookEvents,
+    getWebhookMetrics,
     refundTransaction,
     getKycRequests,
     viewKycDocument,
