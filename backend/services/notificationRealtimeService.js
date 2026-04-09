@@ -48,7 +48,7 @@ class NotificationService {
     });
 
     this.io.on('connection', (socket) => {
-      const userId = socket.userId;
+      const userId = String(socket.userId);
       
       // Register user socket
       if (!this.userSockets.has(userId)) {
@@ -77,11 +77,12 @@ class NotificationService {
    */
   async sendToUser(userId, data) {
     try {
+      const key = String(userId);
       const { title, message, type = 'info', priority = 'low', link = null, metadata = null } = data;
 
       // Persist notification
       const notification = await Notification.create({
-        userId,
+        userId: key,
         title,
         message,
         type,
@@ -91,9 +92,9 @@ class NotificationService {
       });
 
       // Send real-time if user is online
-      if (this.io && this.userSockets.has(userId)) {
-        this.io.to(Array.from(this.userSockets.get(userId))).emit('notification', notification);
-        logger.info(`Real-time notification sent to user ${userId}`);
+      if (this.io && this.userSockets.has(key)) {
+        this.io.to(Array.from(this.userSockets.get(key))).emit('notification', notification);
+        logger.info(`Real-time notification sent to user ${key}`);
       }
 
       return notification;
