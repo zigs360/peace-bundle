@@ -38,8 +38,16 @@ class OgdamsService {
     getApiKey() {
         const key = process.env.OGDAMS_API_KEY;
         if (!key) return null;
-        // Trim and remove any non-printable characters or whitespace that might break headers
-        return String(key).trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+        const s = String(key || '').trim();
+        if (!s) return null;
+        let out = '';
+        for (let i = 0; i < s.length; i++) {
+            const code = s.charCodeAt(i);
+            if (code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f)) {
+                out += s[i];
+            }
+        }
+        return out;
     }
 
     /**

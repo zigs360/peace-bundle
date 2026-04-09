@@ -1,12 +1,25 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 
+const stripNonPrintable = (value) => {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f)) {
+      out += s[i];
+    }
+  }
+  return out;
+};
+
 class SmeplugService {
   constructor() {
     this.baseUrl = (process.env.SMEPLUG_BASE_URL || 'https://smeplug.ng').trim();
-    this.apiKey = (process.env.SMEPLUG_API_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
-    this.publicKey = (process.env.SMEPLUG_PUBLIC_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
-    this.secretKey = (process.env.SMEPLUG_SECRET_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    this.apiKey = stripNonPrintable(process.env.SMEPLUG_API_KEY || '');
+    this.publicKey = stripNonPrintable(process.env.SMEPLUG_PUBLIC_KEY || '');
+    this.secretKey = stripNonPrintable(process.env.SMEPLUG_SECRET_KEY || '');
     this.timeout = parseInt(process.env.SMEPLUG_TIMEOUT) || 30000; // Default 30s
   }
 

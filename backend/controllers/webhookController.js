@@ -564,12 +564,6 @@ const handleBillstackWebhook = async (req, res) => {
             req.headers['X-Signature'] ||
             req.headers['Wiaxy-Signature'];
 
-        // DEBUG LOGGING
-        const expectedDebug = secret ? crypto.createHash('md5').update(secret).digest('hex') : 'no_secret';
-        logger.info('[Webhook Debug] BillStack Headers:', req.headers);
-        logger.info('[Webhook Debug] BillStack Payload:', JSON.stringify(payload));
-        logger.info('[Webhook Debug] BillStack Expected MD5:', expectedDebug);
-        logger.info('[Webhook Debug] BillStack Incoming Sig:', signature);
         const signatureHeader =
             req.headers['x-billstack-signature'] ? 'x-billstack-signature' :
             req.headers['x-wiaxy-signature'] ? 'x-wiaxy-signature' :
@@ -602,6 +596,7 @@ const handleBillstackWebhook = async (req, res) => {
 
         logger.info(`[Webhook] BillStack received: ${eventName}`, { reference: providerReference });
 
+        let signatureOk = false;
         if (!secret) {
             if (process.env.NODE_ENV === 'production') {
                 logger.error('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; rejecting webhook');
@@ -610,29 +605,28 @@ const handleBillstackWebhook = async (req, res) => {
             }
             logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
             await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
+            signatureOk = true;
         } else {
-            if (!signature) {
-                logger.warn('[Webhook] BillStack: Missing signature header; accepting webhook', { reference: providerReference });
-                await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: false });
+            const incomingSignature = String(signature || '').trim().toLowerCase();
+            const md5 = (value) => crypto.createHash('md5').update(String(value || '')).digest('hex').toLowerCase();
+            const candidates = [
+                md5(secret),
+                process.env.BILLSTACK_WEBHOOK_SECRET ? md5(process.env.BILLSTACK_WEBHOOK_SECRET) : null,
+                process.env.BILLSTACK_SECRET_KEY ? md5(process.env.BILLSTACK_SECRET_KEY) : null,
+                process.env.BILLSTACK_PUBLIC_KEY ? md5(process.env.BILLSTACK_PUBLIC_KEY) : null,
+            ].filter(Boolean);
+
+            signatureOk = Boolean(incomingSignature) && candidates.includes(incomingSignature);
+
+            if (signatureOk) {
+                await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: true });
             } else {
-                const expectedSignature = crypto.createHash('md5').update(secret).digest('hex');
-                const incomingSignature = String(signature).trim().toLowerCase();
-
-                const fallbackSecret = process.env.BILLSTACK_PUBLIC_KEY;
-                const expectedFallback = fallbackSecret ? crypto.createHash('md5').update(fallbackSecret).digest('hex') : null;
-
-                if (incomingSignature !== expectedSignature.toLowerCase() && incomingSignature !== expectedFallback?.toLowerCase()) {
-                    logger.warn('[Webhook] BillStack: Invalid signature', {
-                        incoming: incomingSignature,
-                        expected: expectedSignature.toLowerCase(),
-                        expectedFallback: expectedFallback?.toLowerCase(),
-                        headerUsed: signatureHeader,
-                        secretSet: Boolean(secret)
-                    });
-                    await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signatureHeader, signaturePresent: Boolean(signature) });
-                    return res.status(400).json({ message: 'Invalid signature' });
+                await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid or missing signature', signatureHeader, signaturePresent: Boolean(signature) });
+                const merchantRef = String(data?.merchant_reference || '').trim();
+                if (!merchantRef.startsWith('PB-')) {
+                    logger.warn('[Webhook] BillStack: Rejecting unsigned webhook without PB merchant_reference', { reference: providerReference });
+                    return res.status(200).json({ success: false, message: 'Signature invalid/missing' });
                 }
-                await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
             }
         }
 

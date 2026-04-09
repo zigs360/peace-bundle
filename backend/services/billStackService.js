@@ -1,11 +1,24 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 
+const stripNonPrintable = (value) => {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f)) {
+      out += s[i];
+    }
+  }
+  return out;
+};
+
 class BillStackService {
   constructor() {
     this.baseUrl = (process.env.BILLSTACK_BASE_URL || process.env.BILL_STACK_BASE_URL || '').trim();
-    this.secretKey = (process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
-    this.publicKey = (process.env.BILLSTACK_PUBLIC_KEY || process.env.BILL_STACK_PUBLIC_KEY || '').trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    this.secretKey = stripNonPrintable(process.env.BILLSTACK_SECRET_KEY || process.env.BILL_STACK_SECRET_KEY || '');
+    this.publicKey = stripNonPrintable(process.env.BILLSTACK_PUBLIC_KEY || process.env.BILL_STACK_PUBLIC_KEY || '');
     this.timeoutMs = parseInt(process.env.BILLSTACK_TIMEOUT_MS || '30000', 10);
   }
 
@@ -96,4 +109,3 @@ class BillStackService {
 }
 
 module.exports = new BillStackService();
-
