@@ -17,9 +17,9 @@ export default function UserDashboard() {
   const { state: va, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
   const { walletVersion, walletBalance, walletBalanceUpdatedAt, isConnected } = useNotifications();
 
-  const fetchStats = useCallback(async (userId: string) => {
+  const fetchStats = useCallback(async (userId: string | number) => {
     try {
-      const res = await api.get(`/transactions/stats/${userId}`);
+      const res = await api.get(`/transactions/stats/${encodeURIComponent(String(userId))}`);
       setStats(res.data);
       setStatsFetchedAt(Date.now());
     } catch (err) {

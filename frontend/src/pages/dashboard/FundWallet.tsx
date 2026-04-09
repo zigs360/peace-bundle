@@ -70,9 +70,9 @@ export default function FundWallet() {
     }
   }, [hasVirtualAccount]);
 
-  const refreshBalance = async (userId: string) => {
+  const refreshBalance = async (userId: string | number) => {
     try {
-      const res = await api.get(`/transactions/stats/${userId}`);
+      const res = await api.get(`/transactions/stats/${encodeURIComponent(String(userId))}`);
       const b = res.data?.balance;
       const bn = typeof b === 'number' ? b : Number(b);
       if (Number.isFinite(bn)) setLastKnownBalance(bn);
