@@ -14,11 +14,13 @@ class WebhookRetryService {
      * @param {Function} processFn 
      * @param {Object} args 
      */
-    async processWithRetry(eventId, processFn, args) {
+    async processWithRetry(eventId, processFn, args, options = {}) {
+        const maxRetries = Number.isFinite(options.maxRetries) ? options.maxRetries : this.maxRetries;
+        const retryDelays = Array.isArray(options.retryDelays) ? options.retryDelays : this.retryDelays;
         let attempt = 0;
         let lastError = null;
 
-        while (attempt <= this.maxRetries) {
+        while (attempt <= maxRetries) {
             try {
                 const result = await processFn(args);
                 if (result && result.ok) {
@@ -30,8 +32,8 @@ class WebhookRetryService {
                 lastError = error;
                 attempt++;
                 
-                if (attempt <= this.maxRetries) {
-                    const delay = this.retryDelays[attempt - 1] || 30000;
+                if (attempt <= maxRetries) {
+                    const delay = retryDelays[attempt - 1] ?? 30000;
                     logger.warn(`[WebhookRetry] Attempt ${attempt} failed for event ${eventId}. Retrying in ${delay}ms... Error: ${error.message}`);
                     
                     await WebhookEventService.markFailed(eventId, { error: `Attempt ${attempt} failed: ${error.message}` });
@@ -41,7 +43,7 @@ class WebhookRetryService {
             }
         }
 
-        logger.error(`[WebhookRetry] All ${this.maxRetries + 1} attempts failed for event ${eventId}. Final error: ${lastError.message}`);
+        logger.error(`[WebhookRetry] All ${maxRetries + 1} attempts failed for event ${eventId}. Final error: ${lastError.message}`);
         await WebhookEventService.markFailed(eventId, { error: `All retries failed: ${lastError.message}` });
         return { ok: false, reason: 'max_retries_exceeded', error: lastError.message };
     }

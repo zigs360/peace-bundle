@@ -78,6 +78,45 @@ describe('BillStack webhook', () => {
     expect(afterBalance2).toBe(afterBalance);
   });
 
+  it('credits wallet even when created_at is old (provider resend)', async () => {
+    const user = await User.create({
+      name: 'Webhook VA Old Event User',
+      email: `webhook_va_old_${Date.now()}@test.com`,
+      phone: '08011007709',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+      virtual_account_number: '6634530611',
+      virtual_account_bank: 'PALMPAY',
+      virtual_account_name: 'Webhook VA Old Event User',
+    });
+
+    const walletBefore = await Wallet.findOne({ where: { userId: user.id } });
+    const beforeBalance = parseFloat(walletBefore.balance);
+
+    const wiaxy_ref = `MI-${Date.now()}`;
+    const payload = {
+      event: 'PAYMENT_NOTIFICATION',
+      data: {
+        type: 'RESERVED_ACCOUNT_TRANSACTION',
+        reference: `R-${Date.now()}`,
+        merchant_reference: `PB-${user.id}`,
+        wiaxy_ref,
+        transaction_ref: wiaxy_ref,
+        amount: 200,
+        created_at: '2026-04-07 06:39:12',
+        account: { account_number: '6634530611', bank_name: 'PALMPAY' }
+      }
+    };
+
+    const sig = crypto.createHash('md5').update(process.env.BILLSTACK_WEBHOOK_SECRET).digest('hex');
+    const res = await request(app).post('/api/webhooks/billstack').set('x-wiaxy-signature', sig).send(payload);
+    expect(res.statusCode).toBe(200);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 200);
+  });
+
   it('is idempotent across billstack reference changes when wiaxy_ref is the same', async () => {
     const user = await User.create({
       name: 'Webhook VA User 3',

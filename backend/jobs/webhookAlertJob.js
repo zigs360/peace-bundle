@@ -27,6 +27,8 @@ const runWebhookAlertOnce = async () => {
     const windowMs = parseIntSafe(process.env.WEBHOOK_ALERT_WINDOW_MS, 10 * 60 * 1000);
     const threshold = parseIntSafe(process.env.WEBHOOK_ALERT_THRESHOLD, 3);
     const cooldownMs = parseIntSafe(process.env.WEBHOOK_ALERT_COOLDOWN_MS, 10 * 60 * 1000);
+    const slowMs = parseIntSafe(process.env.WEBHOOK_ALERT_SLOW_MS, 3000);
+    const stuckMs = parseIntSafe(process.env.WEBHOOK_ALERT_STUCK_MS, 5000);
 
     const since = new Date(Date.now() - windowMs);
     const count = await WebhookEvent.count({
@@ -37,7 +39,28 @@ const runWebhookAlertOnce = async () => {
       },
     });
 
-    if (count < threshold) return { count };
+    const slow = await WebhookEvent.count({
+      where: {
+        provider: 'billstack',
+        status: 'processed',
+        createdAt: { [Op.gte]: since },
+        processed_at: { [Op.ne]: null },
+        [Op.and]: WebhookEvent.sequelize.where(
+          WebhookEvent.sequelize.literal('EXTRACT(EPOCH FROM ("processed_at" - "createdAt")) * 1000'),
+          { [Op.gt]: slowMs },
+        ),
+      },
+    });
+
+    const stuck = await WebhookEvent.count({
+      where: {
+        provider: 'billstack',
+        status: { [Op.in]: ['received', 'verified'] },
+        createdAt: { [Op.lte]: new Date(Date.now() - stuckMs) },
+      },
+    });
+
+    if (count < threshold && slow < 1 && stuck < 1) return { count, slow, stuck };
     if (Date.now() - lastAlertAt < cooldownMs) return { count, suppressed: true };
 
     const admins = await User.findAll({ where: { role: 'admin' }, attributes: ['id'] });
@@ -45,16 +68,16 @@ const runWebhookAlertOnce = async () => {
     if (!adminIds.length) return { count, adminIds: 0 };
 
     await notificationRealtimeService.sendBulk(adminIds, {
-      title: 'BillStack webhook failures',
-      message: `${count} BillStack webhook failures in the last ${Math.round(windowMs / 60000)} minutes`,
+      title: 'BillStack webhook alert',
+      message: `${count} failed/rejected, ${slow} slow(>${Math.round(slowMs / 1000)}s), ${stuck} stuck(>${Math.round(stuckMs / 1000)}s) in last ${Math.round(windowMs / 60000)} minutes`,
       type: 'warning',
       priority: 'high',
-      metadata: { provider: 'billstack', count, since: since.toISOString() },
+      metadata: { provider: 'billstack', count, slow, stuck, since: since.toISOString() },
     });
 
     lastAlertAt = Date.now();
-    logger.warn('[WebhookAlertJob] Alert sent', { provider: 'billstack', count });
-    return { count, alerted: true };
+    logger.warn('[WebhookAlertJob] Alert sent', { provider: 'billstack', count, slow, stuck });
+    return { count, slow, stuck, alerted: true };
   } catch (e) {
     logger.error('[WebhookAlertJob] run failed', { error: e.message });
     return null;
@@ -79,4 +102,3 @@ const startWebhookAlertJob = () => {
 };
 
 module.exports = { startWebhookAlertJob, runWebhookAlertOnce };
-

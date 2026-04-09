@@ -164,7 +164,7 @@ const processBillstackFunding = async ({
         try {
             const { sendTransactionNotification } = require('../services/notificationService');
             const txnForNotify = creditedTxn || (await Transaction.findOne({ where: { reference: providerReference } }));
-            if (txnForNotify) await sendTransactionNotification(user, txnForNotify);
+            if (txnForNotify) setImmediate(() => { void sendTransactionNotification(user, txnForNotify); });
         } catch (e) {
             void e;
         }
@@ -641,18 +641,14 @@ const handleBillstackWebhook = async (req, res) => {
             eventName === 'CHARGE.SUCCESS' ||
             eventName === 'PAYMENT.SUCCESS';
         
-        // Security: Basic Replay Protection (Optional: only if the provider sends a timestamp)
-        // Check if payload has a timestamp and it's within a reasonable window (e.g. 5 minutes)
         const eventTimestamp = payload?.created_at || data?.created_at || payload?.timestamp;
         if (eventTimestamp) {
-            const now = Date.now();
             const ts = new Date(eventTimestamp).getTime();
-            const fiveMinutes = 5 * 60 * 1000;
-            if (Math.abs(now - ts) > fiveMinutes) {
-                logger.warn(`[Webhook] BillStack: Replay attack suspected or delayed event. Timestamp: ${eventTimestamp}`, { reference: providerReference });
-                // We mark it as failed but still return 200 to acknowledge receipt of the 'stale' event
-                await webhookEventService.markFailed(webhookEvent.id, { error: 'Event timestamp outside allowed window' });
-                return res.status(200).json({ success: false, message: 'Event timestamp too old' });
+            if (Number.isFinite(ts)) {
+                const ageMs = Date.now() - ts;
+                if (ageMs > 15 * 60 * 1000) {
+                    logger.warn('[Webhook] BillStack: Delayed notification', { reference: providerReference, ageMs });
+                }
             }
         }
 
@@ -676,7 +672,7 @@ const handleBillstackWebhook = async (req, res) => {
                 payload: JSON.stringify(payload)
             });
             await webhookEventService.markRejected(webhookEvent.id, { error: `Invalid payload (Missing: ${missing.join(', ')})`, signatureHeader, signaturePresent: Boolean(signature) });
-            return res.status(400).json({ message: 'Invalid payload', missing });
+            return res.status(200).json({ success: false, message: 'Invalid payload', missing });
         }
 
         const processingArgs = {
@@ -689,25 +685,29 @@ const handleBillstackWebhook = async (req, res) => {
             billstackReference
         };
 
-        // In production, we process synchronously to ensure immediate balance update.
-        // If it fails, the retry service handles internal retries, but we still acknowledge the webhook.
-        const startTime = Date.now();
-        const result = await webhookRetryService.processWithRetry(
-            webhookEvent.id,
-            processBillstackFunding,
-            processingArgs
-        );
-
-        const duration = Date.now() - startTime;
-        logger.info(`[Webhook] BillStack processed in ${duration}ms (Status: ${result.ok ? 'OK' : 'FAIL'})`);
-
-        if (result.ok) {
-            return res.status(200).json({ success: true, balance: result.balance });
-        } else {
-            // Even if processing fails (after retries), we acknowledge to stop provider retries
-            // if it's a permanent failure, but for transient errors, we might have already retried.
-            return res.status(200).json({ success: false, reason: result.reason });
+        if (process.env.NODE_ENV === 'test') {
+            const startTime = Date.now();
+            const result = await webhookRetryService.processWithRetry(
+                webhookEvent.id,
+                processBillstackFunding,
+                processingArgs,
+                { maxRetries: 0, retryDelays: [] }
+            );
+            const duration = Date.now() - startTime;
+            logger.info(`[Webhook] BillStack processed in ${duration}ms (Status: ${result.ok ? 'OK' : 'FAIL'})`);
+            return res.status(200).json({ success: Boolean(result.ok), balance: result.balance || null, reason: result.reason || null });
         }
+
+        res.status(200).json({ success: true });
+        setImmediate(() => {
+            void webhookRetryService.processWithRetry(
+                webhookEvent.id,
+                processBillstackFunding,
+                processingArgs,
+                { maxRetries: 2, retryDelays: [1000, 2000] }
+            );
+        });
+        return;
     } catch (error) {
         logger.error(`[Webhook] BillStack error: ${error.message}`);
         return res.sendStatus(500);
