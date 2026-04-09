@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const app = require('../server');
 const { connectDB, User } = require('../config/db');
 const { Wallet, Transaction } = require('../models');
+const sequelize = require('../config/database');
 
 describe('BillStack webhook', () => {
   beforeAll(async () => {
@@ -115,6 +116,52 @@ describe('BillStack webhook', () => {
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
     expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 200);
+  });
+
+  it('credits wallet correctly under concurrent funding webhooks', async () => {
+    if (sequelize.getDialect && sequelize.getDialect() === 'sqlite') return;
+    const user = await User.create({
+      name: 'Webhook VA Concurrent User',
+      email: `webhook_va_concurrent_${Date.now()}@test.com`,
+      phone: '08011007710',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+      virtual_account_number: '6690731997',
+      virtual_account_bank: 'PALMPAY',
+      virtual_account_name: 'Webhook VA Concurrent User',
+    });
+
+    const walletBefore = await Wallet.findOne({ where: { userId: user.id } });
+    const beforeBalance = parseFloat(walletBefore.balance);
+
+    const sig = crypto.createHash('md5').update(process.env.BILLSTACK_WEBHOOK_SECRET).digest('hex');
+    const mk = (suffix) => {
+      const wiaxy_ref = `MI-${Date.now()}-${suffix}`;
+      return {
+        event: 'PAYMENT_NOTIFICATION',
+        data: {
+          type: 'RESERVED_ACCOUNT_TRANSACTION',
+          reference: `R-${Date.now()}-${suffix}`,
+          merchant_reference: `PB-${user.id}`,
+          wiaxy_ref,
+          transaction_ref: wiaxy_ref,
+          amount: 200,
+          created_at: new Date().toISOString(),
+          account: { account_number: '6690731997', bank_name: 'PALMPAY' }
+        }
+      };
+    };
+
+    const [res1, res2] = await Promise.all([
+      request(app).post('/api/webhooks/billstack').set('x-wiaxy-signature', sig).send(mk('A')),
+      request(app).post('/api/webhooks/billstack').set('x-wiaxy-signature', sig).send(mk('B')),
+    ]);
+    expect(res1.statusCode).toBe(200);
+    expect(res2.statusCode).toBe(200);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 400);
   });
 
   it('is idempotent across billstack reference changes when wiaxy_ref is the same', async () => {

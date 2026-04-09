@@ -698,6 +698,36 @@ const handleBillstackWebhook = async (req, res) => {
             return res.status(200).json({ success: Boolean(result.ok), balance: result.balance || null, reason: result.reason || null });
         }
 
+        const inlineDeadlineMs = parseInt(process.env.BILLSTACK_CREDIT_DEADLINE_MS || '4500', 10);
+        const inlineStart = Date.now();
+        let inlineResult = null;
+        try {
+            inlineResult = await Promise.race([
+                webhookRetryService.processWithRetry(
+                    webhookEvent.id,
+                    processBillstackFunding,
+                    processingArgs,
+                    { maxRetries: 0, retryDelays: [] }
+                ),
+                new Promise((resolve) => setTimeout(() => resolve({ ok: false, reason: 'deadline_exceeded' }), inlineDeadlineMs))
+            ]);
+        } catch (e) {
+            inlineResult = { ok: false, reason: 'inline_exception', error: e?.message || String(e) };
+        }
+
+        const inlineDuration = Date.now() - inlineStart;
+        logger.info('[Webhook] BillStack inline result', {
+            webhookEventId: webhookEvent.id,
+            reference: providerReference,
+            ok: Boolean(inlineResult?.ok),
+            reason: inlineResult?.reason || null,
+            durationMs: inlineDuration
+        });
+
+        if (inlineResult?.ok) {
+            return res.status(200).json({ success: true, balance: inlineResult.balance || null });
+        }
+
         res.status(200).json({ success: true });
         setImmediate(() => {
             void webhookRetryService.processWithRetry(

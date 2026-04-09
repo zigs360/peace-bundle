@@ -29,16 +29,19 @@ class WalletService {
       }
 
       const balanceBefore = parseFloat(wallet.balance);
-      const newBalance = balanceBefore + parseFloat(amount);
-      
-      await wallet.update({ balance: newBalance }, { transaction: transaction });
+      const amountNum = parseFloat(amount);
+      if (!Number.isFinite(amountNum)) throw new Error('Invalid amount');
+
+      await wallet.increment('balance', { by: amountNum, transaction: transaction });
+      await wallet.reload({ transaction: transaction });
+      const newBalance = parseFloat(wallet.balance);
       
       // Create transaction record
       const txn = await Transaction.create({
         walletId: wallet.id,
         userId: user.id, // Explicitly set userId
         type: 'credit',
-        amount: amount,
+        amount: amountNum,
         balance_before: balanceBefore,
         balance_after: newBalance,
         source: source,
