@@ -149,8 +149,6 @@ const connectDB = async () => {
     }
 
     const dbUrl = process.env.DATABASE_URL || 'unknown';
-    // database.js already corrected typos and synced them back to process.env.DATABASE_URL
-    
     console.log(`Attempting to connect to DB at ${dbUrl.split('@')[1] || 'default'}`);
 
     globalState.connectPromise = (async () => {
@@ -205,8 +203,8 @@ const connectDB = async () => {
         const settingsCount = await SystemSetting.count();
         if (settingsCount === 0) {
           await SystemSetting.bulkCreate([
-            { key: 'site_name', value: 'Peace Bundle', type: 'string', group: 'general' },
-            { key: 'site_url', value: 'https://peacebundle.com', type: 'string', group: 'general' },
+            { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
+            { key: 'site_url', value: 'https://peacebundlle.com', type: 'string', group: 'general' },
             { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
             { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
             { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },

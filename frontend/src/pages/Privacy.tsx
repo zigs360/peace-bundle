@@ -5,8 +5,8 @@ export default function Privacy() {
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <SeoHead 
-        title="Privacy Policy - Peace Bundle" 
-        description="Privacy Policy for Peace Bundle. Learn how we collect, use, and protect your personal information."
+        title="Privacy Policy - Peace Bundlle" 
+        description="Privacy Policy for Peace Bundlle. Learn how we collect, use, and protect your personal information."
       />
       <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-sm p-8 md:p-12">
         <FadeIn>
@@ -18,7 +18,7 @@ export default function Privacy() {
             <section>
               <h2 className="text-xl font-semibold text-gray-900 mb-3">1. Introduction</h2>
               <p>
-                Welcome to Peace Bundle ("we," "our," or "us"). We respect your privacy and are committed to protecting your personal data. 
+                Welcome to Peace Bundlle ("we," "our," or "us"). We respect your privacy and are committed to protecting your personal data. 
                 This privacy policy will inform you as to how we look after your personal data when you visit our website (regardless of where you visit it from) 
                 and tell you about your privacy rights and how the law protects you.
               </p>

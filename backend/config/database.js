@@ -8,23 +8,6 @@ if (globalThis.__peacebundle_sequelize) {
   sequelize = globalThis.__peacebundle_sequelize;
 } else {
   let databaseUrl = process.env.DATABASE_URL;
-  
-  // Robust typo correction: replace 'peacebundlle' with 'peacebundle'
-  // only when it's part of the user (before :) or database name (after last /)
-  if (databaseUrl && databaseUrl.includes('peacebundlle')) {
-    console.warn('[DB Config] Correcting typos in DATABASE_URL: peacebundlle -> peacebundle');
-    
-    // Replace in user part (between :// and next : or @)
-    databaseUrl = databaseUrl.replace(/(:\/\/[^:]*?)peacebundlle([^:]*?:)/g, '$1peacebundle$2');
-    databaseUrl = databaseUrl.replace(/(:\/\/[^@]*?)peacebundlle([^@]*?@)/g, '$1peacebundle$2');
-    
-    // Replace in database name part (after last /)
-    databaseUrl = databaseUrl.replace(/\/peacebundlle([^\/]*?)$/g, '/peacebundle$1');
-    
-    // Sync back to process.env so other modules (like db.js) see the corrected version
-    process.env.DATABASE_URL = databaseUrl;
-  }
-
   const useTestPostgres = String(process.env.USE_TEST_POSTGRES || 'false').toLowerCase() === 'true';
   if (process.env.NODE_ENV === 'test' && !useTestPostgres) {
     sequelize = new Sequelize('sqlite::memory:', {

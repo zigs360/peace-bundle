@@ -24,8 +24,8 @@ const seedDatabase = async () => {
     await SystemSetting.bulkCreate([
       { key: 'commission_referral_transaction', value: '0.5', type: 'float', group: 'commission' },
       { key: 'commission_affiliate_transaction', value: '1.0', type: 'float', group: 'commission' },
-      { key: 'site_name', value: 'Peace Bundle', type: 'string', group: 'general' },
-      { key: 'support_email', value: 'support@peacebundle.com', type: 'string', group: 'general' },
+      { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
+      { key: 'support_email', value: 'support@peacebundlle.com', type: 'string', group: 'general' },
     ]);
 
     // 2. Create Data Plans
@@ -92,7 +92,7 @@ const seedDatabase = async () => {
 
     const adminUser = await User.create({
       name: 'Admin User',
-      email: 'admin@peacebundle.com',
+      email: 'admin@peacebundlle.com',
       phone: '08011111111',
       password: hashedPassword,
       role: 'admin',

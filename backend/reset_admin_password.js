@@ -7,7 +7,7 @@ const resetPassword = async () => {
     try {
         await connectDB();
         
-        const email = 'admin@peacebundle.com';
+        const email = 'admin@peacebundlle.com';
         const newPassword = 'admin123';
         
         const user = await User.findOne({ where: { email } });
