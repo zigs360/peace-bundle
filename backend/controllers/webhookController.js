@@ -90,7 +90,7 @@ const processBillstackFunding = async ({
 
             const duplicateSql = `
                 SELECT "id", "reference"
-                FROM "Transactions"
+                FROM "transactions"
                 WHERE "type" = 'credit'
                   AND "source" = 'funding'
                   AND (
