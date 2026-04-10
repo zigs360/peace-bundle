@@ -60,7 +60,7 @@ class WalletService {
   }
 
   async creditFundingWithFraudChecks(user, amount, description = null, metadata = {}, t = null) {
-    const flatFee = parseFloat(process.env.FUNDING_FLAT_FEE_NGN || '5');
+    const flatFee = parseFloat(process.env.FUNDING_FLAT_FEE_NGN || '50');
     const feeExempt = metadata?.fee_exempt === true || metadata?.fee_exempt === 'true';
     const applyFee = Number.isFinite(flatFee) && flatFee > 0 && !feeExempt;
 
