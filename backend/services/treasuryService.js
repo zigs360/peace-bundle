@@ -1,5 +1,5 @@
 const sequelize = require('../config/database');
-const { QueryTypes, Op } = require('sequelize');
+const { QueryTypes, Op, Transaction } = require('sequelize');
 const SystemSetting = require('../models/SystemSetting');
 const TreasuryBalance = require('../models/TreasuryBalance');
 const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
@@ -16,8 +16,56 @@ const toNumber = (value) => {
 
 const genRef = (prefix) => `${prefix}-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
 const sha256Hex = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
+const parseDateOrEpoch = (value) => {
+  if (!value) return new Date(0);
+  const d = new Date(value);
+  return Number.isFinite(d.getTime()) ? d : new Date(0);
+};
 
 class TreasuryService {
+  constructor() {
+    this._sqliteSyncGate = Promise.resolve();
+  }
+
+  async withSqliteSyncMutex(fn) {
+    const previous = this._sqliteSyncGate;
+    let release;
+    this._sqliteSyncGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      if (release) release();
+    }
+  }
+
+  async acquireSyncLock(transaction) {
+    const dialect = sequelize.getDialect ? sequelize.getDialect() : null;
+    if (!transaction) return;
+    if (dialect !== 'postgres') return;
+    await sequelize.query('SELECT pg_advisory_xact_lock(:lock_key)', {
+      replacements: { lock_key: 914002711 },
+      type: QueryTypes.SELECT,
+      transaction,
+    });
+  }
+
+  async getSettingRowForUpdate(key, transaction) {
+    const dialect = sequelize.getDialect ? sequelize.getDialect() : null;
+    const row = await SystemSetting.findOne({
+      where: { key },
+      transaction,
+      ...(dialect === 'sqlite' ? {} : { lock: transaction.LOCK.UPDATE }),
+    });
+    if (row) return row;
+    return SystemSetting.create(
+      { key, value: '', type: 'string', group: 'treasury', description: 'Last treasury sync timestamp' },
+      { transaction },
+    );
+  }
+
   async emitTreasuryBalanceUpdate(reason = null) {
     try {
       const connected = notificationRealtimeService.getConnectedUserIds();
@@ -64,102 +112,131 @@ class TreasuryService {
 
   async syncRevenue({ adminUserId = null } = {}) {
     const dialect = sequelize.getDialect ? sequelize.getDialect() : null;
-    const lastSyncAt = await SystemSetting.get('treasury_last_sync_at', null);
-    const since = lastSyncAt ? new Date(lastSyncAt) : new Date(0);
+    const syncNow = new Date();
 
     let feeRevenue = 0;
     let dataProfit = 0;
+    let since = new Date(0);
 
-    if (dialect === 'sqlite') {
-      const Transaction = require('../models/Transaction');
-      const DataPlan = require('../models/DataPlan');
+    const txOptions = {};
+    if (dialect === 'postgres') txOptions.isolationLevel = Transaction.ISOLATION_LEVELS.READ_COMMITTED;
+    if (dialect === 'sqlite') txOptions.type = Transaction.TYPES.IMMEDIATE;
 
-      const txns = await Transaction.findAll({
-        where: {
-          status: 'completed',
-          createdAt: { [Op.gt]: since },
-        },
+    const run = async () =>
+      sequelize.transaction(txOptions, async (t) => {
+        await this.acquireSyncLock(t);
+        const lastSyncRow = await this.getSettingRowForUpdate('treasury_last_sync_at', t);
+        since = parseDateOrEpoch(lastSyncRow?.value);
+        const until = syncNow;
+
+        if (dialect === 'sqlite') {
+          const TxModel = require('../models/Transaction');
+          const DataPlan = require('../models/DataPlan');
+
+          const txns = await TxModel.findAll({
+            where: {
+              status: 'completed',
+              createdAt: { [Op.gt]: since, [Op.lte]: until },
+            },
+            transaction: t,
+          });
+
+          for (const tx of txns) {
+            if (tx.type === 'credit' && tx.source === 'funding') {
+              feeRevenue += toNumber(tx.metadata?.fee_amount || 0);
+            }
+          }
+
+          const dataTxns = txns.filter(
+            (x) => x.type === 'debit' && x.status === 'completed' && x.source === 'data_purchase' && x.dataPlanId,
+          );
+          if (dataTxns.length) {
+            const plans = await DataPlan.findAll({ where: { id: dataTxns.map((x) => x.dataPlanId) }, transaction: t });
+            const byId = new Map(plans.map((p) => [String(p.id), p]));
+            for (const tx of dataTxns) {
+              const p = byId.get(String(tx.dataPlanId));
+              const apiCost = toNumber(p?.api_cost || 0);
+              dataProfit += Math.max(0, toNumber(tx.amount) - apiCost);
+            }
+          }
+        } else {
+          const feesRow = await sequelize.query(
+            `
+              SELECT COALESCE(SUM(NULLIF(("metadata"::jsonb #>> '{fee_amount}'), '')::numeric), 0) AS fee_total
+              FROM transactions
+              WHERE "status" = 'completed'
+                AND "type" = 'credit'
+                AND "source" = 'funding'
+                AND "createdAt" > :since
+                AND "createdAt" <= :until
+            `,
+            { replacements: { since, until }, type: QueryTypes.SELECT, transaction: t },
+          );
+          feeRevenue = toNumber(feesRow?.[0]?.fee_total || 0);
+
+          const profitRow = await sequelize.query(
+            `
+              SELECT COALESCE(SUM(t.amount - COALESCE(dp.api_cost, 0)), 0) AS profit
+              FROM transactions t
+              LEFT JOIN data_plans dp ON dp.id = t."dataPlanId"
+              WHERE t."status" = 'completed'
+                AND t."type" = 'debit'
+                AND t."source" = 'data_purchase'
+                AND t."createdAt" > :since
+                AND t."createdAt" <= :until
+            `,
+            { replacements: { since, until }, type: QueryTypes.SELECT, transaction: t },
+          );
+          dataProfit = Math.max(0, toNumber(profitRow?.[0]?.profit || 0));
+        }
+
+        const totalCredit = feeRevenue + dataProfit;
+        if (totalCredit > 0) {
+          const balanceRow = await this.getBalanceRow(t);
+          const before = toNumber(balanceRow.balance);
+          const after = before + totalCredit;
+
+          await TreasuryLedgerEntry.create(
+            {
+              type: 'credit',
+              status: 'completed',
+              amount: totalCredit,
+              balance_before: before,
+              balance_after: after,
+              source: 'revenue_sync',
+              reference: genRef('TRSY-SYNC'),
+              metadata: { adminUserId, since: since.toISOString(), until: until.toISOString(), feeRevenue, dataProfit },
+            },
+            { transaction: t },
+          );
+
+          balanceRow.balance = after;
+          await balanceRow.save({ transaction: t });
+        }
+
+        lastSyncRow.value = syncNow.toISOString();
+        lastSyncRow.type = 'string';
+        lastSyncRow.group = lastSyncRow.group || 'treasury';
+        await lastSyncRow.save({ transaction: t });
       });
 
-      for (const t of txns) {
-        if (t.type === 'credit' && t.source === 'funding') {
-          feeRevenue += toNumber(t.metadata?.fee_amount || 0);
-        }
-      }
-
-      const dataTxns = txns.filter((t) => t.type === 'debit' && t.status === 'completed' && t.source === 'data_purchase' && t.dataPlanId);
-      if (dataTxns.length) {
-        const plans = await DataPlan.findAll({ where: { id: dataTxns.map((x) => x.dataPlanId) } });
-        const byId = new Map(plans.map((p) => [String(p.id), p]));
-        for (const t of dataTxns) {
-          const p = byId.get(String(t.dataPlanId));
-          const apiCost = toNumber(p?.api_cost || 0);
-          dataProfit += Math.max(0, toNumber(t.amount) - apiCost);
-        }
-      }
+    if (dialect === 'sqlite') {
+      await this.withSqliteSyncMutex(run);
     } else {
-      const feesRow = await sequelize.query(
-        `
-          SELECT COALESCE(SUM(NULLIF(("metadata"::jsonb #>> '{fee_amount}'), '')::numeric), 0) AS fee_total
-          FROM transactions
-          WHERE "status" = 'completed'
-            AND "type" = 'credit'
-            AND "source" = 'funding'
-            AND "createdAt" > :since
-        `,
-        { replacements: { since }, type: QueryTypes.SELECT }
-      );
-      feeRevenue = toNumber(feesRow?.[0]?.fee_total || 0);
-
-      const profitRow = await sequelize.query(
-        `
-          SELECT COALESCE(SUM(t.amount - COALESCE(dp.api_cost, 0)), 0) AS profit
-          FROM transactions t
-          LEFT JOIN data_plans dp ON dp.id = t."dataPlanId"
-          WHERE t."status" = 'completed'
-            AND t."type" = 'debit'
-            AND t."source" = 'data_purchase'
-            AND t."createdAt" > :since
-        `,
-        { replacements: { since }, type: QueryTypes.SELECT }
-      );
-      dataProfit = Math.max(0, toNumber(profitRow?.[0]?.profit || 0));
+      await run();
     }
 
-    const totalCredit = feeRevenue + dataProfit;
-    if (totalCredit <= 0) {
-      await SystemSetting.set('treasury_last_sync_at', new Date().toISOString(), 'string', 'treasury', 'Last treasury sync timestamp');
-      await this.emitTreasuryBalanceUpdate('sync_noop');
-      return { ok: true, credited: 0, feeRevenue: 0, dataProfit: 0 };
-    }
-
-    await sequelize.transaction(async (t) => {
-      const balanceRow = await this.getBalanceRow(t);
-      const before = toNumber(balanceRow.balance);
-      const after = before + totalCredit;
-
-      await TreasuryLedgerEntry.create(
-        {
-          type: 'credit',
-          status: 'completed',
-          amount: totalCredit,
-          balance_before: before,
-          balance_after: after,
-          source: 'revenue_sync',
-          reference: genRef('TRSY-SYNC'),
-          metadata: { adminUserId, since: since.toISOString(), feeRevenue, dataProfit },
-        },
-        { transaction: t }
-      );
-
-      balanceRow.balance = after;
-      await balanceRow.save({ transaction: t });
+    const credited = feeRevenue + dataProfit;
+    logger.info('[Treasury] Revenue sync applied', {
+      adminUserId,
+      since: since.toISOString(),
+      until: syncNow.toISOString(),
+      feeRevenue,
+      dataProfit,
+      totalCredit: credited,
     });
-
-    await SystemSetting.set('treasury_last_sync_at', new Date().toISOString(), 'string', 'treasury', 'Last treasury sync timestamp');
-    logger.info('[Treasury] Revenue sync applied', { adminUserId, since: since.toISOString(), feeRevenue, dataProfit, totalCredit });
-    await this.emitTreasuryBalanceUpdate('sync');
-    return { ok: true, credited: totalCredit, feeRevenue, dataProfit };
+    await this.emitTreasuryBalanceUpdate(credited > 0 ? 'sync' : 'sync_noop');
+    return { ok: true, credited, feeRevenue, dataProfit };
   }
 
   async withdrawToSettlement({ adminUserId, amount, description = null, idempotencyKey = null }) {

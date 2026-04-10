@@ -17,7 +17,10 @@ const getTreasuryBalance = async (req, res) => {
 const syncTreasuryRevenue = async (req, res) => {
   try {
     const result = await treasuryService.syncRevenue({ adminUserId: req.user?.id || null });
-    res.json({ success: true, ...result });
+    const balance = await treasuryService.getBalance();
+    const lastSyncAt = await SystemSetting.get('treasury_last_sync_at', null);
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, ...result, balance, lastSyncAt });
   } catch (e) {
     logger.error('Admin Treasury Sync Error:', { error: e.message, adminId: req.user?.id });
     res.status(500).json({ success: false, message: 'Server error' });
