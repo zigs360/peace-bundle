@@ -33,6 +33,8 @@ const PricingTier = require('../models/PricingTier');
 const PricingRule = require('../models/PricingRule');
 const PricingAuditLog = require('../models/PricingAuditLog');
 const WebhookEvent = require('../models/WebhookEvent');
+const TreasuryBalance = require('../models/TreasuryBalance');
+const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
 
 // Define Associations (Top Level)
 
@@ -319,5 +321,7 @@ module.exports = {
   PricingTier,
   PricingRule,
   PricingAuditLog,
-  WebhookEvent
+  WebhookEvent,
+  TreasuryBalance,
+  TreasuryLedgerEntry
 };

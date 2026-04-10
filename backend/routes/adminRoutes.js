@@ -49,6 +49,7 @@ const {
 } = require('../controllers/subscriptionPlanController');
 // const { getAllTransactions } = require('../controllers/transactionController'); // Replaced by admin controller version
 const pricingController = require('../controllers/pricingController');
+const treasuryController = require('../controllers/treasuryController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 router.get('/stats', protect, admin, getAdminStats);
@@ -117,5 +118,9 @@ router.post('/pricing/rules', protect, admin, pricingController.createRule);
 router.put('/pricing/rules/:id', protect, admin, pricingController.updateRule);
 router.delete('/pricing/rules/:id', protect, admin, pricingController.deleteRule);
 router.get('/pricing/audit', protect, admin, pricingController.listAuditLogs);
+
+router.get('/treasury/balance', protect, admin, treasuryController.getTreasuryBalance);
+router.post('/treasury/sync', protect, admin, treasuryController.syncTreasuryRevenue);
+router.post('/treasury/withdraw', protect, admin, treasuryController.withdrawTreasuryToSettlement);
 
 module.exports = router;
