@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
-import { BarChart, DollarSign, Users, Activity, Wallet, ArrowUpRight, ArrowDownLeft, ShieldCheck, Smartphone, Settings } from 'lucide-react';
+import { BarChart, DollarSign, Users, Activity, Wallet, ArrowUpRight, ArrowDownLeft, ShieldCheck, Smartphone, Settings, Landmark, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import React from 'react';
 
@@ -14,6 +14,12 @@ export default function AdminDashboard() {
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
+  const [treasuryLastSyncAt, setTreasuryLastSyncAt] = useState<string | null>(null);
+  const [treasurySyncing, setTreasurySyncing] = useState(false);
+  const [treasuryWithdrawing, setTreasuryWithdrawing] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawDescription, setWithdrawDescription] = useState('Settlement payout');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -22,6 +28,14 @@ export default function AdminDashboard() {
         setStats(statsRes.data);
         // Use recent transactions from stats endpoint
         setRecentTransactions(statsRes.data.recentTransactions || []);
+        try {
+          const treasuryRes = await api.get('/admin/treasury/balance');
+          setTreasuryBalance(typeof treasuryRes.data?.balance === 'number' ? treasuryRes.data.balance : Number(treasuryRes.data?.balance));
+          setTreasuryLastSyncAt(treasuryRes.data?.lastSyncAt || null);
+        } catch (e) {
+          setTreasuryBalance(null);
+          setTreasuryLastSyncAt(null);
+        }
       } catch (err) {
         console.error('Failed to fetch dashboard data', err);
       } finally {
@@ -30,6 +44,12 @@ export default function AdminDashboard() {
     };
     fetchData();
   }, []);
+
+  const refreshTreasury = async () => {
+    const treasuryRes = await api.get('/admin/treasury/balance');
+    setTreasuryBalance(typeof treasuryRes.data?.balance === 'number' ? treasuryRes.data.balance : Number(treasuryRes.data?.balance));
+    setTreasuryLastSyncAt(treasuryRes.data?.lastSyncAt || null);
+  };
 
   const handleGenerateAccounts = async () => {
     if (!window.confirm('Are you sure you want to generate virtual accounts for all users missing one? This will call the payment provider API for each user.')) {
@@ -48,7 +68,45 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleTreasurySync = async () => {
+    setTreasurySyncing(true);
+    try {
+      const res = await api.post('/admin/treasury/sync', {});
+      await refreshTreasury();
+      alert(`Treasury sync completed. Credited: ₦${Number(res.data?.credited || 0).toLocaleString()}`);
+    } catch (err: any) {
+      console.error('Treasury sync failed', err);
+      alert(err.response?.data?.message || 'Treasury sync failed');
+    } finally {
+      setTreasurySyncing(false);
+    }
+  };
+
+  const handleTreasuryWithdraw = async () => {
+    const amt = Number(withdrawAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      alert('Enter a valid amount');
+      return;
+    }
+    if (!window.confirm(`Withdraw ₦${amt.toLocaleString()} from treasury to settlement account?`)) return;
+    setTreasuryWithdrawing(true);
+    try {
+      const res = await api.post('/admin/treasury/withdraw', { amount: amt, description: withdrawDescription || null });
+      await refreshTreasury();
+      alert(`Withdrawal initiated. Ref: ${res.data?.data?.reference || 'N/A'}${res.data?.data?.providerReference ? ` | Provider Ref: ${res.data.data.providerReference}` : ''}`);
+      setWithdrawAmount('');
+    } catch (err: any) {
+      console.error('Treasury withdrawal failed', err);
+      alert(err.response?.data?.message || 'Treasury withdrawal failed');
+    } finally {
+      setTreasuryWithdrawing(false);
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
+
+  const treasuryBalanceDisplay =
+    treasuryBalance !== null && Number.isFinite(treasuryBalance) ? `₦${Number(treasuryBalance).toLocaleString()}` : '—';
 
   return (
     <div className="p-6">
@@ -155,6 +213,65 @@ export default function AdminDashboard() {
                     label="Settings" 
                     color="bg-gray-50 text-gray-600"
                   />
+              </div>
+           </div>
+
+           <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-gray-800">Treasury</h3>
+                  <button
+                    onClick={handleTreasurySync}
+                    disabled={treasurySyncing}
+                    className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all ${
+                      treasurySyncing ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-secondary/10 text-secondary hover:bg-secondary/20'
+                    }`}
+                  >
+                    <span className="inline-flex items-center">
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      {treasurySyncing ? 'Syncing...' : 'Sync Revenue'}
+                    </span>
+                  </button>
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 inline-flex items-center">
+                    <Landmark className="w-4 h-4 mr-2 text-gray-500" />
+                    Available Balance
+                  </span>
+                  <span className="text-sm font-bold text-gray-900">{treasuryBalanceDisplay}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Last Sync</span>
+                  <span className="text-xs text-gray-500">{treasuryLastSyncAt ? new Date(treasuryLastSyncAt).toLocaleString() : '—'}</span>
+                </div>
+                <div className="pt-3 border-t border-gray-100 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value)}
+                      placeholder="Amount"
+                      className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/30"
+                    />
+                    <button
+                      onClick={handleTreasuryWithdraw}
+                      disabled={treasuryWithdrawing}
+                      className={`w-full px-3 py-2 rounded-md text-sm font-bold transition-all ${
+                        treasuryWithdrawing ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-secondary text-white hover:opacity-90'
+                      }`}
+                    >
+                      {treasuryWithdrawing ? 'Withdrawing...' : 'Withdraw'}
+                    </button>
+                  </div>
+                  <input
+                    value={withdrawDescription}
+                    onChange={(e) => setWithdrawDescription(e.target.value)}
+                    placeholder="Description"
+                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/30"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Withdraw sends funds to the configured settlement account and deducts the transfer fee from treasury.
+                  </p>
+                </div>
               </div>
            </div>
 
