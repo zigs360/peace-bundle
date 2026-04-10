@@ -91,10 +91,8 @@ const processBillstackFunding = async ({
         }
 
         if (sequelize.getDialect && sequelize.getDialect() !== 'sqlite') {
-            const possibleMerchantRef = String(data?.merchant_reference || '').trim();
             const possibleWiaxyRef = String(data?.wiaxy_ref || '').trim();
             const possibleTxnRef = String(data?.transaction_ref || '').trim();
-            const possibleBillstackRef = String(data?.reference || '').trim();
 
             // Dedupe is handled by:
             // - Transaction unique reference (wiaxy_ref / MI...)
@@ -108,8 +106,6 @@ const processBillstackFunding = async ({
                   AND (
                     ("metadata"::jsonb #>> '{inter_bank_reference}') = :wiaxy_ref
                     OR ("metadata"::jsonb #>> '{transaction_ref}') = :transaction_ref
-                    OR ("metadata"::jsonb #>> '{merchant_reference}') = :merchant_reference
-                    OR ("metadata"::jsonb #>> '{billstack_reference}') = :billstack_reference
                   )
                 LIMIT 1
             `;
@@ -118,9 +114,7 @@ const processBillstackFunding = async ({
             const existing = await sequelize.query(duplicateSql, {
                 replacements: {
                     wiaxy_ref: possibleWiaxyRef || null,
-                    transaction_ref: possibleTxnRef || null,
-                    merchant_reference: possibleMerchantRef || null,
-                    billstack_reference: possibleBillstackRef || null
+                    transaction_ref: possibleTxnRef || null
                 },
                 type: QueryTypes.SELECT,
                 transaction: t
