@@ -51,7 +51,7 @@ const getDataPlans = async (req, res) => {
 
         res.json(payload);
     } catch (error) {
-        logger.error(`[DataPlan] Fetch error: ${error.message}`);
+        logger.error(`[DataPlan] Fetch error: ${error.message}`, { db: error.original?.message || null });
         res.status(500).json({ 
             success: false,
             message: 'Failed to retrieve data plans' 

@@ -1,5 +1,6 @@
 const sequelize = require('./database'); // Correct import of instance
 const bcrypt = require('bcryptjs');
+const { DataTypes } = require('sequelize');
 
 let isConnected = false;
 const globalState = globalThis.__peacebundle_db_state || {
@@ -215,6 +216,27 @@ const connectDB = async () => {
           throw new Error(`Invalid DB_SYNC mode: ${syncMode}`);
         }
       }
+
+      const qi = sequelize.getQueryInterface();
+      const ensureColumn = async (tableName, columnName, columnDef) => {
+        try {
+          const desc = await qi.describeTable(tableName);
+          if (desc && Object.prototype.hasOwnProperty.call(desc, columnName)) return;
+          await qi.addColumn(tableName, columnName, columnDef);
+        } catch (e) {
+          void e;
+        }
+      };
+
+      const dataPlansTable = typeof DataPlan.getTableName === 'function' ? DataPlan.getTableName() : 'data_plans';
+      const simsTable = typeof Sim.getTableName === 'function' ? Sim.getTableName() : 'Sims';
+
+      await Promise.all([
+        ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
+        ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
+        ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
+        ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
+      ]);
 
       console.log('Database Synced');
 
