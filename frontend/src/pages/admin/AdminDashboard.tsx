@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { BarChart, DollarSign, Users, Activity, Wallet, ArrowUpRight, ArrowDownLeft, ShieldCheck, Smartphone, Settings, Landmark, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import React from 'react';
+import { useNotifications } from '../../context/NotificationContext';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type StatData = any;
@@ -20,6 +21,7 @@ export default function AdminDashboard() {
   const [treasuryWithdrawing, setTreasuryWithdrawing] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawDescription, setWithdrawDescription] = useState('Settlement payout');
+  const { treasuryBalance: rtTreasuryBalance, treasuryBalanceUpdatedAt } = useNotifications();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -43,6 +45,35 @@ export default function AdminDashboard() {
       }
     };
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (rtTreasuryBalance === null) return;
+    if (!Number.isFinite(rtTreasuryBalance)) return;
+    setTreasuryBalance(rtTreasuryBalance);
+  }, [rtTreasuryBalance, treasuryBalanceUpdatedAt]);
+
+  useEffect(() => {
+    let timer: any = null;
+    const tick = async () => {
+      try {
+        await refreshTreasury();
+      } catch (e) {
+        void e;
+      }
+    };
+    timer = setInterval(tick, 15000);
+    const onFocus = () => void tick();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void tick();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      if (timer) clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const refreshTreasury = async () => {

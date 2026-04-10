@@ -154,6 +154,10 @@ class NotificationService {
     if (!this.userSockets.has(key)) return;
     this.io.to(Array.from(this.userSockets.get(key))).emit(event, payload);
   }
+
+  getConnectedUserIds() {
+    return Array.from(this.userSockets.keys());
+  }
 }
 
 // Singleton instance

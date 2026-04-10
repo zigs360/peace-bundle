@@ -26,6 +26,9 @@ interface NotificationContextType {
   walletVersion: number;
   walletBalance: number | null;
   walletBalanceUpdatedAt: number;
+  treasuryVersion: number;
+  treasuryBalance: number | null;
+  treasuryBalanceUpdatedAt: number;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -38,6 +41,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletBalanceUpdatedAt, setWalletBalanceUpdatedAt] = useState(0);
   const lastWalletRef = useRef<string | null>(null);
+  const [treasuryVersion, setTreasuryVersion] = useState(0);
+  const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
+  const [treasuryBalanceUpdatedAt, setTreasuryBalanceUpdatedAt] = useState(0);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -57,6 +63,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const cachedAt = localStorage.getItem('wallet_balance_updated_at');
     const at = cachedAt ? Number(cachedAt) : NaN;
     if (Number.isFinite(at)) setWalletBalanceUpdatedAt(at);
+
+    const tCached = localStorage.getItem('treasury_balance');
+    const tb = tCached ? Number(tCached) : NaN;
+    if (Number.isFinite(tb)) setTreasuryBalance(tb);
+    const tCachedAt = localStorage.getItem('treasury_balance_updated_at');
+    const tat = tCachedAt ? Number(tCachedAt) : NaN;
+    if (Number.isFinite(tat)) setTreasuryBalanceUpdatedAt(tat);
   }, []);
 
   const markAsRead = async (id: string) => {
@@ -178,6 +191,22 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
     });
 
+    newSocket.on('treasury_balance_updated', (payload: any) => {
+      try {
+        const parsedBalance = typeof payload?.balance === 'number' ? payload.balance : Number(payload?.balance);
+        if (Number.isFinite(parsedBalance)) {
+          setTreasuryBalance(parsedBalance);
+          const now = Date.now();
+          setTreasuryBalanceUpdatedAt(now);
+          localStorage.setItem('treasury_balance', String(parsedBalance));
+          localStorage.setItem('treasury_balance_updated_at', String(now));
+        }
+        setTreasuryVersion((v) => v + 1);
+      } catch (e) {
+        void e;
+      }
+    });
+
     newSocket.on('disconnect', () => {
       setIsConnected(false);
       console.log('Disconnected from notification socket');
@@ -201,7 +230,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       pricingVersion,
       walletVersion,
       walletBalance,
-      walletBalanceUpdatedAt
+      walletBalanceUpdatedAt,
+      treasuryVersion,
+      treasuryBalance,
+      treasuryBalanceUpdatedAt
     }}>
       {children}
     </NotificationContext.Provider>

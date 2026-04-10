@@ -3,6 +3,8 @@ const { QueryTypes, Op } = require('sequelize');
 const SystemSetting = require('../models/SystemSetting');
 const TreasuryBalance = require('../models/TreasuryBalance');
 const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
+const User = require('../models/User');
+const notificationRealtimeService = require('./notificationRealtimeService');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 
@@ -16,6 +18,35 @@ const genRef = (prefix) => `${prefix}-${crypto.randomBytes(6).toString('hex').to
 const sha256Hex = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
 class TreasuryService {
+  async emitTreasuryBalanceUpdate(reason = null) {
+    try {
+      const connected = notificationRealtimeService.getConnectedUserIds();
+      if (!connected.length) return;
+
+      const admins = await User.findAll({
+        where: { id: connected, role: 'admin' },
+        attributes: ['id'],
+      });
+      if (!admins.length) return;
+
+      const balance = await this.getBalance();
+      const lastSyncAt = await SystemSetting.get('treasury_last_sync_at', null);
+      const payload = {
+        balance,
+        currency: 'NGN',
+        lastSyncAt: lastSyncAt || null,
+        updatedAt: new Date().toISOString(),
+        reason: reason || null,
+      };
+
+      for (const a of admins) {
+        notificationRealtimeService.emitToUser(a.id, 'treasury_balance_updated', payload);
+      }
+    } catch (e) {
+      logger.error('[Treasury] Failed to emit balance update', { error: e.message });
+    }
+  }
+
   async getBalanceRow(transaction) {
     const t = transaction || null;
     const lock = t ? { transaction: t, lock: t.LOCK.UPDATE } : {};
@@ -98,6 +129,7 @@ class TreasuryService {
     const totalCredit = feeRevenue + dataProfit;
     if (totalCredit <= 0) {
       await SystemSetting.set('treasury_last_sync_at', new Date().toISOString(), 'string', 'treasury', 'Last treasury sync timestamp');
+      await this.emitTreasuryBalanceUpdate('sync_noop');
       return { ok: true, credited: 0, feeRevenue: 0, dataProfit: 0 };
     }
 
@@ -126,6 +158,7 @@ class TreasuryService {
 
     await SystemSetting.set('treasury_last_sync_at', new Date().toISOString(), 'string', 'treasury', 'Last treasury sync timestamp');
     logger.info('[Treasury] Revenue sync applied', { adminUserId, since: since.toISOString(), feeRevenue, dataProfit, totalCredit });
+    await this.emitTreasuryBalanceUpdate('sync');
     return { ok: true, credited: totalCredit, feeRevenue, dataProfit };
   }
 
@@ -209,6 +242,7 @@ class TreasuryService {
         bal.balance = balanceAfterDebit;
         await bal.save({ transaction: t });
       });
+      await this.emitTreasuryBalanceUpdate('withdraw_debited');
 
       const sendResult = await billstackTransferService.initiateTransfer({
         bankCode,
@@ -232,6 +266,7 @@ class TreasuryService {
         debitEntry.metadata = { ...(debitEntry.metadata || {}), providerReference };
         await debitEntry.save();
       }
+      await this.emitTreasuryBalanceUpdate('withdraw_completed');
 
       logger.info('[AUDIT][Treasury] Settlement withdrawal completed', {
         adminUserId,
@@ -289,6 +324,7 @@ class TreasuryService {
       } catch (rollbackErr) {
         logger.error('[Treasury] Failed to rollback settlement withdrawal', { debitRef, error: rollbackErr.message });
       }
+      await this.emitTreasuryBalanceUpdate('withdraw_failed_rollback');
 
       logger.error('[AUDIT][Treasury] Settlement withdrawal failed', { adminUserId, debitRef, error: errorMsg });
       return { ok: false, reason: mappedReason, error: errorMsg };

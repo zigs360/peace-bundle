@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
+import { useNotifications } from '../../context/NotificationContext';
 
 export default function Treasury() {
   const [loading, setLoading] = useState(true);
@@ -9,6 +10,7 @@ export default function Treasury() {
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('Settlement payout');
+  const { treasuryBalance, treasuryBalanceUpdatedAt } = useNotifications();
 
   const refresh = async () => {
     const res = await api.get('/admin/treasury/balance');
@@ -25,6 +27,35 @@ export default function Treasury() {
       }
     };
     void run();
+  }, []);
+
+  useEffect(() => {
+    if (treasuryBalance === null) return;
+    if (!Number.isFinite(treasuryBalance)) return;
+    setBalance(treasuryBalance);
+  }, [treasuryBalance, treasuryBalanceUpdatedAt]);
+
+  useEffect(() => {
+    let timer: any = null;
+    const tick = async () => {
+      try {
+        await refresh();
+      } catch (e) {
+        void e;
+      }
+    };
+    timer = setInterval(tick, 10000);
+    const onFocus = () => void tick();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void tick();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      if (timer) clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const onSync = async () => {

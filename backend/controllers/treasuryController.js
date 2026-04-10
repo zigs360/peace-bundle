@@ -6,6 +6,7 @@ const getTreasuryBalance = async (req, res) => {
   try {
     const balance = await treasuryService.getBalance();
     const lastSyncAt = await SystemSetting.get('treasury_last_sync_at', null);
+    res.set('Cache-Control', 'no-store');
     res.json({ success: true, balance, currency: 'NGN', lastSyncAt });
   } catch (e) {
     logger.error('Admin Get Treasury Balance Error:', { error: e.message, adminId: req.user?.id });
