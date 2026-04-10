@@ -35,6 +35,8 @@ const PricingAuditLog = require('../models/PricingAuditLog');
 const WebhookEvent = require('../models/WebhookEvent');
 const TreasuryBalance = require('../models/TreasuryBalance');
 const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
+const AdminOgdamsDataPurchase = require('../models/AdminOgdamsDataPurchase');
+const AdminOgdamsDataPurchaseAudit = require('../models/AdminOgdamsDataPurchaseAudit');
 
 // Define Associations (Top Level)
 
@@ -133,6 +135,21 @@ try {
 
   User.hasMany(PricingAuditLog, { foreignKey: 'adminId', as: 'pricingAuditLogs' });
   PricingAuditLog.belongsTo(User, { foreignKey: 'adminId', as: 'admin' });
+
+  User.hasMany(AdminOgdamsDataPurchase, { foreignKey: 'adminId', as: 'ogdamsDataPurchases' });
+  AdminOgdamsDataPurchase.belongsTo(User, { foreignKey: 'adminId', as: 'admin' });
+
+  User.hasMany(AdminOgdamsDataPurchase, { foreignKey: 'userId', as: 'ogdamsDataReceipts' });
+  AdminOgdamsDataPurchase.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  Sim.hasMany(AdminOgdamsDataPurchase, { foreignKey: 'simId', as: 'ogdamsDataPurchases' });
+  AdminOgdamsDataPurchase.belongsTo(Sim, { foreignKey: 'simId', as: 'sim' });
+
+  DataPlan.hasMany(AdminOgdamsDataPurchase, { foreignKey: 'dataPlanId', as: 'ogdamsDataPurchases' });
+  AdminOgdamsDataPurchase.belongsTo(DataPlan, { foreignKey: 'dataPlanId', as: 'dataPlan' });
+
+  AdminOgdamsDataPurchase.hasMany(AdminOgdamsDataPurchaseAudit, { foreignKey: 'purchaseId', as: 'audits', onDelete: 'CASCADE' });
+  AdminOgdamsDataPurchaseAudit.belongsTo(AdminOgdamsDataPurchase, { foreignKey: 'purchaseId', as: 'purchase' });
 } catch (error) {
   console.error('Error defining associations:', error);
 }
@@ -342,5 +359,7 @@ module.exports = {
   PricingAuditLog,
   WebhookEvent,
   TreasuryBalance,
-  TreasuryLedgerEntry
+  TreasuryLedgerEntry,
+  AdminOgdamsDataPurchase,
+  AdminOgdamsDataPurchaseAudit
 };

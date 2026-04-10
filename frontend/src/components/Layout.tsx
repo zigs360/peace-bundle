@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
-  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark
+  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
@@ -219,6 +219,11 @@ export default function Layout() {
           <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? "Manage SIMs" : ""}>
             <Smartphone className={getIconClasses('/admin/sims')} />
             {!isCollapsed && <span>SIM Management</span>}
+          </Link>
+
+          <Link to="/admin/ogdams-data" className={getLinkClasses('/admin/ogdams-data')} title={isCollapsed ? "Admin Data" : ""}>
+            <Wifi className={getIconClasses('/admin/ogdams-data')} />
+            {!isCollapsed && <span>Admin Data</span>}
           </Link>
 
           <Link to="/admin/bulk-sms" className={getLinkClasses('/admin/bulk-sms')} title={isCollapsed ? "Bulk SMS" : ""}>

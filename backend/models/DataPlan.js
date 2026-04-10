@@ -48,6 +48,10 @@ const DataPlan = sequelize.define('DataPlan', {
     type: DataTypes.JSON, // Postgres JSON
     allowNull: true,
   },
+  ogdams_sku: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     defaultValue: true,

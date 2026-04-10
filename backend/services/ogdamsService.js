@@ -149,6 +149,63 @@ class OgdamsService {
             throw err;
         }
     }
+
+    async purchaseData(data) {
+        const schema = Joi.object({
+            networkId: Joi.number().integer().min(1).max(4).required(),
+            planCode: Joi.string().min(1).required(),
+            phoneNumber: Joi.string().pattern(/^[0-9]{11}$/).required(),
+            reference: Joi.string().required(),
+            sim_number: Joi.string().pattern(/^[0-9]{11}$/).optional(),
+        });
+
+        const { error } = schema.validate(data);
+        if (error) {
+            throw new Error(`Invalid payload: ${error.details[0].message}`);
+        }
+
+        const dataPath = String(process.env.OGDAMS_DATA_PATH || '/vend/data').trim();
+        const url = dataPath.startsWith('/') ? dataPath : `/${dataPath}`;
+        const apiKey = this.getApiKey();
+        if (!apiKey) {
+            const err = new Error('OGDAMS_API_KEY is not configured');
+            err.statusCode = 500;
+            throw err;
+        }
+
+        const headers = {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        };
+
+        try {
+            const response = await this.http.post(url, data, { headers });
+            logger.info('[OGDAMS] Data vend response', {
+                reference: data.reference,
+                status: response.data?.status,
+                provider_reference: response.data?.reference || response.data?.data?.reference || null,
+                phone: this.maskPhone(data.phoneNumber)
+            });
+            return response.data;
+        } catch (error2) {
+            const status = error2.response?.status;
+            const responseData = error2.response?.data;
+            const message = responseData?.message || responseData?.error || error2.message || 'Ogdams data request failed';
+            const meta = { reference: data.reference, status, error: responseData || message, phone: this.maskPhone(data.phoneNumber) };
+            if (process.env.NODE_ENV === 'test') {
+                logger.debug('Ogdams API Error', meta);
+            } else {
+                logger.error('Ogdams API Error', meta);
+            }
+            const err = new Error(message);
+            err.statusCode = status || 502;
+            throw err;
+        }
+    }
+
+    async checkTransactionStatus(reference) {
+        return this.checkAirtimeStatus(reference);
+    }
 }
 
 module.exports = new OgdamsService();

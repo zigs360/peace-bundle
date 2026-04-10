@@ -27,6 +27,7 @@ import CreateOrEditSubscriptionPlan from './pages/admin/Subscriptions/Create';
 import KycIndex from './pages/admin/Kyc/Index';
 import FundingReviews from './pages/admin/FundingReviews';
 import Treasury from './pages/admin/Treasury';
+import OgdamsDataPurchase from './pages/admin/OgdamsDataPurchase';
 import UserLayout from './components/UserLayout';
 import CookieConsent from './components/common/CookieConsent';
 import UserDashboard from './pages/dashboard/UserDashboard';
@@ -87,6 +88,7 @@ function App() {
           <Route path="/admin" element={<Layout />}>
             <Route index element={<AdminDashboard />} />
             <Route path="treasury" element={<Treasury />} />
+            <Route path="ogdams-data" element={<OgdamsDataPurchase />} />
             <Route path="users" element={<AdminUsersPage />} />
             <Route path="transactions" element={<Transactions />} />
             <Route path="funding-review" element={<FundingReviews />} />

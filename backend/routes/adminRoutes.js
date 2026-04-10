@@ -50,7 +50,20 @@ const {
 // const { getAllTransactions } = require('../controllers/transactionController'); // Replaced by admin controller version
 const pricingController = require('../controllers/pricingController');
 const treasuryController = require('../controllers/treasuryController');
+const {
+    listAdminOgdamsSims,
+    createAdminOgdamsDataPurchase,
+    getAdminOgdamsDataPurchase
+} = require('../controllers/adminOgdamsDataPurchaseController');
 const { protect, admin } = require('../middleware/authMiddleware');
+const rateLimit = require('express-rate-limit');
+
+const ogdamsAdminPurchaseLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false
+});
 
 router.get('/stats', protect, admin, getAdminStats);
 router.get('/transactions', protect, admin, getTransactions);
@@ -122,5 +135,9 @@ router.get('/pricing/audit', protect, admin, pricingController.listAuditLogs);
 router.get('/treasury/balance', protect, admin, treasuryController.getTreasuryBalance);
 router.post('/treasury/sync', protect, admin, treasuryController.syncTreasuryRevenue);
 router.post('/treasury/withdraw', protect, admin, treasuryController.withdrawTreasuryToSettlement);
+
+router.get('/ogdams/sims', protect, admin, listAdminOgdamsSims);
+router.post('/ogdams/data-purchase', protect, admin, ogdamsAdminPurchaseLimiter, createAdminOgdamsDataPurchase);
+router.get('/ogdams/data-purchase/:reference', protect, admin, getAdminOgdamsDataPurchase);
 
 module.exports = router;

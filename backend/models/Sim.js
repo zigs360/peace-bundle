@@ -19,6 +19,15 @@ const Sim = sequelize.define('Sim', {
     allowNull: false,
     field: 'phone_number' // Mapping camelCase to snake_case column
   },
+  iccid: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  ogdamsLinked: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'ogdams_linked',
+  },
   provider: {
     type: DataTypes.ENUM('mtn', 'airtel', 'glo', '9mobile'),
     allowNull: false,
@@ -33,6 +42,12 @@ const Sim = sequelize.define('Sim', {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: true,
     field: 'airtime_balance'
+  },
+  reservedAirtime: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0,
+    field: 'reserved_airtime',
   },
   dataBalanceMb: {
     type: DataTypes.DECIMAL(10, 2),
