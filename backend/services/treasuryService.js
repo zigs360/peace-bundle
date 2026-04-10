@@ -95,6 +95,30 @@ class TreasuryService {
     }
   }
 
+  async checkBalanceIntegrity(context = {}) {
+    try {
+      const [bal, last] = await Promise.all([
+        TreasuryBalance.findOne(),
+        TreasuryLedgerEntry.findOne({ order: [['createdAt', 'DESC']] }),
+      ]);
+      if (!bal || !last) return;
+      const rowBalance = toNumber(bal.balance);
+      const lastAfter = toNumber(last.balance_after);
+      if (!Number.isFinite(rowBalance) || !Number.isFinite(lastAfter)) return;
+      if (Math.abs(rowBalance - lastAfter) > 0.009) {
+        logger.error('[AUDIT][Treasury] Balance drift detected', {
+          ...context,
+          rowBalance,
+          lastAfter,
+          lastRef: last.reference,
+          lastSource: last.source,
+        });
+      }
+    } catch (e) {
+      logger.error('[Treasury] Balance integrity check failed', { error: e.message });
+    }
+  }
+
   async getBalanceRow(transaction) {
     const t = transaction || null;
     const lock = t ? { transaction: t, lock: t.LOCK.UPDATE } : {};
@@ -235,6 +259,7 @@ class TreasuryService {
       dataProfit,
       totalCredit: credited,
     });
+    await this.checkBalanceIntegrity({ action: 'sync', adminUserId });
     await this.emitTreasuryBalanceUpdate(credited > 0 ? 'sync' : 'sync_noop');
     return { ok: true, credited, feeRevenue, dataProfit };
   }
@@ -344,6 +369,7 @@ class TreasuryService {
         await debitEntry.save();
       }
       await this.emitTreasuryBalanceUpdate('withdraw_completed');
+      await this.checkBalanceIntegrity({ action: 'withdraw_completed', adminUserId, debitRef });
 
       logger.info('[AUDIT][Treasury] Settlement withdrawal completed', {
         adminUserId,
@@ -402,6 +428,7 @@ class TreasuryService {
         logger.error('[Treasury] Failed to rollback settlement withdrawal', { debitRef, error: rollbackErr.message });
       }
       await this.emitTreasuryBalanceUpdate('withdraw_failed_rollback');
+      await this.checkBalanceIntegrity({ action: 'withdraw_failed_rollback', adminUserId, debitRef });
 
       logger.error('[AUDIT][Treasury] Settlement withdrawal failed', { adminUserId, debitRef, error: errorMsg });
       return { ok: false, reason: mappedReason, error: errorMsg };
