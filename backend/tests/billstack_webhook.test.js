@@ -201,6 +201,11 @@ describe('BillStack webhook', () => {
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
     expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 450);
 
+    const txn1 = await Transaction.findOne({ where: { reference: payload1.data.wiaxy_ref } });
+    expect(txn1).toBeTruthy();
+    expect(txn1.metadata?.inter_bank_reference).toBe(wiaxy_ref);
+    expect(txn1.metadata?.transaction_ref).toBe(wiaxy_ref);
+
     const payload2 = {
       ...payload1,
       data: { ...payload1.data, reference: `R-${Date.now()}-B` }

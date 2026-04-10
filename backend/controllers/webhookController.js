@@ -96,6 +96,10 @@ const processBillstackFunding = async ({
             const possibleTxnRef = String(data?.transaction_ref || '').trim();
             const possibleBillstackRef = String(data?.reference || '').trim();
 
+            // Dedupe is handled by:
+            // - Transaction unique reference (wiaxy_ref / MI...)
+            // - Fallback raw SQL jsonb checks below (Postgres)
+
             const duplicateSql = `
                 SELECT "id", "reference"
                 FROM "transactions"
@@ -593,7 +597,7 @@ const handleBillstackWebhook = async (req, res) => {
 
         const data = payload?.data || payload;
         const eventName = String(payload?.event || payload?.event_type || data?.event || data?.event_type || '').toUpperCase();
-        const billstackReference = data?.reference || data?.transaction_ref || data?.wiaxy_ref || data?.transactionReference || payload?.reference || payload?.transaction_ref;
+        const billstackReference = data?.reference || payload?.reference || null;
         const wiaxyRef = data?.wiaxy_ref || data?.transaction_ref || data?.transactionRef || data?.transactionReference || payload?.wiaxy_ref || payload?.transaction_ref || null;
         const providerReference = String(wiaxyRef || billstackReference || '').trim();
         const amountRaw = data?.amount || data?.amount_paid || data?.total_amount || payload?.amount || payload?.amount_paid;
