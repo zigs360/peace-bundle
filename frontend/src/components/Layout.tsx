@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
-  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star 
+  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
@@ -229,6 +229,11 @@ export default function Layout() {
           <Link to="/admin/reports" className={getLinkClasses('/admin/reports')} title={isCollapsed ? "Reports" : ""}>
             <BarChart3 className={getIconClasses('/admin/reports')} />
             {!isCollapsed && <span>Reports</span>}
+          </Link>
+
+          <Link to="/admin/treasury" className={getLinkClasses('/admin/treasury')} title={isCollapsed ? "Treasury" : ""}>
+            <Landmark className={getIconClasses('/admin/treasury')} />
+            {!isCollapsed && <span>Treasury</span>}
           </Link>
 
           <Link to="/admin/reviews" className={getLinkClasses('/admin/reviews')} title={isCollapsed ? "Reviews" : ""}>
