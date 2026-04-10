@@ -220,9 +220,28 @@ const connectDB = async () => {
             { key: 'pricing_tier_user', value: 'default', type: 'string', group: 'pricing' },
             { key: 'pricing_tier_reseller', value: 'default', type: 'string', group: 'pricing' },
             { key: 'pricing_tier_admin', value: 'default', type: 'string', group: 'pricing' },
+            { key: 'settlement_bank_code', value: '', type: 'string', group: 'treasury', description: 'Settlement bank code for admin revenue cashout' },
+            { key: 'settlement_bank_name', value: '', type: 'string', group: 'treasury', description: 'Settlement bank name for admin revenue cashout' },
+            { key: 'settlement_account_number', value: '', type: 'string', group: 'treasury', description: 'Settlement 10-digit account number for admin revenue cashout' },
+            { key: 'settlement_account_name', value: '', type: 'string', group: 'treasury', description: 'Settlement account name for admin revenue cashout' },
+            { key: 'treasury_last_sync_at', value: '', type: 'string', group: 'treasury', description: 'Last treasury sync timestamp' },
           ]);
           console.log('Default System Settings Seeded');
         }
+
+        const ensureSetting = async (key, value, type, group, description) => {
+          const existing = await SystemSetting.findOne({ where: { key } });
+          if (existing) return;
+          await SystemSetting.set(key, value, type, group, description);
+        };
+
+        await Promise.all([
+          ensureSetting('settlement_bank_code', '', 'string', 'treasury', 'Settlement bank code for admin revenue cashout'),
+          ensureSetting('settlement_bank_name', '', 'string', 'treasury', 'Settlement bank name for admin revenue cashout'),
+          ensureSetting('settlement_account_number', '', 'string', 'treasury', 'Settlement 10-digit account number for admin revenue cashout'),
+          ensureSetting('settlement_account_name', '', 'string', 'treasury', 'Settlement account name for admin revenue cashout'),
+          ensureSetting('treasury_last_sync_at', '', 'string', 'treasury', 'Last treasury sync timestamp'),
+        ]);
 
         const adminUser = await seedAdmin();
 

@@ -219,6 +219,55 @@ export default function AdminSettings() {
             </div>
           </div>
 
+          <div className="border-b pb-4">
+            <h2 className="text-lg font-medium text-gray-900 mb-2">Treasury / Settlement Account</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Required for admin revenue cashout. Set these values before using Treasury Withdraw.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Settlement Bank Code</label>
+                <input
+                  type="text"
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  value={settings['settlement_bank_code'] || ''}
+                  onChange={(e) => handleChange('settlement_bank_code', e.target.value)}
+                  placeholder="e.g. PALMPAY"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Settlement Bank Name</label>
+                <input
+                  type="text"
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  value={settings['settlement_bank_name'] || ''}
+                  onChange={(e) => handleChange('settlement_bank_name', e.target.value)}
+                  placeholder="e.g. PalmPay"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Settlement Account Number</label>
+                <input
+                  type="text"
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  value={settings['settlement_account_number'] || ''}
+                  onChange={(e) => handleChange('settlement_account_number', e.target.value)}
+                  placeholder="10-digit account number"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Settlement Account Name</label>
+                <input
+                  type="text"
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  value={settings['settlement_account_name'] || ''}
+                  onChange={(e) => handleChange('settlement_account_name', e.target.value)}
+                  placeholder="Account name"
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end">
             <button
               type="submit"
