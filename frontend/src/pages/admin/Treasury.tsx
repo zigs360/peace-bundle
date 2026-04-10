@@ -49,7 +49,8 @@ export default function Treasury() {
     if (!window.confirm(`Withdraw ₦${amt.toLocaleString()} from treasury to settlement account?`)) return;
     setWithdrawing(true);
     try {
-      const res = await api.post('/admin/treasury/withdraw', { amount: amt, description: description || null });
+      const idempotencyKey = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+      const res = await api.post('/admin/treasury/withdraw', { amount: amt, description: description || null }, { headers: { 'Idempotency-Key': idempotencyKey } });
       await refresh();
       alert(
         `Withdrawal initiated. Ref: ${res.data?.data?.reference || 'N/A'}${
@@ -124,4 +125,3 @@ export default function Treasury() {
     </div>
   );
 }
-

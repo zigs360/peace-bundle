@@ -26,15 +26,20 @@ const syncTreasuryRevenue = async (req, res) => {
 const withdrawTreasuryToSettlement = async (req, res) => {
   try {
     const { amount, description } = req.body || {};
+    const idempotencyKey = req.headers['idempotency-key'] || req.headers['Idempotency-Key'] || null;
     const result = await treasuryService.withdrawToSettlement({
       adminUserId: req.user?.id || null,
       amount,
       description: description || null,
+      idempotencyKey,
     });
     if (!result.ok) {
       if (result.reason === 'invalid_amount') return res.status(400).json({ success: false, message: 'Invalid amount' });
       if (result.reason === 'settlement_not_configured') return res.status(400).json({ success: false, message: 'Settlement account not configured' });
       if (result.reason === 'insufficient_balance') return res.status(400).json({ success: false, message: 'Insufficient treasury balance' });
+      if (result.reason === 'billstack_not_configured') return res.status(400).json({ success: false, message: 'BillStack is not configured for transfers' });
+      if (result.reason === 'already_processing') return res.status(409).json({ success: false, message: 'Withdrawal is already processing', reference: result.reference });
+      if (result.reason === 'previous_failed') return res.status(409).json({ success: false, message: 'Previous withdrawal attempt failed', reference: result.reference, error: result.error || null });
       return res.status(502).json({ success: false, message: 'Withdrawal failed', reason: result.reason, error: result.error || null });
     }
     res.json({ success: true, message: 'Settlement withdrawal initiated', data: result });
@@ -49,4 +54,3 @@ module.exports = {
   syncTreasuryRevenue,
   withdrawTreasuryToSettlement,
 };
-

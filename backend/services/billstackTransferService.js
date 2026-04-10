@@ -12,7 +12,7 @@ class BillstackTransferService {
 
   async initiateTransfer({ bankCode, accountNumber, amount, narration, reference }) {
     if (!this.isConfigured()) {
-      return { success: false, error: 'BillStack transfer is not configured' };
+      return { success: false, code: 'not_configured', error: 'BillStack transfer is not configured' };
     }
 
     const transferPath = String(process.env.BILLSTACK_DISBURSEMENT_INITIATE_PATH || '/disbursement/initiate-transfer');
@@ -30,7 +30,7 @@ class BillstackTransferService {
       const ok = body.status === true || body.success === true;
       if (!ok) {
         const msg = body.message || body.error || 'BillStack initiate transfer failed';
-        return { success: false, error: msg, data: body };
+        return { success: false, code: 'invalid_response', error: msg, data: body };
       }
 
       const providerReference =
@@ -40,16 +40,18 @@ class BillstackTransferService {
         body.reference ||
         null;
 
+      if (!providerReference) {
+        return { success: false, code: 'invalid_response', error: 'BillStack did not return transfer reference', data: body };
+      }
       return { success: true, reference: providerReference, data: body };
     } catch (e) {
       const status = e.response?.status;
       const body = e.response?.data;
       const msg = body?.message || body?.error || e.message || 'BillStack initiate transfer failed';
       logger.error('[BillStack] initiateTransfer failed', { status, message: msg });
-      return { success: false, error: msg, status, data: body || null };
+      return { success: false, code: 'network_error', error: msg, status, data: body || null };
     }
   }
 }
 
 module.exports = new BillstackTransferService();
-

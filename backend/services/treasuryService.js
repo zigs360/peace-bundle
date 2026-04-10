@@ -13,6 +13,7 @@ const toNumber = (value) => {
 };
 
 const genRef = (prefix) => `${prefix}-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
+const sha256Hex = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
 class TreasuryService {
   async getBalanceRow(transaction) {
@@ -128,18 +129,21 @@ class TreasuryService {
     return { ok: true, credited: totalCredit, feeRevenue, dataProfit };
   }
 
-  async withdrawToSettlement({ adminUserId, amount, description = null }) {
+  async withdrawToSettlement({ adminUserId, amount, description = null, idempotencyKey = null }) {
     const withdrawAmount = toNumber(amount);
     if (!Number.isFinite(withdrawAmount) || withdrawAmount <= 0) {
       return { ok: false, reason: 'invalid_amount' };
     }
 
-    const bankCode = await SystemSetting.get('settlement_bank_code', null);
-    const bankName = await SystemSetting.get('settlement_bank_name', null);
-    const accountNumber = await SystemSetting.get('settlement_account_number', null);
-    const accountName = await SystemSetting.get('settlement_account_name', null);
+    const lockedAccountNumber = '8035446865';
+    const lockedAccountName = 'MUHAMMAD MUHAMMAD Tier 3';
+    const lockedBankName = 'MONIEPOINT';
+    const bankCode = String(process.env.SETTLEMENT_BANK_CODE || process.env.MONIEPOINT_BANK_CODE || '50515').trim();
+    const bankName = lockedBankName;
+    const accountNumber = lockedAccountNumber;
+    const accountName = lockedAccountName;
 
-    if (!bankCode || !accountNumber || !accountName) {
+    if (!bankCode || String(accountNumber).trim().length !== 10) {
       return { ok: false, reason: 'settlement_not_configured' };
     }
 
@@ -153,6 +157,21 @@ class TreasuryService {
     let balanceAfterDebit = null;
 
     try {
+      if (idempotencyKey) {
+        const fixedRef = `TRSY-WD-${sha256Hex(idempotencyKey).slice(0, 24).toUpperCase()}`;
+        const existing = await TreasuryLedgerEntry.findOne({ where: { reference: fixedRef, source: 'settlement_withdrawal' } });
+        if (existing) {
+          if (existing.status === 'completed') {
+            return { ok: true, reference: existing.reference, providerReference: existing.metadata?.providerReference || null, debited: toNumber(existing.amount) };
+          }
+          if (existing.status === 'pending') {
+            return { ok: false, reason: 'already_processing', reference: existing.reference };
+          }
+          return { ok: false, reason: 'previous_failed', reference: existing.reference, error: existing.metadata?.error || null };
+        }
+        debitRef = fixedRef;
+      }
+
       await sequelize.transaction(async (t) => {
         const bal = await this.getBalanceRow(t);
         const before = toNumber(bal.balance);
@@ -160,7 +179,7 @@ class TreasuryService {
           throw new Error('insufficient_treasury_balance');
         }
         balanceAfterDebit = before - totalDeduction;
-        debitRef = genRef('TRSY-WD');
+        debitRef = debitRef || genRef('TRSY-WD');
 
         await TreasuryLedgerEntry.create(
           {
@@ -181,6 +200,7 @@ class TreasuryService {
               withdrawAmount,
               fee,
               customerReference,
+              idempotencyKey: idempotencyKey || null,
             },
           },
           { transaction: t }
@@ -199,6 +219,8 @@ class TreasuryService {
       });
 
       if (!sendResult.success) {
+        const code = sendResult.code || null;
+        if (code === 'not_configured') throw new Error('billstack_not_configured');
         throw new Error(sendResult.error || 'provider_transfer_failed');
       }
 
@@ -226,6 +248,7 @@ class TreasuryService {
       if (errorMsg === 'insufficient_treasury_balance') {
         return { ok: false, reason: 'insufficient_balance' };
       }
+      const mappedReason = errorMsg === 'billstack_not_configured' ? 'billstack_not_configured' : 'provider_failed';
 
       try {
         if (debitRef) {
@@ -268,7 +291,7 @@ class TreasuryService {
       }
 
       logger.error('[AUDIT][Treasury] Settlement withdrawal failed', { adminUserId, debitRef, error: errorMsg });
-      return { ok: false, reason: 'provider_failed', error: errorMsg };
+      return { ok: false, reason: mappedReason, error: errorMsg };
     }
   }
 }
