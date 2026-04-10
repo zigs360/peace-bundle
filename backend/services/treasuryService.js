@@ -147,7 +147,7 @@ class TreasuryService {
     const totalDeduction = withdrawAmount + (fee > 0 ? fee : 0);
 
     const customerReference = genRef('SETTLE');
-    const smeplugService = require('./smeplugService');
+    const billstackTransferService = require('./billstackTransferService');
 
     let debitRef = null;
     let balanceAfterDebit = null;
@@ -190,38 +190,19 @@ class TreasuryService {
         await bal.save({ transaction: t });
       });
 
-      const resolveResult = await smeplugService.resolveAccount(bankCode, accountNumber);
-      if (!resolveResult.success) {
-        throw new Error(resolveResult.error || 'account_resolution_failed');
-      }
-      const resolvedName =
-        resolveResult.data?.data?.account_name ||
-        resolveResult.data?.data?.accountName ||
-        resolveResult.data?.account_name ||
-        resolveResult.data?.accountName ||
-        null;
-      const enforceNameMatch = String(process.env.SETTLEMENT_ENFORCE_NAME_MATCH || 'false').toLowerCase() === 'true';
-      if (enforceNameMatch && resolvedName) {
-        const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (norm(resolvedName) !== norm(accountName)) {
-          throw new Error('settlement_account_name_mismatch');
-        }
-      }
-
-      const sendResult = await smeplugService.sendTransfer({
-        bank_code: bankCode,
-        account_number: accountNumber,
+      const sendResult = await billstackTransferService.initiateTransfer({
+        bankCode,
+        accountNumber,
         amount: withdrawAmount,
-        description: description || 'Peace Bundlle settlement payout',
-        customer_reference: customerReference,
+        narration: description || 'Peace Bundlle settlement payout',
+        reference: customerReference,
       });
 
       if (!sendResult.success) {
         throw new Error(sendResult.error || 'provider_transfer_failed');
       }
 
-      const providerReference =
-        sendResult.data?.reference || sendResult.data?.transaction_id || sendResult.data?.data?.reference || null;
+      const providerReference = sendResult.reference || null;
 
       const debitEntry = await TreasuryLedgerEntry.findOne({ where: { reference: debitRef } });
       if (debitEntry) {

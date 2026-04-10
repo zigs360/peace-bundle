@@ -13,7 +13,11 @@ jest.mock('../services/smeplugService', () => ({
   getBanks: jest.fn(),
 }));
 
-const smeplugService = require('../services/smeplugService');
+jest.mock('../services/billstackTransferService', () => ({
+  initiateTransfer: jest.fn(),
+}));
+
+const billstackTransferService = require('../services/billstackTransferService');
 
 describe('Admin treasury settlement withdrawal', () => {
   beforeAll(async () => {
@@ -26,20 +30,17 @@ describe('Admin treasury settlement withdrawal', () => {
   beforeEach(async () => {
     await TreasuryLedgerEntry.destroy({ where: {} });
     await TreasuryBalance.destroy({ where: {} });
-    await SystemSetting.set('treasury_last_sync_at', new Date(0).toISOString(), 'string', 'treasury');
+    await SystemSetting.set('treasury_last_sync_at', new Date(Date.now() - 1000).toISOString(), 'string', 'treasury');
 
     await SystemSetting.set('settlement_bank_code', 'PALMPAY', 'string', 'treasury');
     await SystemSetting.set('settlement_bank_name', 'PalmPay', 'string', 'treasury');
     await SystemSetting.set('settlement_account_number', '0123456789', 'string', 'treasury');
     await SystemSetting.set('settlement_account_name', 'Peace Bundlle Settlement', 'string', 'treasury');
 
-    smeplugService.resolveAccount.mockResolvedValue({
+    billstackTransferService.initiateTransfer.mockResolvedValue({
       success: true,
-      data: { data: { account_name: 'Peace Bundlle Settlement' } },
-    });
-    smeplugService.sendTransfer.mockResolvedValue({
-      success: true,
-      data: { reference: 'SMEPLUG-REF-1' },
+      reference: 'BILLSTACK-TRF-1',
+      data: { status: true, data: { reference: 'BILLSTACK-TRF-1' } },
     });
   });
 
@@ -87,7 +88,7 @@ describe('Admin treasury settlement withdrawal', () => {
       .send({ amount: 40, description: 'Settlement payout' });
     expect(wdRes.statusCode).toBe(200);
     expect(wdRes.body.success).toBe(true);
-    expect(smeplugService.sendTransfer).toHaveBeenCalled();
+    expect(billstackTransferService.initiateTransfer).toHaveBeenCalled();
 
     const balRow = await TreasuryBalance.findOne();
     expect(parseFloat(balRow.balance)).toBe(10);
@@ -116,7 +117,7 @@ describe('Admin treasury settlement withdrawal', () => {
   });
 
   it('rolls back treasury deduction if provider transfer fails', async () => {
-    smeplugService.sendTransfer.mockResolvedValue({ success: false, error: 'provider down' });
+    billstackTransferService.initiateTransfer.mockResolvedValue({ success: false, error: 'provider down' });
 
     const adminUser = await User.create({
       name: 'Admin3',
