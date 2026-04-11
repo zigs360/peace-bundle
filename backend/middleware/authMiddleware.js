@@ -37,7 +37,7 @@ const protect = async (req, res, next) => {
 };
 
 const admin = (req, res, next) => {
-    if (req.user && req.user.role === 'admin') {
+    if (req.user && (req.user.role === 'admin' || req.user.role === 'super_admin')) {
         next();
     } else {
         logger.warn('Admin Access Denied:', { userId: req.user?.id, role: req.user?.role });

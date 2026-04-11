@@ -250,6 +250,62 @@ class WalletService {
     return sequelize.transaction(work);
   }
 
+  async adminAdjust(user, deltaAmount, source, description = null, metadata = {}, t = null) {
+    const work = async (transaction) => {
+      const wallet = await Wallet.findOne({
+        where: { userId: user.id },
+        transaction,
+        lock: true,
+      });
+
+      if (!wallet) throw new Error('Wallet not found');
+      if (wallet.status !== 'active') {
+        throw new Error(`Wallet is ${wallet.status}. Please contact support.`);
+      }
+
+      const currentBalance = parseFloat(wallet.balance);
+      const delta = parseFloat(deltaAmount);
+      if (!Number.isFinite(delta) || delta === 0) throw new Error('Invalid amount');
+
+      const nextBalance = currentBalance + delta;
+      if (nextBalance < 0) throw new Error('Insufficient wallet balance');
+
+      const balanceBefore = currentBalance;
+      const balanceAfter = nextBalance;
+      await wallet.update(
+        {
+          balance: balanceAfter,
+          last_transaction_at: new Date(),
+        },
+        { transaction }
+      );
+
+      const txnType = delta < 0 ? 'debit' : 'credit';
+      const txnAmount = Math.abs(delta);
+      const txn = await Transaction.create(
+        {
+          walletId: wallet.id,
+          userId: user.id,
+          type: txnType,
+          amount: txnAmount,
+          balance_before: balanceBefore,
+          balance_after: balanceAfter,
+          source,
+          reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
+          description,
+          metadata,
+          status: 'completed',
+        },
+        { transaction, returning: false }
+      );
+
+      return { wallet, txn };
+    };
+
+    if (t) return work(t);
+    return sequelize.transaction(work);
+  }
+
   /**
    * Transfer between wallets
    * @param {Object} sender

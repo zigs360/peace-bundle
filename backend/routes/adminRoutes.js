@@ -51,6 +51,7 @@ const {
 // const { getAllTransactions } = require('../controllers/transactionController'); // Replaced by admin controller version
 const pricingController = require('../controllers/pricingController');
 const treasuryController = require('../controllers/treasuryController');
+const adminWalletDeductionController = require('../controllers/adminWalletDeductionController');
 const {
     listAdminOgdamsSims,
     createAdminOgdamsDataPurchase,
@@ -117,6 +118,11 @@ router.post('/sims/:id/connect', protect, admin, connectSim);
 router.post('/sims/:id/disconnect', protect, admin, disconnectSim);
 router.post('/sims/:id/check-balance', protect, admin, checkSimBalance);
 router.post('/sims/:id/ogdams-link', protect, admin, setSimOgdamsLink);
+
+router.get('/wallet/users/:id', protect, admin, adminWalletDeductionController.getUserWalletSnapshot);
+router.get('/wallet/deductions', protect, admin, adminWalletDeductionController.listWalletDeductions);
+router.post('/wallet/deductions', protect, admin, adminWalletDeductionController.createWalletDeduction);
+router.post('/wallet/deductions/:reference/reverse', protect, admin, adminWalletDeductionController.reverseWalletDeduction);
 
 // Referral Analytics Route
 router.get('/referrals/analytics', protect, admin, getReferralAnalytics);

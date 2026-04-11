@@ -38,6 +38,8 @@ const TreasuryBalance = require('../models/TreasuryBalance');
 const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
 const AdminOgdamsDataPurchase = require('../models/AdminOgdamsDataPurchase');
 const AdminOgdamsDataPurchaseAudit = require('../models/AdminOgdamsDataPurchaseAudit');
+const AdminWalletDeduction = require('../models/AdminWalletDeduction');
+const AdminWalletDeductionAudit = require('../models/AdminWalletDeductionAudit');
 
 // Define Associations (Top Level)
 
@@ -151,6 +153,15 @@ try {
 
   AdminOgdamsDataPurchase.hasMany(AdminOgdamsDataPurchaseAudit, { foreignKey: 'purchaseId', as: 'audits', onDelete: 'CASCADE' });
   AdminOgdamsDataPurchaseAudit.belongsTo(AdminOgdamsDataPurchase, { foreignKey: 'purchaseId', as: 'purchase' });
+
+  User.hasMany(AdminWalletDeduction, { foreignKey: 'adminId', as: 'walletDeductionsMade' });
+  AdminWalletDeduction.belongsTo(User, { foreignKey: 'adminId', as: 'admin' });
+
+  User.hasMany(AdminWalletDeduction, { foreignKey: 'userId', as: 'walletDeductionsReceived' });
+  AdminWalletDeduction.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  AdminWalletDeduction.hasMany(AdminWalletDeductionAudit, { foreignKey: 'deductionId', as: 'audits', onDelete: 'CASCADE' });
+  AdminWalletDeductionAudit.belongsTo(AdminWalletDeduction, { foreignKey: 'deductionId', as: 'deduction' });
 } catch (error) {
   console.error('Error defining associations:', error);
 }
@@ -383,5 +394,7 @@ module.exports = {
   TreasuryBalance,
   TreasuryLedgerEntry,
   AdminOgdamsDataPurchase,
-  AdminOgdamsDataPurchaseAudit
+  AdminOgdamsDataPurchaseAudit,
+  AdminWalletDeduction,
+  AdminWalletDeductionAudit
 };

@@ -28,6 +28,7 @@ import KycIndex from './pages/admin/Kyc/Index';
 import FundingReviews from './pages/admin/FundingReviews';
 import Treasury from './pages/admin/Treasury';
 import OgdamsDataPurchase from './pages/admin/OgdamsDataPurchase';
+import WalletDeductions from './pages/admin/WalletDeductions';
 import UserLayout from './components/UserLayout';
 import CookieConsent from './components/common/CookieConsent';
 import UserDashboard from './pages/dashboard/UserDashboard';
@@ -89,6 +90,7 @@ function App() {
             <Route index element={<AdminDashboard />} />
             <Route path="treasury" element={<Treasury />} />
             <Route path="ogdams-data" element={<OgdamsDataPurchase />} />
+            <Route path="wallet-deductions" element={<WalletDeductions />} />
             <Route path="users" element={<AdminUsersPage />} />
             <Route path="transactions" element={<Transactions />} />
             <Route path="funding-review" element={<FundingReviews />} />
