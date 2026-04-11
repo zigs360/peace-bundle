@@ -249,6 +249,13 @@ const connectDB = async () => {
         ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
       ]);
 
+      try {
+        await AdminWalletDeduction.sync();
+        await AdminWalletDeductionAudit.sync();
+      } catch (e) {
+        console.error('Admin wallet deduction tables sync failed:', e.message);
+      }
+
       console.log('Database Synced');
 
       if (process.env.NODE_ENV !== 'test') {

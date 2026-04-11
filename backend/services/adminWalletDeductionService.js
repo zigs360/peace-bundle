@@ -12,6 +12,19 @@ const crypto = require('crypto');
 const sha256Hex = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 
 class AdminWalletDeductionService {
+  isSuperAdmin(user) {
+    const email = String(user?.email || '').trim().toLowerCase();
+    const allowListRaw = String(process.env.SUPER_ADMIN_EMAILS || '').trim();
+    const allowList = allowListRaw
+      ? allowListRaw
+          .split(',')
+          .map((v) => v.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    const meta = user?.metadata && typeof user.metadata === 'object' ? user.metadata : {};
+    const metaFlag = meta.is_super_admin === true || meta.super_admin === true;
+    return metaFlag || (email && allowList.includes(email));
+  }
   async getUserWalletSnapshot(userId) {
     const [user, wallet] = await Promise.all([
       User.findByPk(userId, { attributes: ['id', 'name', 'email', 'phone', 'role'] }),
@@ -190,7 +203,7 @@ class AdminWalletDeductionService {
   async reverseDeduction({ superAdminUserId, reference, reason, adminIp = null, adminAgent = null }) {
     const admin = await User.findByPk(superAdminUserId, { attributes: ['id', 'name', 'email', 'phone', 'role'] });
     if (!admin) return { ok: false, reason: 'admin_not_found' };
-    if (String(admin.role) !== 'super_admin') return { ok: false, reason: 'not_super_admin' };
+    if (String(admin.role) !== 'admin' || !this.isSuperAdmin(admin)) return { ok: false, reason: 'not_super_admin' };
 
     const trimmedReason = String(reason || '').trim();
     if (!trimmedReason) return { ok: false, reason: 'invalid_reason' };
@@ -304,4 +317,3 @@ class AdminWalletDeductionService {
 }
 
 module.exports = new AdminWalletDeductionService();
-

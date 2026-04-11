@@ -82,8 +82,9 @@ describe('Admin wallet deduction + rollback', () => {
 
   it('allows super-admin rollback within 24h', async () => {
     const admin = await makeUser('admin', 'admin_deduct2');
-    const superAdmin = await makeUser('super_admin', 'super_admin');
+    const superAdmin = await makeUser('admin', 'super_admin');
     const user = await makeUser('user', 'target_rev');
+    process.env.SUPER_ADMIN_EMAILS = String(superAdmin.email);
 
     const adminToken = jwt.sign({ id: admin.id }, process.env.JWT_SECRET);
     const superToken = jwt.sign({ id: superAdmin.id }, process.env.JWT_SECRET);
