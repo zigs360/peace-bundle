@@ -1,6 +1,8 @@
 const { Sim, SystemSetting, User } = require('../models');
+const sequelize = require('../config/database');
 const ussdParserService = require('./ussdParserService');
 const smeplugService = require('./smeplugService');
+const ogdamsService = require('./ogdamsService');
 const logger = require('../utils/logger');
 
 class SimManagementService {
@@ -75,6 +77,7 @@ class SimManagementService {
               imei: device.imei,
               batteryLevel: device.battery_level || device.battery,
               type: 'sim_system', // Mark as Smeplug system SIM
+              ogdamsLinked: false,
               lastBalanceCheck: new Date()
             });
             syncResults.updated++;
@@ -85,6 +88,7 @@ class SimManagementService {
               phoneNumber: phoneNumber,
               provider: provider || 'mtn', // Default to MTN if undetected
               type: 'sim_system',
+              ogdamsLinked: false,
               airtimeBalance: device.airtime_balance || 0,
               dataBalanceMb: device.data_balance_mb || 0,
               connectionStatus: device.status === 'online' ? 'connected' : 'disconnected',
@@ -226,65 +230,81 @@ class SimManagementService {
    * @returns {Promise<number|null>}
    */
   async checkBalance(sim, retries = 3, force = false) {
-    // 1. Caching Mechanism: Skip if checked within the last 5 minutes
     const CACHE_MINUTES = 5;
     if (!force && sim.lastBalanceCheck) {
       const now = new Date();
       const lastCheck = new Date(sim.lastBalanceCheck);
       const diffMinutes = (now.getTime() - lastCheck.getTime()) / (1000 * 60);
-      
       if (diffMinutes < CACHE_MINUTES) {
         logger.info(`Using cached balance for SIM ${sim.phoneNumber} (Checked ${Math.round(diffMinutes)} mins ago)`);
-        return parseFloat(sim.airtimeBalance);
+        return sim.airtimeBalance !== null ? parseFloat(String(sim.airtimeBalance)) : null;
       }
     }
 
-    let attempt = 0;
-    let lastError = null;
+    if (sim.type === 'sim_system') {
+      let attempt = 0;
+      let lastError = null;
+      while (attempt < retries) {
+        try {
+          logger.info(`Checking SMEPlug device balance for SIM ${sim.phoneNumber} (Attempt ${attempt + 1}/${retries})`);
+          const result = await smeplugService.getLinkedDevices();
+          if (!result.success) throw new Error(result.error || 'Failed to fetch devices from SMEPlug');
 
-    while (attempt < retries) {
-      try {
-        logger.info(`Checking balance for SIM ${sim.phoneNumber} (Attempt ${attempt + 1}/${retries})`);
-        
-        // In production, this would call a real USSD API or hardware bridge
-        // For now, we simulate a network call that might fail
-        if (process.env.NODE_ENV !== 'test' && Math.random() < 0.1) {
-          throw new Error('Network timeout during USSD execution');
-        }
+          const data = result.data;
+          let devices = [];
+          if (Array.isArray(data)) devices = data;
+          else if (data && Array.isArray(data.data)) devices = data.data;
+          else if (data && Array.isArray(data.devices)) devices = data.devices;
+          else if (data && data.data && Array.isArray(data.data.devices)) devices = data.data.devices;
 
-        const mockResponse = `Your balance is NGN ${Math.floor(Math.random() * 5000) + 500}.50`;
-        const balance = ussdParserService.parseBalance(sim.provider, mockResponse);
+          const formatted = ussdParserService.formatPhoneNumber(sim.phoneNumber);
+          const device = devices.find((d) => {
+            const raw = d.phone_number || d.phone || d.phoneNumber;
+            if (!raw) return false;
+            return ussdParserService.formatPhoneNumber(raw) === formatted;
+          });
+          if (!device) throw new Error('Device not found in SMEPlug device list');
 
-        if (balance !== null) {
+          const balance = device.airtime_balance !== undefined ? parseFloat(String(device.airtime_balance)) : null;
+          const dataMb = device.data_balance_mb !== undefined ? parseFloat(String(device.data_balance_mb)) : null;
+          const conn = device.status === 'online' ? 'connected' : 'disconnected';
+          const status = device.is_active ? 'active' : 'paused';
+
           await sim.update({
-            airtimeBalance: balance,
+            airtimeBalance: Number.isFinite(balance) ? balance : sim.airtimeBalance,
+            dataBalanceMb: Number.isFinite(dataMb) ? dataMb : sim.dataBalanceMb,
+            connectionStatus: conn,
+            status,
+            lastConnectedAt: device.last_seen ? new Date(device.last_seen) : sim.lastConnectedAt,
+            signalStrength: device.signal_strength || device.signal || sim.signalStrength,
+            networkInfo: device.network_type || device.network || sim.networkInfo,
+            deviceId: device.device_id || device.id || sim.deviceId,
+            imei: device.imei || sim.imei,
+            batteryLevel: device.battery_level || device.battery || sim.batteryLevel,
             lastBalanceCheck: new Date(),
           });
 
-          logger.info(`Balance updated for SIM ${sim.phoneNumber}: ₦${balance}`);
-          
-          if (sim.isLowBalance()) {
-            logger.warn(`SIM ${sim.phoneNumber} balance is low: ₦${balance}`);
+          const out = sim.airtimeBalance !== null ? parseFloat(String(sim.airtimeBalance)) : null;
+          if (out !== null && sim.isLowBalance()) {
+            logger.warn(`SIM ${sim.phoneNumber} balance is low: ₦${out}`);
           }
-
-          return balance;
-        }
-        
-        throw new Error('Could not parse balance from USSD response');
-      } catch (error) {
-        attempt++;
-        lastError = error;
-        logger.error(`Balance check attempt ${attempt} failed for ${sim.phoneNumber}: ${error.message}`);
-        
-        if (attempt < retries) {
-          // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500));
+          return out;
+        } catch (error) {
+          attempt++;
+          lastError = error;
+          logger.error(`Balance check attempt ${attempt} failed for ${sim.phoneNumber}: ${error.message}`);
+          if (attempt < retries) {
+            await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 500));
+          }
         }
       }
+
+      logger.error(`All ${retries} SMEPlug balance check attempts failed for ${sim.phoneNumber}. Final error: ${lastError.message}`);
+      return null;
     }
 
-    logger.error(`All ${retries} balance check attempts failed for ${sim.phoneNumber}. Final error: ${lastError.message}`);
-    return null;
+    await sim.update({ lastBalanceCheck: new Date() });
+    return sim.airtimeBalance !== null ? parseFloat(String(sim.airtimeBalance)) : null;
   }
 
   /**
@@ -294,13 +314,16 @@ class SimManagementService {
    * @returns {Promise<Sim|null>}
    */
   async getOptimalSim(provider, amount) {
-    // Find active SIMs for provider
+    const preference = String(process.env.SIM_POOL_PREFERENCE || 'smeplug_first').toLowerCase();
+    // Find active SIMs for provider (prefer connected, but allow disconnected as fallback)
     const sims = await Sim.findAll({
       where: {
         provider: provider,
         status: 'active'
       },
       order: [
+        ['ogdams_linked', preference === 'ogdams_first' ? 'DESC' : 'ASC'],
+        ['connectionStatus', 'ASC'],
         ['dailyDispenses', 'ASC'], // Load balancing
         ['updatedAt', 'ASC']
       ]
@@ -313,8 +336,11 @@ class SimManagementService {
         continue;
       }
 
-      // 2. Check if specific amount is covered
-      if (amount && sim.airtimeBalance < amount) {
+      // 2. Check if specific amount is covered (account for reserved)
+      const airtimeBalance = sim.airtimeBalance !== null ? parseFloat(String(sim.airtimeBalance)) : null;
+      const reserved = parseFloat(String(sim.reservedAirtime || 0));
+      const available = airtimeBalance !== null && Number.isFinite(airtimeBalance) ? airtimeBalance - reserved : null;
+      if (amount && available !== null && available < amount) {
         continue;
       }
 
@@ -330,6 +356,188 @@ class SimManagementService {
     return null;
   }
 
+  async getOptimalSimForData(plan) {
+    const provider = String(plan?.provider || '').toLowerCase();
+    const amount = plan?.api_cost || 0;
+    const preference = String(process.env.SIM_POOL_PREFERENCE || 'smeplug_first').toLowerCase();
+    const ogdamsEligible = !!plan?.ogdams_sku;
+
+    const sims = await Sim.findAll({
+      where: {
+        provider,
+        status: 'active',
+      },
+      order: [
+        ['ogdams_linked', ogdamsEligible && preference === 'ogdams_first' ? 'DESC' : 'ASC'],
+        ['connectionStatus', 'ASC'],
+        ['dailyDispenses', 'ASC'],
+        ['updatedAt', 'ASC'],
+      ],
+    });
+
+    for (const sim of sims) {
+      if (!ogdamsEligible && sim.ogdamsLinked) continue;
+      if (sim.isLowBalance()) continue;
+      const airtimeBalance = sim.airtimeBalance !== null ? parseFloat(String(sim.airtimeBalance)) : null;
+      const reserved = parseFloat(String(sim.reservedAirtime || 0));
+      const available = airtimeBalance !== null && Number.isFinite(airtimeBalance) ? airtimeBalance - reserved : null;
+      if (amount && available !== null && available < amount) continue;
+      if (sim.dailyDispenses >= 100) continue;
+      return sim;
+    }
+    return null;
+  }
+
+  async reserveAmount(simId, amount, transaction = null) {
+    let locked = null;
+    const run = async (t) => {
+      locked = await Sim.findByPk(simId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!locked) {
+        const err = new Error('sim_not_found');
+        err.code = 'sim_not_found';
+        throw err;
+      }
+      const airtimeBalance = locked.airtimeBalance !== null ? parseFloat(String(locked.airtimeBalance)) : null;
+      if (airtimeBalance === null || !Number.isFinite(airtimeBalance)) {
+        const err = new Error('sim_balance_unknown');
+        err.code = 'sim_balance_unknown';
+        throw err;
+      }
+      const reserved = parseFloat(String(locked.reservedAirtime || 0));
+      const available = airtimeBalance - reserved;
+      if (available < amount) {
+        const err = new Error('insufficient_sim_balance');
+        err.code = 'insufficient_sim_balance';
+        throw err;
+      }
+      locked.reservedAirtime = Math.max(0, reserved + amount);
+      await locked.save({ transaction: t });
+    };
+    if (transaction) {
+      await run(transaction);
+    } else {
+      await sequelize.transaction(async (t) => run(t));
+    }
+    return locked;
+  }
+
+  async finalizeReservation(simId, amount, success, transaction = null) {
+    const run = async (t) => {
+      const locked = await Sim.findByPk(simId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!locked) return;
+      const reserved = parseFloat(String(locked.reservedAirtime || 0));
+      locked.reservedAirtime = Math.max(0, reserved - amount);
+      if (success) {
+        const airtimeBalance = locked.airtimeBalance !== null ? parseFloat(String(locked.airtimeBalance)) : 0;
+        locked.airtimeBalance = Math.max(0, airtimeBalance - amount);
+      }
+      await locked.save({ transaction: t });
+    };
+    if (transaction) {
+      await run(transaction);
+    } else {
+      await sequelize.transaction(async (t) => run(t));
+    }
+  }
+
+  async processTransactionWithReservation(sim, item, recipientPhone, reference = null, transaction = null) {
+    try {
+      if (!sim || !item || !recipientPhone) {
+        throw new Error('Missing transaction details');
+      }
+
+      const isAirtime = !!item.amount;
+      const costToSim = isAirtime ? parseFloat(String(item.amount)) : parseFloat(String(item.api_cost || 0));
+      if (!Number.isFinite(costToSim) || costToSim <= 0) {
+        throw new Error('Invalid cost');
+      }
+
+      if (!(await this.canDispense(sim))) {
+        throw new Error('SIM daily limit reached or inactive');
+      }
+
+      await this.reserveAmount(sim.id, costToSim, transaction);
+
+      const simNumber = ussdParserService.formatPhoneNumber(sim.phoneNumber);
+      const provider = String(sim.provider || '').toLowerCase();
+      const networkId = smeplugService.getNetworkId(provider);
+
+      let platform = sim.ogdamsLinked ? 'ogdams' : 'smeplug';
+      let providerResult = null;
+      let providerReference = null;
+      const purchaseRef = reference || `SIMPOOL-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+      if (platform === 'ogdams') {
+        if (isAirtime) {
+          providerResult = await ogdamsService.purchaseAirtime({
+            networkId,
+            amount: costToSim,
+            phoneNumber: recipientPhone,
+            reference: purchaseRef,
+            sim_number: simNumber
+          });
+        } else {
+          const planCode = item.ogdams_sku;
+          if (!planCode) {
+            throw new Error('Data plan not mapped for Ogdams');
+          }
+          providerResult = await ogdamsService.purchaseData({
+            networkId,
+            planCode: String(planCode),
+            phoneNumber: recipientPhone,
+            reference: purchaseRef,
+            sim_number: simNumber
+          });
+        }
+        providerReference = providerResult?.reference || providerResult?.data?.reference || null;
+      } else {
+        if (isAirtime) {
+          const result = await smeplugService.purchaseVTU(provider, recipientPhone, costToSim, {
+            mode: 'device_based',
+            sim_number: sim.phoneNumber
+          });
+          if (!result.success) throw new Error(result.error || 'SMEPlug airtime purchase failed');
+          providerResult = result.data;
+          providerReference = result.data?.reference || result.data?.transaction_id || null;
+        } else {
+          const smeplugPlanId = item.smeplug_plan_id || item.id;
+          const result = await smeplugService.purchaseData(provider, recipientPhone, smeplugPlanId, 'device_based', {
+            sim_number: sim.phoneNumber
+          });
+          if (!result.success) throw new Error(result.error || 'SMEPlug data purchase failed');
+          providerResult = result.data;
+          providerReference = result.data?.reference || result.data?.transaction_id || null;
+        }
+      }
+
+      await this.finalizeReservation(sim.id, costToSim, true, transaction);
+      await this.incrementDispense(sim);
+
+      return {
+        success: true,
+        reference: providerReference || purchaseRef,
+        details: providerResult,
+        platform
+      };
+    } catch (error) {
+      const msg = error?.message || 'Transaction failed';
+      try {
+        const isAirtime = !!item?.amount;
+        const costToSim = isAirtime ? parseFloat(String(item?.amount)) : parseFloat(String(item?.api_cost || 0));
+        if (sim?.id && Number.isFinite(costToSim) && costToSim > 0) {
+          await this.finalizeReservation(sim.id, costToSim, false, transaction);
+        }
+      } catch (e) {
+        void e;
+      }
+      if (sim) {
+        await sim.increment('failedDispenses');
+      }
+      logger.error(`Transaction processing failed for SIM ${sim?.phoneNumber || 'unknown'}: ${msg}`);
+      return { success: false, error: msg };
+    }
+  }
+
   /**
    * Process transaction (Data or Airtime) via SIM
    * @param {Sim} sim
@@ -338,97 +546,8 @@ class SimManagementService {
    * @returns {Promise<Object>}
    */
   async processTransaction(sim, item, recipientPhone) {
-    try {
-        if (!sim || !item || !recipientPhone) {
-            throw new Error('Missing transaction details');
-        }
-
-        // Determine if it's airtime or data
-        const isAirtime = !!item.amount; // Airtime has an amount, data has a plan object usually
-        const networkId = smeplugService.getNetworkId(sim.provider);
-
-        // 1. Check if SIM can dispense
-        if (!(await this.canDispense(sim))) {
-            throw new Error('SIM daily limit reached or inactive');
-        }
-
-        let success = false;
-        let response = null;
-        let reference = null;
-        let costToSim = 0;
-
-        // 2. Determine execution method based on SIM type
-        if (sim.type === 'sim_system' || sim.type === 'device_based') {
-            // Use SMEPlug API for hosted SIMs
-            logger.info(`Processing ${isAirtime ? 'airtime' : 'data'} transaction via SMEPlug SIM ${sim.phoneNumber} for ${recipientPhone}`);
-
-            let result;
-            if (isAirtime) {
-                costToSim = parseFloat(item.amount);
-                result = await smeplugService.purchaseVTU(sim.provider, recipientPhone, costToSim, {
-                    mode: 'device_based',
-                    sim_number: sim.phoneNumber
-                });
-            } else {
-                // Map our plan to SMEPlug plan ID (use smeplug_plan_id or fallback to item.id)
-                const smeplugPlanId = item.smeplug_plan_id || item.id;
-                costToSim = item.api_cost || 0;
-                
-                result = await smeplugService.purchaseData(sim.provider, recipientPhone, smeplugPlanId, 'device_based', {
-                    sim_number: sim.phoneNumber
-                });
-            }
-
-            if (result.success) {
-                success = true;
-                response = result.data;
-                reference = result.data?.reference || result.data?.transaction_id;
-            } else {
-                throw new Error(result.error || `SMEPlug SIM ${isAirtime ? 'airtime' : 'data'} transaction failed`);
-            }
-
-        } else {
-            // Legacy/Mock local USSD execution
-            const ussdCode = isAirtime ? `*123*${item.amount}*${recipientPhone}#` : `*123*${item.size_mb}*${recipientPhone}#`; 
-            logger.info(`Sending USSD ${ussdCode} via SIM ${sim.phoneNumber}`);
-            
-            // Mock Success
-            success = true;
-            reference = `SIM-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-            response = { message: 'USSD Sent successfully (Mock)' };
-            costToSim = isAirtime ? item.amount : (item.api_cost || 0);
-        }
-        
-        if (success) {
-            // Update SIM stats
-            await this.incrementDispense(sim);
-            
-            // Decrement local balance estimate
-            if (costToSim > 0) {
-                await sim.decrement('airtimeBalance', { by: costToSim });
-                logger.info(`SIM ${sim.phoneNumber} balance decremented by ₦${costToSim}. Estimated balance: ₦${sim.airtimeBalance - costToSim}`);
-            }
-
-            return {
-                success: true,
-                reference: reference,
-                details: response
-            };
-        } else {
-            throw new Error('Transaction failed');
-        }
-
-    } catch (error) {
-        logger.error(`Transaction processing failed for SIM ${sim.phoneNumber}: ${error.message}`);
-        
-        // Record failure
-        await sim.increment('failedDispenses');
-        
-        return {
-            success: false,
-            error: error.message
-        };
-    }
+    const transaction = arguments.length >= 4 ? arguments[3] : null;
+    return this.processTransactionWithReservation(sim, item, recipientPhone, null, transaction);
   }
 
   /**

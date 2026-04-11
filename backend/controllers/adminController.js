@@ -313,6 +313,26 @@ const checkSimBalance = async (req, res) => {
     }
 };
 
+// @desc    Mark SIM as Ogdams-linked or SMEPlug-linked for SIM pool routing
+// @route   POST /api/admin/sims/:id/ogdams-link
+// @access  Private (Admin)
+const setSimOgdamsLink = async (req, res) => {
+    try {
+        const { linked, iccid } = req.body || {};
+        const sim = await Sim.findByPk(req.params.id);
+        if (!sim) return res.status(404).json({ success: false, message: 'SIM not found' });
+
+        sim.ogdamsLinked = linked === true || linked === 'true' || linked === 1 || linked === '1';
+        if (iccid !== undefined) sim.iccid = iccid || null;
+
+        await sim.save();
+        res.json({ success: true, message: 'SIM pool linkage updated', data: sim });
+    } catch (error) {
+        logger.error('Admin Set SIM Ogdams Link Error:', { error: error.message, id: req.params.id });
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
 // @desc    Get SIM Analytics
 // @route   GET /api/admin/sims/analytics
 // @access  Private (Admin)
@@ -1759,6 +1779,7 @@ module.exports = {
     connectSim,
     disconnectSim,
     checkSimBalance,
+    setSimOgdamsLink,
     syncSmeplugSims,
     getSimAnalytics,
     getTransactions,

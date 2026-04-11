@@ -25,6 +25,7 @@ const {
     connectSim,
     disconnectSim,
     checkSimBalance,
+    setSimOgdamsLink,
     syncSmeplugSims,
     getSimAnalytics,
     getKycRequests,
@@ -115,6 +116,7 @@ router.delete('/sims/:id', protect, admin, deleteSim);
 router.post('/sims/:id/connect', protect, admin, connectSim);
 router.post('/sims/:id/disconnect', protect, admin, disconnectSim);
 router.post('/sims/:id/check-balance', protect, admin, checkSimBalance);
+router.post('/sims/:id/ogdams-link', protect, admin, setSimOgdamsLink);
 
 // Referral Analytics Route
 router.get('/referrals/analytics', protect, admin, getReferralAnalytics);

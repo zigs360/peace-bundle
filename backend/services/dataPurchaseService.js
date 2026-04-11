@@ -254,14 +254,73 @@ class DataPurchaseService {
     try {
       // Ensure we have the plan_id
       let smeplugPlanId = transaction.metadata?.smeplug_plan_id;
+      let plan = null;
       
       if (!smeplugPlanId) {
           // Fallback: Fetch plan if missing from metadata
           const planId = transaction.dataPlanId || transaction.metadata?.data_plan_id;
           if (planId) {
-              const plan = await DataPlan.findByPk(planId, { transaction: t });
+              plan = await DataPlan.findByPk(planId, { transaction: t });
               if (plan) smeplugPlanId = plan.smeplug_plan_id;
           }
+      }
+
+      if (!plan) {
+        const planId = transaction.dataPlanId || transaction.metadata?.data_plan_id;
+        if (planId) plan = await DataPlan.findByPk(planId, { transaction: t });
+      }
+
+      const simPoolEnabledRaw = process.env.SIM_POOL_ENABLED;
+      const simPoolEnabled =
+        String(simPoolEnabledRaw || (process.env.NODE_ENV === 'test' ? 'false' : 'true')).toLowerCase() === 'true';
+      const allowWalletFallback =
+        String(process.env.SIM_POOL_ALLOW_WALLET_FALLBACK || 'false').toLowerCase() === 'true';
+
+      if (simPoolEnabled && plan && !sim) {
+        try {
+          const poolSim = await simManagementService.getOptimalSimForData(plan);
+          if (poolSim) sim = poolSim;
+        } catch (e) {
+          void e;
+        }
+      }
+
+      if (simPoolEnabled && !allowWalletFallback && plan && !sim) {
+        await this.handleFailedTransaction(transaction, 'No SIM available for this data purchase', null, t);
+        return;
+      }
+
+      if (simPoolEnabled && sim && plan) {
+        const poolResult = await simManagementService.processTransactionWithReservation(
+          sim,
+          plan,
+          transaction.recipient_phone,
+          transaction.reference,
+          t
+        );
+
+        if (poolResult.success) {
+          await transaction.update(
+            {
+              simId: sim.id,
+              smeplug_response: { provider: poolResult.platform, data: poolResult.details || null },
+              metadata: {
+                ...(transaction.metadata || {}),
+                service_provider: poolResult.platform,
+                sim_pool: true,
+                sim_id: sim.id,
+              },
+            },
+            { transaction: t }
+          );
+          await transaction.markAsCompleted(transaction.smeplug_response, t);
+          return;
+        }
+
+        if (!allowWalletFallback) {
+          await this.handleFailedTransaction(transaction, poolResult.error || 'No SIM available for this data purchase', sim, t);
+          return;
+        }
       }
 
       const mode = sim ? 'device_based' : 'wallet';
@@ -741,7 +800,7 @@ class DataPurchaseService {
       if (optimalSim) {
         try {
           const simResult = await this.withTimeout(
-            simManagementService.processTransaction(optimalSim, { provider: cleanNetwork, amount: vendAmount }, cleanPhone),
+            simManagementService.processTransaction(optimalSim, { provider: cleanNetwork, amount: vendAmount }, cleanPhone, t),
             smeplugTimeoutMs,
             'SMEPLUG_SIM',
           );

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import api from '../../../services/api';
 import DataTable from '../../../components/Tables/DataTable';
-import { Smartphone, Plus, Power, PowerOff, RefreshCw, Trash2, RotateCw, Signal, Wifi, Battery } from 'lucide-react';
+import { Smartphone, Plus, Power, PowerOff, RefreshCw, Trash2, RotateCw, Signal, Wifi, Battery, Database } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import OgdamsDataPurchase from '../OgdamsDataPurchase';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function SimsIndex() {
@@ -11,6 +12,7 @@ export default function SimsIndex() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'inventory' | 'admin_data'>('inventory');
 
   const fetchSims = async () => {
     try {
@@ -79,6 +81,21 @@ export default function SimsIndex() {
     }
   };
 
+  const handleSetPoolLink = async (id: string, linked: boolean) => {
+    try {
+      setActionLoading(id);
+      const res = await api.post(`/admin/sims/${id}/ogdams-link`, { linked });
+      if (res.data.success) {
+        toast.success(res.data.message || 'Updated');
+        setSims((prev) => prev.map((sim) => (sim.id === id ? res.data.data : sim)));
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to update SIM pool linkage');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure you want to remove this SIM? This action cannot be undone.')) {
       return;
@@ -115,6 +132,23 @@ export default function SimsIndex() {
 
   const columns = [
     { key: 'notes', header: 'Name' },
+    {
+      key: 'ogdamsLinked',
+      header: 'Pool',
+      render: (value: any, row: any) => (
+        <div className="flex items-center space-x-2">
+          <span className={`text-xs font-bold ${value ? 'text-purple-700' : 'text-blue-700'}`}>{value ? 'OGDAMS' : 'SMEPLUG'}</span>
+          <button
+            onClick={() => handleSetPoolLink(row.id, !value)}
+            disabled={actionLoading === row.id}
+            className="px-2 py-1 rounded-md text-[10px] font-bold border border-gray-200 hover:bg-gray-50 transition-all disabled:opacity-50"
+            title="Toggle pool linkage"
+          >
+            {value ? 'To SMEPlug' : 'To Ogdams'}
+          </button>
+        </div>
+      )
+    },
     { 
       key: 'provider', 
       header: 'Network',
@@ -240,7 +274,7 @@ export default function SimsIndex() {
             <Smartphone className="w-6 h-6 mr-2 text-primary-600" />
             SIM Management
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Manage your hardware SIM connections and balances.</p>
+          <p className="text-sm text-gray-500 mt-1">Unified SIM portal for SMEPlug + Ogdams inventory and admin purchases.</p>
         </div>
         <div className="flex items-center space-x-3">
           <button 
@@ -257,10 +291,35 @@ export default function SimsIndex() {
           </Link>
         </div>
       </div>
-      
-      <div className="bg-white shadow-sm border border-gray-200 rounded-xl overflow-hidden">
-        <DataTable columns={columns} data={sims} isLoading={loading} />
+
+      <div className="bg-white rounded-lg shadow p-2 flex space-x-2">
+        <button
+          onClick={() => setActiveTab('inventory')}
+          className={`flex items-center px-4 py-2 rounded-md text-sm font-bold ${
+            activeTab === 'inventory' ? 'bg-primary-600 text-white' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          <Smartphone className="w-4 h-4 mr-2" />
+          SIM Inventory
+        </button>
+        <button
+          onClick={() => setActiveTab('admin_data')}
+          className={`flex items-center px-4 py-2 rounded-md text-sm font-bold ${
+            activeTab === 'admin_data' ? 'bg-primary-600 text-white' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          <Database className="w-4 h-4 mr-2" />
+          Admin Data Purchase
+        </button>
       </div>
+
+      {activeTab === 'inventory' ? (
+        <div className="bg-white shadow-sm border border-gray-200 rounded-xl overflow-hidden">
+          <DataTable columns={columns} data={sims} isLoading={loading} />
+        </div>
+      ) : (
+        <OgdamsDataPurchase />
+      )}
     </div>
   );
 }
