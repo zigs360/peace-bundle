@@ -5,7 +5,6 @@ const { connectDB, User } = require('../config/db');
 const SystemSetting = require('../models/SystemSetting');
 const TreasuryBalance = require('../models/TreasuryBalance');
 const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
-const walletService = require('../services/walletService');
 
 jest.mock('../services/smeplugService', () => ({
   resolveAccount: jest.fn(),
@@ -23,7 +22,6 @@ describe('Admin treasury settlement withdrawal', () => {
   beforeAll(async () => {
     await connectDB();
     process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret';
-    process.env.FUNDING_FLAT_FEE_NGN = '50';
     process.env.SETTLEMENT_TRANSFER_FEE_NGN = '50';
     process.env.SETTLEMENT_BANK_CODE = '50515';
   });
@@ -40,7 +38,7 @@ describe('Admin treasury settlement withdrawal', () => {
     });
   });
 
-  it('syncs fee revenue into treasury and withdraws to settlement', async () => {
+  it('withdraws treasury balance to settlement', async () => {
     const adminUser = await User.create({
       name: 'Admin',
       email: `admin_${Date.now()}@test.com`,
@@ -50,27 +48,9 @@ describe('Admin treasury settlement withdrawal', () => {
       account_status: 'active',
     });
 
-    const u = await User.create({
-      name: 'Fee User',
-      email: `fee_${Date.now()}@test.com`,
-      phone: `0802${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`,
-      password: 'password123',
-      role: 'user',
-      account_status: 'active',
-    });
-
-    await walletService.creditFundingWithFraudChecks(u, 200, 'Test Funding', { reference: `MI-${Date.now()}-1`, gateway: 'billstack' });
-    await walletService.creditFundingWithFraudChecks(u, 200, 'Test Funding', { reference: `MI-${Date.now()}-2`, gateway: 'billstack' });
+    await TreasuryBalance.create({ balance: 100, currency: 'NGN' });
 
     const token = jwt.sign({ id: adminUser.id }, process.env.JWT_SECRET);
-
-    const syncRes = await request(app)
-      .post('/api/admin/treasury/sync')
-      .set('Authorization', `Bearer ${token}`)
-      .send({});
-    expect(syncRes.statusCode).toBe(200);
-    expect(syncRes.body.success).toBe(true);
-    expect(syncRes.body.credited).toBe(100);
 
     const balRes1 = await request(app)
       .get('/api/admin/treasury/balance')
@@ -97,7 +77,6 @@ describe('Admin treasury settlement withdrawal', () => {
     expect(parseFloat(balRow.balance)).toBe(10);
 
     const ledgers = await TreasuryLedgerEntry.findAll({ order: [['createdAt', 'ASC']] });
-    expect(ledgers.some((l) => l.source === 'revenue_sync' && l.type === 'credit')).toBe(true);
     expect(ledgers.some((l) => l.source === 'settlement_withdrawal' && l.type === 'debit')).toBe(true);
   });
 
@@ -131,18 +110,9 @@ describe('Admin treasury settlement withdrawal', () => {
       account_status: 'active',
     });
 
-    const u = await User.create({
-      name: 'Fee User2',
-      email: `fee2_${Date.now()}@test.com`,
-      phone: `0805${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`,
-      password: 'password123',
-      role: 'user',
-      account_status: 'active',
-    });
-    await walletService.creditFundingWithFraudChecks(u, 200, 'Test Funding', { reference: `MI-${Date.now()}-3`, gateway: 'billstack' });
+    await TreasuryBalance.create({ balance: 100, currency: 'NGN' });
 
     const token = jwt.sign({ id: adminUser.id }, process.env.JWT_SECRET);
-    await request(app).post('/api/admin/treasury/sync').set('Authorization', `Bearer ${token}`).send({});
 
     const before = await TreasuryBalance.findOne();
     const beforeBal = parseFloat(before.balance);
@@ -167,18 +137,8 @@ describe('Admin treasury settlement withdrawal', () => {
       account_status: 'active',
     });
 
-    const u = await User.create({
-      name: 'Fee User3',
-      email: `fee3_${Date.now()}@test.com`,
-      phone: `0807${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`,
-      password: 'password123',
-      role: 'user',
-      account_status: 'active',
-    });
-    await walletService.creditFundingWithFraudChecks(u, 200, 'Test Funding', { reference: `MI-${Date.now()}-4`, gateway: 'billstack' });
-
     const token = jwt.sign({ id: adminUser.id }, process.env.JWT_SECRET);
-    await request(app).post('/api/admin/treasury/sync').set('Authorization', `Bearer ${token}`).send({});
+    await TreasuryBalance.create({ balance: 100, currency: 'NGN' });
 
     const idKey = `wd-${Date.now()}-idempotent`;
     const res1 = await request(app)

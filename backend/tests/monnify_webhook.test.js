@@ -8,7 +8,6 @@ describe('Monnify webhook', () => {
   beforeAll(async () => {
     await connectDB();
     process.env.MONNIFY_SECRET_KEY = 'test_monnify_secret';
-    process.env.FUNDING_FLAT_FEE_NGN = '50';
   });
 
   it('credits wallet by customer email and is idempotent by transactionReference', async () => {
@@ -45,7 +44,7 @@ describe('Monnify webhook', () => {
     expect(res1.statusCode).toBe(200);
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 450);
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 500);
 
     const txn = await Transaction.findOne({ where: { reference: transactionReference } });
     expect(txn).toBeTruthy();
@@ -54,6 +53,6 @@ describe('Monnify webhook', () => {
     expect(res2.statusCode).toBe(200);
 
     const walletAfter2 = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(walletAfter2.balance)).toBe(beforeBalance + 450);
+    expect(parseFloat(walletAfter2.balance)).toBe(beforeBalance + 500);
   });
 });

@@ -60,10 +60,6 @@ class WalletService {
   }
 
   async creditFundingWithFraudChecks(user, amount, description = null, metadata = {}, t = null) {
-    const flatFee = parseFloat(process.env.FUNDING_FLAT_FEE_NGN || '50');
-    const feeExempt = metadata?.fee_exempt === true || metadata?.fee_exempt === 'true';
-    const applyFee = Number.isFinite(flatFee) && flatFee > 0 && !feeExempt;
-
     const cap = parseFloat(process.env.MOCK_BVN_FUNDING_CAP_NGN || '50000');
     const maxEvents = parseInt(process.env.MOCK_BVN_MAX_EVENTS_24H || '3', 10);
     const mockAllowed = String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
@@ -84,40 +80,16 @@ class WalletService {
         throw new Error('Invalid amount');
       }
 
-      const feeAmount = applyFee ? flatFee : 0;
-      const netAmount = amountNum - feeAmount;
+      const feeAmount = 0;
+      const netAmount = amountNum;
       const nextMeta = {
         ...metadata,
         gross_amount: amountNum,
         fee_amount: feeAmount,
         net_amount: netAmount,
         fee_currency: 'NGN',
-        fee_policy: applyFee ? 'flat_fee' : 'none',
+        fee_policy: 'none',
       };
-
-      if (netAmount <= 0) {
-        const txn = await Transaction.create(
-          {
-            walletId: wallet.id,
-            userId: user.id,
-            type: 'credit',
-            amount: 0,
-            balance_before: balanceBefore,
-            balance_after: balanceBefore,
-            source: 'funding',
-            reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
-            description: description,
-            metadata: {
-              ...nextMeta,
-              fee_rejected: true,
-            },
-            status: 'failed',
-            failure_reason: 'Amount too low to cover processing fee',
-          },
-          { transaction: transaction, returning: false }
-        );
-        return { status: 'failed_fee', transaction: txn, reason: 'amount_too_low_for_fee' };
-      }
 
       if (isMockUser && Number.isFinite(amountNum) && amountNum > 0) {
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -160,9 +132,6 @@ class WalletService {
         }
       }
 
-      if (applyFee) {
-        logger.info('[FundingFee] Fee applied', { userId: user.id, gross: amountNum, fee: feeAmount, net: netAmount });
-      }
       const txn = await this.credit(user, netAmount, 'funding', description, nextMeta, transaction);
       return { status: 'completed', transaction: txn };
     };

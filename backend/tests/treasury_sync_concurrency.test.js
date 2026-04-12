@@ -8,7 +8,6 @@ const treasuryService = require('../services/treasuryService');
 describe('Treasury revenue sync concurrency', () => {
   beforeAll(async () => {
     await connectDB();
-    process.env.FUNDING_FLAT_FEE_NGN = '50';
   });
 
   beforeEach(async () => {
@@ -52,9 +51,9 @@ describe('Treasury revenue sync concurrency', () => {
     expect(r2.ok).toBe(true);
 
     const balance = await treasuryService.getBalance();
-    expect(balance).toBe(100);
+    expect(balance).toBe(0);
 
     const syncEntries = await TreasuryLedgerEntry.findAll({ where: { source: 'revenue_sync', type: 'credit' } });
-    expect(syncEntries.length).toBe(1);
+    expect(syncEntries.length).toBe(0);
   });
 });

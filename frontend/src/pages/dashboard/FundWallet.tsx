@@ -207,7 +207,7 @@ export default function FundWallet() {
                         <span className="text-[10px] uppercase tracking-wider font-bold text-primary-600">Instant</span>
                     </div>
                 </div>
-                <p className="text-sm text-gray-600 flex-grow leading-relaxed">Fund with Cards, USSD or Bank App via Monnify. Standard 1.5% gateway fee.</p>
+                <p className="text-sm text-gray-600 flex-grow leading-relaxed">Fund with Cards, USSD or Bank App via Monnify. No processing fees.</p>
                 {method === 'card' && <CheckCircle2 className="w-5 h-5 text-primary-600 absolute top-4 right-4" />}
             </div>
         </StaggerItem>
@@ -273,7 +273,7 @@ export default function FundWallet() {
                 <div>
                   <p className="text-sm text-amber-900 font-bold mb-1">Important Note</p>
                   <p className="text-xs text-amber-800 leading-relaxed opacity-80">
-                    Standard processing fee of <span className="font-black">₦50</span> applies per transaction by our banking partners. Deposits below ₦100 may not be processed.
+                    No processing fees apply. Your deposit is credited in full.
                   </p>
                 </div>
               </div>
@@ -355,8 +355,8 @@ export default function FundWallet() {
                     </div>
                     {amount && parseFloat(amount) > 0 && (
                         <div className="mt-5 p-4 bg-primary-50 rounded-2xl border border-primary-100 flex justify-between items-center">
-                            <span className="text-sm font-bold text-primary-600">Gateway Processing Fee (1.5%):</span>
-                            <span className="text-lg font-black text-primary-700">₦{(parseFloat(amount) * 0.015).toFixed(2)}</span>
+                            <span className="text-sm font-bold text-primary-600">Processing Fee:</span>
+                            <span className="text-lg font-black text-primary-700">₦0.00</span>
                         </div>
                     )}
                 </div>

@@ -9,7 +9,6 @@ describe('BillStack webhook', () => {
   beforeAll(async () => {
     await connectDB();
     process.env.BILLSTACK_WEBHOOK_SECRET = 'test_billstack_webhook_secret';
-    process.env.FUNDING_FLAT_FEE_NGN = '50';
   });
 
   afterEach(() => {
@@ -67,7 +66,7 @@ describe('BillStack webhook', () => {
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
     const afterBalance = parseFloat(walletAfter.balance);
-    expect(afterBalance).toBe(beforeBalance + 1450);
+    expect(afterBalance).toBe(beforeBalance + 1500);
 
     const txn = await Transaction.findOne({ where: { reference: payload.data.wiaxy_ref } });
     expect(txn).toBeTruthy();
@@ -116,7 +115,7 @@ describe('BillStack webhook', () => {
     expect(res.statusCode).toBe(200);
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 150);
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 200);
   });
 
   it('credits wallet correctly under concurrent funding webhooks', async () => {
@@ -199,7 +198,7 @@ describe('BillStack webhook', () => {
     expect(res1.statusCode).toBe(200);
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 450);
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 500);
 
     const txn1 = await Transaction.findOne({ where: { reference: payload1.data.wiaxy_ref } });
     expect(txn1).toBeTruthy();
@@ -216,7 +215,7 @@ describe('BillStack webhook', () => {
     expect(res2.statusCode).toBe(200);
 
     const walletAfter2 = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(walletAfter2.balance)).toBe(beforeBalance + 450);
+    expect(parseFloat(walletAfter2.balance)).toBe(beforeBalance + 500);
   });
 
   it('accepts signature via x-wiaxy-signature header', async () => {
@@ -254,7 +253,7 @@ describe('BillStack webhook', () => {
     expect(res.statusCode).toBe(200);
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 450);
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 500);
   });
 
   it('accepts webhook without signature header and still credits wallet', async () => {
@@ -291,7 +290,7 @@ describe('BillStack webhook', () => {
     expect(res.statusCode).toBe(200);
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 150);
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 200);
   });
 
   it('credits wallet when account number exists in dual virtual account metadata', async () => {
@@ -330,7 +329,7 @@ describe('BillStack webhook', () => {
     expect(res.statusCode).toBe(200);
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 450);
+    expect(parseFloat(walletAfter.balance)).toBe(beforeBalance + 500);
   });
 
   it('rejects invalid signature when secret is set', async () => {

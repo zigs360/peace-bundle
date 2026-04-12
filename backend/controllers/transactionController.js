@@ -114,10 +114,6 @@ const fundWallet = async (req, res) => {
             { reference, gateway: 'manual' },
             t
         );
-        if (creditResult.status === 'failed_fee') {
-            await t.commit();
-            return res.status(400).json({ success: false, message: 'Amount too low to cover processing fee' });
-        }
         const newTransaction = creditResult.transaction;
 
         // Process Affiliate Commission
