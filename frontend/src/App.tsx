@@ -29,12 +29,14 @@ import FundingReviews from './pages/admin/FundingReviews';
 import Treasury from './pages/admin/Treasury';
 import OgdamsDataPurchase from './pages/admin/OgdamsDataPurchase';
 import WalletDeductions from './pages/admin/WalletDeductions';
+import AirtelTalkMoreAnalytics from './pages/admin/AirtelTalkMoreAnalytics';
 import UserLayout from './components/UserLayout';
 import CookieConsent from './components/common/CookieConsent';
 import UserDashboard from './pages/dashboard/UserDashboard';
 import FundWallet from './pages/dashboard/FundWallet';
 import BuyData from './pages/dashboard/BuyData';
 import BuyAirtime from './pages/dashboard/BuyAirtime';
+import AirtelTalkMore from './pages/dashboard/AirtelTalkMore';
 import Transfer from './pages/dashboard/Transfer';
 import PayBills from './pages/dashboard/PayBills';
 import EducationPins from './pages/dashboard/EducationPins';
@@ -72,6 +74,7 @@ function App() {
             <Route path="fund" element={<FundWallet />} />
             <Route path="data" element={<BuyData />} />
             <Route path="airtime" element={<BuyAirtime />} />
+            <Route path="airtel-talk-more" element={<AirtelTalkMore />} />
             <Route path="transfer" element={<Transfer />} />
             <Route path="bills" element={<PayBills />} />
             <Route path="education" element={<EducationPins />} />
@@ -91,6 +94,7 @@ function App() {
             <Route path="treasury" element={<Treasury />} />
             <Route path="ogdams-data" element={<OgdamsDataPurchase />} />
             <Route path="wallet-deductions" element={<WalletDeductions />} />
+            <Route path="airtel-talk-more" element={<AirtelTalkMoreAnalytics />} />
             <Route path="users" element={<AdminUsersPage />} />
             <Route path="transactions" element={<Transactions />} />
             <Route path="funding-review" element={<FundingReviews />} />

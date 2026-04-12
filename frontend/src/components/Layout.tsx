@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
-  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle
+  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle, PhoneCall
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
@@ -229,6 +229,11 @@ export default function Layout() {
           <Link to="/admin/wallet-deductions" className={getLinkClasses('/admin/wallet-deductions')} title={isCollapsed ? "Wallet Deduct" : ""}>
             <MinusCircle className={getIconClasses('/admin/wallet-deductions')} />
             {!isCollapsed && <span>Wallet Deduct</span>}
+          </Link>
+
+          <Link to="/admin/airtel-talk-more" className={getLinkClasses('/admin/airtel-talk-more')} title={isCollapsed ? "TalkMore" : ""}>
+            <PhoneCall className={getIconClasses('/admin/airtel-talk-more')} />
+            {!isCollapsed && <span>Talk More</span>}
           </Link>
 
           <Link to="/admin/bulk-sms" className={getLinkClasses('/admin/bulk-sms')} title={isCollapsed ? "Bulk SMS" : ""}>

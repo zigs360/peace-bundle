@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Wallet, Wifi, Phone, Receipt, Settings, LogOut, Tv, 
-  GraduationCap, Users, MessageSquare, Key, Share2, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Banknote 
+  GraduationCap, Users, MessageSquare, Key, Share2, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Banknote, PhoneCall 
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -158,6 +158,11 @@ export default function UserLayout() {
           <Link to="/dashboard/airtime" className={getLinkClasses('/dashboard/airtime')} title={isCollapsed ? "Airtime" : ""}>
             <Phone className={getIconClasses('/dashboard/airtime')} />
             {!isCollapsed && <span>Airtime</span>}
+          </Link>
+
+          <Link to="/dashboard/airtel-talk-more" className={getLinkClasses('/dashboard/airtel-talk-more')} title={isCollapsed ? "Talk More" : ""}>
+            <PhoneCall className={getIconClasses('/dashboard/airtel-talk-more')} />
+            {!isCollapsed && <span>Airtel Talk More</span>}
           </Link>
 
           <Link to="/dashboard/transfer" className={getLinkClasses('/dashboard/transfer')} title={isCollapsed ? "Transfer" : ""}>

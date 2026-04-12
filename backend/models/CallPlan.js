@@ -36,6 +36,10 @@ const CallPlan = sequelize.define('CallPlan', {
     type: DataTypes.ENUM('voice', 'sms'), // For call subscriptions, it's primarily voice
     defaultValue: 'voice',
   },
+  api_plan_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   // Optional: If plans can be created by specific users (e.g., admins)
   // userId: {
   //   type: DataTypes.UUID,
@@ -52,6 +56,9 @@ const CallPlan = sequelize.define('CallPlan', {
     },
     {
       fields: ['type'],
+    },
+    {
+      fields: ['api_plan_id'],
     },
   ],
 });

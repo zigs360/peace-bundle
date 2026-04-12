@@ -1,10 +1,17 @@
 const CallPlan = require('../models/CallPlan');
 const VoiceBundle = require('../models/VoiceBundle');
 const User = require('../models/User');
+const Transaction = require('../models/Transaction');
+const VoiceBundlePurchase = require('../models/VoiceBundlePurchase');
+const VoiceBundlePurchaseAudit = require('../models/VoiceBundlePurchaseAudit');
 const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 const walletService = require('../services/walletService');
 const pricingService = require('../services/pricingService');
+const ussdParserService = require('../services/ussdParserService');
+const airtelTalkMoreTelecomService = require('../services/airtelTalkMoreTelecomService');
+const notificationRealtimeService = require('../services/notificationRealtimeService');
+const { sendEmail, sendSMS } = require('../services/notificationService');
 const sequelize = require('../config/database');
 const jwt = require('jsonwebtoken');
 
@@ -130,6 +137,278 @@ const getCallPlans = async (req, res) => {
       success: false, 
       message: 'Failed to retrieve call plans' 
     });
+  }
+};
+
+const getAirtelTalkMoreBundles = async (req, res) => {
+  try {
+    const where = { provider: 'airtel', status: 'active', type: 'voice', api_plan_id: { [Op.like]: 'ATM-%' } };
+    const plans = await CallPlan.findAll({ where, order: [['price', 'ASC']] });
+
+    let user = null;
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded?.id) user = await User.findByPk(decoded.id);
+      } catch (e) {
+        void e;
+      }
+    }
+
+    const payload = await Promise.all(
+      plans.map(async (p) => {
+        const json = p.toJSON();
+        try {
+          const quote = await pricingService.quoteSubscriptionPlan({ user, plan: p });
+          json.effective_price = parseFloat(String(quote.charged_amount));
+        } catch (e) {
+          void e;
+          json.effective_price = parseFloat(String(p.price));
+        }
+        return json;
+      }),
+    );
+
+    res.json({ success: true, data: payload });
+  } catch (error) {
+    logger.error(`[CallPlan] TalkMore bundles fetch error: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to retrieve Airtel Talk More bundles' });
+  }
+};
+
+const purchaseAirtelTalkMoreBundle = async (req, res) => {
+  const userId = req.user.id;
+  const callPlanId = req.params.id;
+  const { recipientPhoneNumber } = req.body || {};
+
+  try {
+    if (!recipientPhoneNumber || !ussdParserService.validatePhoneNumber(recipientPhoneNumber)) {
+      return res.status(400).json({ success: false, message: 'Invalid recipient phone number' });
+    }
+
+    const phone = ussdParserService.formatPhoneNumber(recipientPhoneNumber);
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const callPlan = await CallPlan.findByPk(callPlanId);
+    if (!callPlan || callPlan.provider !== 'airtel') {
+      return res.status(404).json({ success: false, message: 'Selected bundle no longer exists' });
+    }
+    if (!callPlan.api_plan_id || !String(callPlan.api_plan_id).startsWith('ATM-')) {
+      return res.status(400).json({ success: false, message: 'This bundle is not available for activation' });
+    }
+
+    const quote = await pricingService.quoteSubscriptionPlan({ user, plan: callPlan });
+    const chargedAmount = parseFloat(String(quote.charged_amount));
+    if (!Number.isFinite(chargedAmount) || chargedAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid bundle price' });
+    }
+
+    const reference = `ATM-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    const { txn, purchase } = await sequelize.transaction(async (t) => {
+      const txnRow = await walletService.debit(
+        user,
+        chargedAmount,
+        'airtime_purchase',
+        `Airtel Talk More purchase: ${callPlan.name} for ${phone}`,
+        {
+          reference,
+          kind: 'airtel_talk_more',
+          callPlanId: callPlan.id,
+          callPlanName: callPlan.name,
+          api_plan_id: callPlan.api_plan_id,
+          recipient_phone: phone,
+          provider: 'airtel',
+          minutes: callPlan.minutes,
+          validityDays: callPlan.validityDays,
+          pricing: quote,
+        },
+        t,
+      );
+
+      await Transaction.update(
+        { provider: 'airtel', recipient_phone: phone, metadata: { ...(txnRow.metadata || {}), provider: 'airtel', recipient_phone: phone } },
+        { where: { id: txnRow.id }, transaction: t },
+      );
+
+      const purchaseRow = await VoiceBundlePurchase.create(
+        {
+          reference,
+          userId: user.id,
+          callPlanId: callPlan.id,
+          transactionId: txnRow.id,
+          provider: 'airtel',
+          recipientPhoneNumber: phone,
+          amountCharged: chargedAmount,
+          minutes: callPlan.minutes,
+          validityDays: callPlan.validityDays,
+          apiPlanId: callPlan.api_plan_id,
+          status: 'processing',
+          metadata: { pricing: quote },
+        },
+        { transaction: t },
+      );
+
+      await VoiceBundlePurchaseAudit.create(
+        { purchaseId: purchaseRow.id, userId: user.id, eventType: 'created', metadata: { transactionId: txnRow.id } },
+        { transaction: t },
+      );
+
+      return { txn: txnRow, purchase: purchaseRow };
+    });
+
+    const activation = await airtelTalkMoreTelecomService.activate({
+      apiPlanId: String(callPlan.api_plan_id),
+      phoneNumber: phone,
+      reference,
+    });
+
+    if (!activation.success) {
+      const errorMsg = activation.error || 'Activation failed';
+      await sequelize.transaction(async (t) => {
+        await VoiceBundlePurchase.update(
+          { status: 'failed', failureReason: errorMsg, metadata: { ...(purchase.metadata || {}), activation: activation || null } },
+          { where: { id: purchase.id }, transaction: t },
+        );
+        await VoiceBundlePurchaseAudit.create(
+          { purchaseId: purchase.id, userId: user.id, eventType: 'failed', metadata: { error: errorMsg } },
+          { transaction: t },
+        );
+        await walletService.adminAdjust(
+          user,
+          chargedAmount,
+          'refund',
+          `Refund for failed Airtel Talk More activation (${reference})`,
+          { reference: `RF-${reference}`, original_reference: reference, kind: 'airtel_talk_more_refund' },
+          t,
+        );
+        await VoiceBundlePurchase.update({ status: 'refunded' }, { where: { id: purchase.id }, transaction: t });
+        await VoiceBundlePurchaseAudit.create(
+          { purchaseId: purchase.id, userId: user.id, eventType: 'refunded', metadata: { refund_reference: `RF-${reference}` } },
+          { transaction: t },
+        );
+      });
+
+      return res.status(502).json({ success: false, message: errorMsg });
+    }
+
+    await sequelize.transaction(async (t) => {
+      await VoiceBundlePurchase.update(
+        {
+          status: 'completed',
+          providerReference: activation.providerReference || null,
+          metadata: { ...(purchase.metadata || {}), activation: activation || null },
+        },
+        { where: { id: purchase.id }, transaction: t },
+      );
+      await VoiceBundlePurchaseAudit.create(
+        { purchaseId: purchase.id, userId: user.id, eventType: 'completed', metadata: { providerReference: activation.providerReference || null } },
+        { transaction: t },
+      );
+      await Transaction.update(
+        { smeplug_reference: activation.providerReference || null, status: 'completed', smeplug_response: activation || null },
+        { where: { id: txn.id }, transaction: t },
+      );
+    });
+
+    try {
+      notificationRealtimeService.emitToUser(user.id, 'voice_bundle_activated', {
+        reference,
+        phone,
+        plan: callPlan.name,
+        amount: chargedAmount,
+        providerReference: activation.providerReference || null,
+      });
+    } catch (e) {
+      void e;
+    }
+
+    try {
+      await sendEmail(
+        user.email,
+        'Airtel Talk More activated',
+        `Hello ${user.name || 'User'}, your Airtel Talk More bundle (${callPlan.name}) has been activated for ${phone}. Ref: ${reference}.`,
+      );
+      await sendSMS(user.phone, `PeaceBundlle: Airtel Talk More activated for ${phone}. Ref: ${reference}.`);
+    } catch (e) {
+      void e;
+    }
+
+    res.json({
+      success: true,
+      message: 'Bundle purchase successful',
+      data: {
+        reference,
+        transactionId: txn.id,
+        providerReference: activation.providerReference || null,
+      },
+    });
+  } catch (error) {
+    const msg = error.message || 'Purchase failed';
+    if (msg.toLowerCase().includes('insufficient wallet balance')) {
+      return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
+    }
+    logger.error(`[CallPlan] TalkMore purchase error for user ${userId}: ${msg}`);
+    res.status(500).json({ success: false, message: 'An error occurred while processing your purchase' });
+  }
+};
+
+const getMyAirtelTalkMoreHistory = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+    const offset = (Math.max(1, Number(req.query.page) || 1) - 1) * limit;
+    const { count, rows } = await VoiceBundlePurchase.findAndCountAll({
+      where: { userId, provider: 'airtel' },
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+    });
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, count, rows });
+  } catch (error) {
+    logger.error(`[CallPlan] TalkMore history error: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to retrieve purchase history' });
+  }
+};
+
+const adminAirtelTalkMoreAnalytics = async (req, res) => {
+  try {
+    const since = req.query.since ? new Date(String(req.query.since)) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const where = { provider: 'airtel', createdAt: { [Op.gte]: since } };
+    const rows = await VoiceBundlePurchase.findAll({ where });
+
+    const totals = rows.reduce(
+      (acc, r) => {
+        const amt = parseFloat(String(r.amountCharged || 0));
+        acc.count += 1;
+        if (r.status === 'completed') acc.completed += 1;
+        if (r.status === 'failed') acc.failed += 1;
+        if (r.status === 'refunded') acc.refunded += 1;
+        acc.amount += Number.isFinite(amt) ? amt : 0;
+        const key = String(r.apiPlanId || r.callPlanId);
+        const item = acc.byBundle.get(key) || { key, name: r.apiPlanId || '', count: 0, amount: 0, completed: 0 };
+        item.count += 1;
+        item.amount += Number.isFinite(amt) ? amt : 0;
+        if (r.status === 'completed') item.completed += 1;
+        acc.byBundle.set(key, item);
+        return acc;
+      },
+      { count: 0, completed: 0, failed: 0, refunded: 0, amount: 0, byBundle: new Map() },
+    );
+
+    res.json({
+      success: true,
+      since: since.toISOString(),
+      totals: { count: totals.count, completed: totals.completed, failed: totals.failed, refunded: totals.refunded, amount: totals.amount },
+      bundles: Array.from(totals.byBundle.values()).sort((a, b) => b.count - a.count),
+    });
+  } catch (error) {
+    logger.error(`[CallPlan] TalkMore analytics error: ${error.message}`);
+    res.status(500).json({ success: false, message: 'Failed to retrieve analytics' });
   }
 };
 
@@ -317,8 +596,12 @@ module.exports = {
   getVoiceBundles,
   createCallPlan,
   getCallPlans,
+  getAirtelTalkMoreBundles,
   getCallPlanById,
   updateCallPlan,
   deleteCallPlan,
   purchaseCallPlan,
+  purchaseAirtelTalkMoreBundle,
+  getMyAirtelTalkMoreHistory,
+  adminAirtelTalkMoreAnalytics,
 };

@@ -40,6 +40,8 @@ const AdminOgdamsDataPurchase = require('../models/AdminOgdamsDataPurchase');
 const AdminOgdamsDataPurchaseAudit = require('../models/AdminOgdamsDataPurchaseAudit');
 const AdminWalletDeduction = require('../models/AdminWalletDeduction');
 const AdminWalletDeductionAudit = require('../models/AdminWalletDeductionAudit');
+const VoiceBundlePurchase = require('../models/VoiceBundlePurchase');
+const VoiceBundlePurchaseAudit = require('../models/VoiceBundlePurchaseAudit');
 
 // Define Associations (Top Level)
 
@@ -162,6 +164,18 @@ try {
 
   AdminWalletDeduction.hasMany(AdminWalletDeductionAudit, { foreignKey: 'deductionId', as: 'audits', onDelete: 'CASCADE' });
   AdminWalletDeductionAudit.belongsTo(AdminWalletDeduction, { foreignKey: 'deductionId', as: 'deduction' });
+
+  User.hasMany(VoiceBundlePurchase, { foreignKey: 'userId', as: 'voiceBundlePurchases', onDelete: 'CASCADE' });
+  VoiceBundlePurchase.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  CallPlan.hasMany(VoiceBundlePurchase, { foreignKey: 'callPlanId', as: 'voiceBundlePurchases', onDelete: 'CASCADE' });
+  VoiceBundlePurchase.belongsTo(CallPlan, { foreignKey: 'callPlanId', as: 'callPlan' });
+
+  Transaction.hasMany(VoiceBundlePurchase, { foreignKey: 'transactionId', as: 'voiceBundlePurchases' });
+  VoiceBundlePurchase.belongsTo(Transaction, { foreignKey: 'transactionId', as: 'transaction' });
+
+  VoiceBundlePurchase.hasMany(VoiceBundlePurchaseAudit, { foreignKey: 'purchaseId', as: 'audits', onDelete: 'CASCADE' });
+  VoiceBundlePurchaseAudit.belongsTo(VoiceBundlePurchase, { foreignKey: 'purchaseId', as: 'purchase' });
 } catch (error) {
   console.error('Error defining associations:', error);
 }
@@ -241,12 +255,14 @@ const connectDB = async () => {
 
       const dataPlansTable = typeof DataPlan.getTableName === 'function' ? DataPlan.getTableName() : 'data_plans';
       const simsTable = typeof Sim.getTableName === 'function' ? Sim.getTableName() : 'Sims';
+      const callPlansTable = typeof CallPlan.getTableName === 'function' ? CallPlan.getTableName() : 'CallPlans';
 
       await Promise.all([
         ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
         ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
         ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
         ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
+        ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
       ]);
 
       try {
@@ -256,7 +272,45 @@ const connectDB = async () => {
         console.error('Admin wallet deduction tables sync failed:', e.message);
       }
 
+      try {
+        await VoiceBundlePurchase.sync();
+        await VoiceBundlePurchaseAudit.sync();
+      } catch (e) {
+        console.error('Voice bundle purchase tables sync failed:', e.message);
+      }
+
       console.log('Database Synced');
+
+      try {
+        const { bundles } = require('../services/airtelTalkMoreCatalog');
+        await Promise.all(
+          (bundles || []).map(async (b) => {
+            const existing = await CallPlan.findOne({ where: { provider: 'airtel', api_plan_id: b.code } });
+            if (existing) {
+              existing.name = b.name;
+              existing.price = b.price;
+              existing.minutes = b.minutes;
+              existing.validityDays = b.validityDays;
+              existing.status = 'active';
+              existing.type = 'voice';
+              await existing.save();
+              return;
+            }
+            await CallPlan.create({
+              name: b.name,
+              provider: 'airtel',
+              price: b.price,
+              minutes: b.minutes,
+              validityDays: b.validityDays,
+              status: 'active',
+              type: 'voice',
+              api_plan_id: b.code,
+            });
+          }),
+        );
+      } catch (e) {
+        console.error('Airtel Talk More seed failed:', e.message);
+      }
 
       if (process.env.NODE_ENV !== 'test') {
         const settingsCount = await SystemSetting.count();
@@ -403,5 +457,7 @@ module.exports = {
   AdminOgdamsDataPurchase,
   AdminOgdamsDataPurchaseAudit,
   AdminWalletDeduction,
-  AdminWalletDeductionAudit
+  AdminWalletDeductionAudit,
+  VoiceBundlePurchase,
+  VoiceBundlePurchaseAudit
 };
