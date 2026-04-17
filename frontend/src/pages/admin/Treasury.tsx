@@ -8,14 +8,22 @@ export default function Treasury() {
   const [withdrawing, setWithdrawing] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<any | null>(null);
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('Settlement payout');
-  const { treasuryBalance, treasuryBalanceUpdatedAt } = useNotifications();
+  const { treasuryBalance, treasuryBalanceUpdatedAt, treasurySnapshot } = useNotifications();
+
+  const applySnapshot = (data: any) => {
+    if (!data || typeof data !== 'object') return;
+    setSnapshot(data.snapshot && typeof data.snapshot === 'object' ? data.snapshot : data);
+    const nextBalance = typeof data?.balance === 'number' ? data.balance : Number(data?.balance);
+    setBalance(Number.isFinite(nextBalance) ? nextBalance : null);
+    setLastSyncAt(data?.lastSyncAt || data?.snapshot?.lastSyncAt || null);
+  };
 
   const refresh = async () => {
     const res = await api.get('/admin/treasury/balance');
-    setBalance(typeof res.data?.balance === 'number' ? res.data.balance : Number(res.data?.balance));
-    setLastSyncAt(res.data?.lastSyncAt || null);
+    applySnapshot(res.data);
   };
 
   useEffect(() => {
@@ -30,10 +38,14 @@ export default function Treasury() {
   }, []);
 
   useEffect(() => {
+    if (treasurySnapshot) {
+      applySnapshot(treasurySnapshot);
+      return;
+    }
     if (treasuryBalance === null) return;
     if (!Number.isFinite(treasuryBalance)) return;
     setBalance(treasuryBalance);
-  }, [treasuryBalance, treasuryBalanceUpdatedAt]);
+  }, [treasuryBalance, treasuryBalanceUpdatedAt, treasurySnapshot]);
 
   useEffect(() => {
     let timer: any = null;
@@ -97,6 +109,10 @@ export default function Treasury() {
   };
 
   const balanceDisplay = balance !== null && Number.isFinite(balance) ? `₦${Number(balance).toLocaleString()}` : '—';
+  const recognizedRevenueDisplay = `₦${Number(snapshot?.revenue?.totalRecognizedRevenue || 0).toLocaleString()}`;
+  const completedWithdrawalsDisplay = `₦${Number(snapshot?.withdrawals?.totalCompletedWithdrawals || 0).toLocaleString()}`;
+  const pendingWithdrawalsDisplay = `₦${Number(snapshot?.withdrawals?.totalPendingWithdrawals || 0).toLocaleString()}`;
+  const reconciliationDifference = Number(snapshot?.reconciliation?.difference || 0);
 
   if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
 
@@ -123,6 +139,31 @@ export default function Treasury() {
         <div className="text-xs text-gray-500">
           Last sync: {lastSyncAt ? new Date(lastSyncAt).toLocaleString() : '—'}
         </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+          <div className="rounded-md bg-gray-50 p-3">
+            <div className="text-gray-500">Recognized Revenue</div>
+            <div className="font-bold text-gray-900">{recognizedRevenueDisplay}</div>
+          </div>
+          <div className="rounded-md bg-gray-50 p-3">
+            <div className="text-gray-500">Withdrawn / Settled</div>
+            <div className="font-bold text-gray-900">{completedWithdrawalsDisplay}</div>
+          </div>
+          <div className="rounded-md bg-gray-50 p-3">
+            <div className="text-gray-500">Pending Withdrawals</div>
+            <div className="font-bold text-gray-900">{pendingWithdrawalsDisplay}</div>
+          </div>
+        </div>
+
+        {Math.abs(reconciliationDifference) > 0.009 ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            Treasury reconciliation difference detected: ₦{reconciliationDifference.toLocaleString()}
+          </div>
+        ) : (
+          <div className="text-xs text-gray-500">
+            Available balance is reconciled against recognized revenue and withdrawal ledger entries.
+          </div>
+        )}
 
         <div className="pt-4 border-t border-gray-100 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

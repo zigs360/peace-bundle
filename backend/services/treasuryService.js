@@ -80,14 +80,15 @@ class TreasuryService {
       });
       if (!admins.length) return;
 
-      const balance = await this.getBalance();
+      const snapshot = await this.getTreasurySnapshot();
       const lastSyncAt = await SystemSetting.get('treasury_last_sync_at', null);
       const payload = {
-        balance,
+        balance: snapshot.balance,
         currency: 'NGN',
         lastSyncAt: lastSyncAt || null,
         updatedAt: new Date().toISOString(),
         reason: reason || null,
+        snapshot,
       };
 
       for (const a of admins) {
@@ -361,6 +362,111 @@ class TreasuryService {
   async getBalance() {
     const row = await TreasuryBalance.findOne();
     return row ? toNumber(row.balance) : 0;
+  }
+
+  async getRevenueSummary({ transaction = null } = {}) {
+    const entries = await TreasuryLedgerEntry.findAll({
+      where: {
+        source: 'revenue_sync',
+        type: 'credit',
+        status: 'completed',
+      },
+      attributes: ['amount', 'metadata'],
+      transaction,
+      order: [['createdAt', 'ASC'], ['id', 'ASC']],
+    });
+
+    const summary = entries.reduce(
+      (acc, entry) => {
+        const metadata = entry?.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
+        acc.totalRecognizedRevenue += toNumber(entry.amount);
+        acc.feeRevenue += toNumber(metadata.feeRevenue);
+        acc.dataProfit += toNumber(metadata.dataProfit);
+        acc.syncEntries += 1;
+        return acc;
+      },
+      { totalRecognizedRevenue: 0, feeRevenue: 0, dataProfit: 0, syncEntries: 0 }
+    );
+
+    return summary;
+  }
+
+  async getWithdrawalSummary({ transaction = null } = {}) {
+    const entries = await TreasuryLedgerEntry.findAll({
+      where: {
+        source: {
+          [Op.in]: ['settlement_withdrawal', 'settlement_withdrawal_reversal'],
+        },
+      },
+      attributes: ['source', 'status', 'amount', 'metadata'],
+      transaction,
+      order: [['createdAt', 'ASC'], ['id', 'ASC']],
+    });
+
+    return entries.reduce(
+      (acc, entry) => {
+        const amount = toNumber(entry.amount);
+        if (entry.source === 'settlement_withdrawal') {
+          if (entry.status === 'completed') {
+            acc.totalCompletedWithdrawals += amount;
+            acc.completedCount += 1;
+          } else if (entry.status === 'pending') {
+            acc.totalPendingWithdrawals += amount;
+            acc.pendingCount += 1;
+          } else if (entry.status === 'failed') {
+            acc.totalFailedWithdrawals += amount;
+            acc.failedCount += 1;
+          }
+        } else if (entry.source === 'settlement_withdrawal_reversal' && entry.status === 'completed') {
+          acc.totalReversals += amount;
+          acc.reversalCount += 1;
+        }
+        return acc;
+      },
+      {
+        totalCompletedWithdrawals: 0,
+        totalPendingWithdrawals: 0,
+        totalFailedWithdrawals: 0,
+        totalReversals: 0,
+        completedCount: 0,
+        pendingCount: 0,
+        failedCount: 0,
+        reversalCount: 0,
+      }
+    );
+  }
+
+  async getTreasurySnapshot({ transaction = null } = {}) {
+    const [balance, revenue, withdrawals, lastSyncAt] = await Promise.all([
+      this.getBalance(),
+      this.getRevenueSummary({ transaction }),
+      this.getWithdrawalSummary({ transaction }),
+      SystemSetting.get('treasury_last_sync_at', null),
+    ]);
+
+    const expectedAvailableBalance =
+      toNumber(revenue.totalRecognizedRevenue) -
+      toNumber(withdrawals.totalCompletedWithdrawals) -
+      toNumber(withdrawals.totalPendingWithdrawals) +
+      toNumber(withdrawals.totalReversals);
+
+    const actualAvailableBalance = toNumber(balance);
+    const difference = Number((actualAvailableBalance - expectedAvailableBalance).toFixed(2));
+    const isConsistent = Math.abs(difference) <= 0.009;
+
+    return {
+      balance: actualAvailableBalance,
+      currency: 'NGN',
+      lastSyncAt: lastSyncAt || null,
+      revenue,
+      withdrawals,
+      reconciliation: {
+        expectedAvailableBalance,
+        actualAvailableBalance,
+        difference,
+        isConsistent,
+      },
+    };
   }
 
   async syncRevenue({ adminUserId = null } = {}) {

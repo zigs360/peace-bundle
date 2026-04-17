@@ -15,6 +15,40 @@ interface Notification {
   createdAt: string;
 }
 
+interface TreasuryRevenueSummary {
+  totalRecognizedRevenue: number;
+  feeRevenue: number;
+  dataProfit: number;
+  syncEntries: number;
+}
+
+interface TreasuryWithdrawalSummary {
+  totalCompletedWithdrawals: number;
+  totalPendingWithdrawals: number;
+  totalFailedWithdrawals: number;
+  totalReversals: number;
+  completedCount: number;
+  pendingCount: number;
+  failedCount: number;
+  reversalCount: number;
+}
+
+interface TreasuryReconciliation {
+  expectedAvailableBalance: number;
+  actualAvailableBalance: number;
+  difference: number;
+  isConsistent: boolean;
+}
+
+export interface TreasurySnapshot {
+  balance: number;
+  currency: string;
+  lastSyncAt: string | null;
+  revenue: TreasuryRevenueSummary;
+  withdrawals: TreasuryWithdrawalSummary;
+  reconciliation: TreasuryReconciliation;
+}
+
 interface NotificationContextType {
   notifications: Notification[];
   unreadCount: number;
@@ -29,9 +63,50 @@ interface NotificationContextType {
   treasuryVersion: number;
   treasuryBalance: number | null;
   treasuryBalanceUpdatedAt: number;
+  treasurySnapshot: TreasurySnapshot | null;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+const toFiniteNumber = (value: unknown, fallback = 0) => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeTreasurySnapshot = (payload: any): TreasurySnapshot | null => {
+  if (!payload || typeof payload !== 'object') return null;
+  const raw = payload.snapshot && typeof payload.snapshot === 'object' ? payload.snapshot : payload;
+  const balance = toFiniteNumber(raw.balance, NaN);
+  if (!Number.isFinite(balance)) return null;
+
+  return {
+    balance,
+    currency: String(raw.currency || 'NGN'),
+    lastSyncAt: raw.lastSyncAt ? String(raw.lastSyncAt) : null,
+    revenue: {
+      totalRecognizedRevenue: toFiniteNumber(raw.revenue?.totalRecognizedRevenue),
+      feeRevenue: toFiniteNumber(raw.revenue?.feeRevenue),
+      dataProfit: toFiniteNumber(raw.revenue?.dataProfit),
+      syncEntries: toFiniteNumber(raw.revenue?.syncEntries),
+    },
+    withdrawals: {
+      totalCompletedWithdrawals: toFiniteNumber(raw.withdrawals?.totalCompletedWithdrawals),
+      totalPendingWithdrawals: toFiniteNumber(raw.withdrawals?.totalPendingWithdrawals),
+      totalFailedWithdrawals: toFiniteNumber(raw.withdrawals?.totalFailedWithdrawals),
+      totalReversals: toFiniteNumber(raw.withdrawals?.totalReversals),
+      completedCount: toFiniteNumber(raw.withdrawals?.completedCount),
+      pendingCount: toFiniteNumber(raw.withdrawals?.pendingCount),
+      failedCount: toFiniteNumber(raw.withdrawals?.failedCount),
+      reversalCount: toFiniteNumber(raw.withdrawals?.reversalCount),
+    },
+    reconciliation: {
+      expectedAvailableBalance: toFiniteNumber(raw.reconciliation?.expectedAvailableBalance),
+      actualAvailableBalance: toFiniteNumber(raw.reconciliation?.actualAvailableBalance, balance),
+      difference: toFiniteNumber(raw.reconciliation?.difference),
+      isConsistent: Boolean(raw.reconciliation?.isConsistent),
+    },
+  };
+};
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -44,6 +119,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [treasuryVersion, setTreasuryVersion] = useState(0);
   const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
   const [treasuryBalanceUpdatedAt, setTreasuryBalanceUpdatedAt] = useState(0);
+  const [treasurySnapshot, setTreasurySnapshot] = useState<TreasurySnapshot | null>(null);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -70,6 +146,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const tCachedAt = localStorage.getItem('treasury_balance_updated_at');
     const tat = tCachedAt ? Number(tCachedAt) : NaN;
     if (Number.isFinite(tat)) setTreasuryBalanceUpdatedAt(tat);
+    const snapshotRaw = localStorage.getItem('treasury_snapshot');
+    if (snapshotRaw) {
+      try {
+        const parsed = normalizeTreasurySnapshot(JSON.parse(snapshotRaw));
+        if (parsed) setTreasurySnapshot(parsed);
+      } catch (e) {
+        void e;
+      }
+    }
   }, []);
 
   const markAsRead = async (id: string) => {
@@ -105,9 +190,30 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // which is more reliable in production environments behind proxies.
     });
 
+    const refreshTreasurySnapshot = async () => {
+      try {
+        const user = getStoredUser<any>();
+        if (!user || user.role !== 'admin') return;
+        const res = await api.get('/admin/treasury/balance');
+        const snapshot = normalizeTreasurySnapshot(res.data);
+        if (!snapshot) return;
+        setTreasurySnapshot(snapshot);
+        setTreasuryBalance(snapshot.balance);
+        const now = Date.now();
+        setTreasuryBalanceUpdatedAt(now);
+        localStorage.setItem('treasury_balance', String(snapshot.balance));
+        localStorage.setItem('treasury_balance_updated_at', String(now));
+        localStorage.setItem('treasury_snapshot', JSON.stringify(snapshot));
+        setTreasuryVersion((v) => v + 1);
+      } catch (e) {
+        console.error('Failed to refresh treasury snapshot:', e);
+      }
+    };
+
     newSocket.on('connect', () => {
       setIsConnected(true);
       console.log('Connected to notification socket');
+      void refreshTreasurySnapshot();
     });
 
     newSocket.on('notification', (notification: Notification) => {
@@ -193,13 +299,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     newSocket.on('treasury_balance_updated', (payload: any) => {
       try {
-        const parsedBalance = typeof payload?.balance === 'number' ? payload.balance : Number(payload?.balance);
-        if (Number.isFinite(parsedBalance)) {
-          setTreasuryBalance(parsedBalance);
+        const snapshot = normalizeTreasurySnapshot(payload);
+        if (snapshot) {
+          setTreasurySnapshot(snapshot);
+          setTreasuryBalance(snapshot.balance);
           const now = Date.now();
           setTreasuryBalanceUpdatedAt(now);
-          localStorage.setItem('treasury_balance', String(parsedBalance));
+          localStorage.setItem('treasury_balance', String(snapshot.balance));
           localStorage.setItem('treasury_balance_updated_at', String(now));
+          localStorage.setItem('treasury_snapshot', JSON.stringify(snapshot));
+        } else {
+          const parsedBalance = typeof payload?.balance === 'number' ? payload.balance : Number(payload?.balance);
+          if (Number.isFinite(parsedBalance)) {
+            setTreasuryBalance(parsedBalance);
+            const now = Date.now();
+            setTreasuryBalanceUpdatedAt(now);
+            localStorage.setItem('treasury_balance', String(parsedBalance));
+            localStorage.setItem('treasury_balance_updated_at', String(now));
+          }
         }
         setTreasuryVersion((v) => v + 1);
       } catch (e) {
@@ -233,7 +350,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       walletBalanceUpdatedAt,
       treasuryVersion,
       treasuryBalance,
-      treasuryBalanceUpdatedAt
+      treasuryBalanceUpdatedAt,
+      treasurySnapshot
     }}>
       {children}
     </NotificationContext.Provider>

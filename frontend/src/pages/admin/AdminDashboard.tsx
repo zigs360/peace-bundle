@@ -21,19 +21,57 @@ export default function AdminDashboard() {
   const [treasuryWithdrawing, setTreasuryWithdrawing] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawDescription, setWithdrawDescription] = useState('Settlement payout');
-  const { treasuryBalance: rtTreasuryBalance, treasuryBalanceUpdatedAt } = useNotifications();
+  const [buildInfo, setBuildInfo] = useState<any>({ frontend: null, backend: null, error: null });
+  const { treasuryBalance: rtTreasuryBalance, treasuryBalanceUpdatedAt, treasurySnapshot: rtTreasurySnapshot } = useNotifications();
+
+  const applyTreasurySnapshot = (snapshot: any) => {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    const nextBalance = typeof snapshot.balance === 'number' ? snapshot.balance : Number(snapshot.balance);
+    if (Number.isFinite(nextBalance)) setTreasuryBalance(nextBalance);
+    setTreasuryLastSyncAt(snapshot.lastSyncAt || null);
+    setStats((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        treasury: snapshot,
+        stats: {
+          ...(prev.stats || {}),
+          total_revenue: Number(snapshot?.revenue?.totalRecognizedRevenue ?? prev?.stats?.total_revenue ?? 0),
+          treasury_available_balance: Number.isFinite(nextBalance) ? nextBalance : Number(prev?.stats?.treasury_available_balance ?? 0),
+          treasury_fee_revenue: Number(snapshot?.revenue?.feeRevenue ?? prev?.stats?.treasury_fee_revenue ?? 0),
+          treasury_data_profit: Number(snapshot?.revenue?.dataProfit ?? prev?.stats?.treasury_data_profit ?? 0),
+          treasury_withdrawn_total: Number(snapshot?.withdrawals?.totalCompletedWithdrawals ?? prev?.stats?.treasury_withdrawn_total ?? 0),
+          treasury_pending_withdrawals: Number(snapshot?.withdrawals?.totalPendingWithdrawals ?? prev?.stats?.treasury_pending_withdrawals ?? 0),
+          treasury_reconciliation_difference: Number(snapshot?.reconciliation?.difference ?? prev?.stats?.treasury_reconciliation_difference ?? 0),
+        },
+      };
+    });
+  };
 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const [frontendMeta, backendMeta] = await Promise.allSettled([
+          fetch('/meta.json', { cache: 'no-store' }).then((res) => (res.ok ? res.json() : null)),
+          api.get('/meta').then((res) => res.data),
+        ]);
+        setBuildInfo({
+          frontend: frontendMeta.status === 'fulfilled' ? frontendMeta.value : null,
+          backend: backendMeta.status === 'fulfilled' ? backendMeta.value : null,
+          error:
+            frontendMeta.status === 'rejected' || backendMeta.status === 'rejected'
+              ? 'Unable to load full deployment metadata'
+              : null,
+        });
+
         const statsRes = await api.get('/admin/stats');
         setStats(statsRes.data);
+        applyTreasurySnapshot(statsRes.data?.treasury);
         // Use recent transactions from stats endpoint
         setRecentTransactions(statsRes.data.recentTransactions || []);
         try {
           const treasuryRes = await api.get('/admin/treasury/balance');
-          setTreasuryBalance(typeof treasuryRes.data?.balance === 'number' ? treasuryRes.data.balance : Number(treasuryRes.data?.balance));
-          setTreasuryLastSyncAt(treasuryRes.data?.lastSyncAt || null);
+          applyTreasurySnapshot(treasuryRes.data);
         } catch (e) {
           setTreasuryBalance(null);
           setTreasuryLastSyncAt(null);
@@ -48,10 +86,14 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
+    if (rtTreasurySnapshot) {
+      applyTreasurySnapshot(rtTreasurySnapshot);
+      return;
+    }
     if (rtTreasuryBalance === null) return;
     if (!Number.isFinite(rtTreasuryBalance)) return;
     setTreasuryBalance(rtTreasuryBalance);
-  }, [rtTreasuryBalance, treasuryBalanceUpdatedAt]);
+  }, [rtTreasuryBalance, treasuryBalanceUpdatedAt, rtTreasurySnapshot]);
 
   useEffect(() => {
     let timer: any = null;
@@ -78,8 +120,7 @@ export default function AdminDashboard() {
 
   const refreshTreasury = async () => {
     const treasuryRes = await api.get('/admin/treasury/balance');
-    setTreasuryBalance(typeof treasuryRes.data?.balance === 'number' ? treasuryRes.data.balance : Number(treasuryRes.data?.balance));
-    setTreasuryLastSyncAt(treasuryRes.data?.lastSyncAt || null);
+    applyTreasurySnapshot(treasuryRes.data);
   };
 
   const handleGenerateAccounts = async () => {
@@ -138,6 +179,18 @@ export default function AdminDashboard() {
 
   const treasuryBalanceDisplay =
     treasuryBalance !== null && Number.isFinite(treasuryBalance) ? `₦${Number(treasuryBalance).toLocaleString()}` : '—';
+  const recognizedRevenueDisplay = `₦${Number(stats?.stats?.total_revenue || 0).toLocaleString()}`;
+  const withdrawnRevenueDisplay = `₦${Number(stats?.stats?.treasury_withdrawn_total || 0).toLocaleString()}`;
+  const pendingWithdrawalDisplay = `₦${Number(stats?.stats?.treasury_pending_withdrawals || 0).toLocaleString()}`;
+  const reconciliationDifference = Number(stats?.stats?.treasury_reconciliation_difference || 0);
+  const frontendCommit = String(buildInfo.frontend?.commit || '').trim();
+  const backendCommit = String(buildInfo.backend?.commit || '').trim();
+  const frontendCommitShort = frontendCommit ? frontendCommit.slice(0, 7) : 'unknown';
+  const backendCommitShort = backendCommit ? backendCommit.slice(0, 7) : 'unknown';
+  const deploymentMismatch =
+    frontendCommit &&
+    backendCommit &&
+    frontendCommit !== backendCommit;
 
   return (
     <div className="p-6">
@@ -145,8 +198,8 @@ export default function AdminDashboard() {
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         <StatCard 
-          title="Total Revenue" 
-          value={`₦${parseFloat(stats?.stats?.total_revenue || 0).toLocaleString()}`} 
+          title="Recognized Revenue" 
+          value={recognizedRevenueDisplay} 
           icon={<DollarSign className="w-6 h-6 text-secondary" />} 
           borderClass="border-secondary"
         />
@@ -272,9 +325,30 @@ export default function AdminDashboard() {
                   <span className="text-sm font-bold text-gray-900">{treasuryBalanceDisplay}</span>
                 </div>
                 <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Recognized Revenue</span>
+                  <span className="text-sm font-bold text-gray-900">{recognizedRevenueDisplay}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Withdrawn / Settled</span>
+                  <span className="text-sm font-bold text-gray-900">{withdrawnRevenueDisplay}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Pending Withdrawals</span>
+                  <span className="text-sm font-bold text-gray-900">{pendingWithdrawalDisplay}</span>
+                </div>
+                <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600">Last Sync</span>
                   <span className="text-xs text-gray-500">{treasuryLastSyncAt ? new Date(treasuryLastSyncAt).toLocaleString() : '—'}</span>
                 </div>
+                {Math.abs(reconciliationDifference) > 0.009 ? (
+                  <p className="text-xs text-amber-600">
+                    Treasury reconciliation drift detected: ₦{reconciliationDifference.toLocaleString()}
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    Available balance equals recognized revenue minus settled and pending withdrawals.
+                  </p>
+                )}
                 <div className="pt-3 border-t border-gray-100 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <input
@@ -332,8 +406,30 @@ export default function AdminDashboard() {
                       <span className="text-sm text-gray-600">API Gateway</span>
                       <span className="px-2 py-1 text-xs font-bold text-green-700 bg-green-100 rounded-full">Active</span>
                   </div>
+                  <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Frontend Build</span>
+                      <span className="px-2 py-1 text-xs font-mono text-gray-700 bg-gray-100 rounded-full">{frontendCommitShort}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Backend Build</span>
+                      <span className="px-2 py-1 text-xs font-mono text-gray-700 bg-gray-100 rounded-full">{backendCommitShort}</span>
+                  </div>
+                  {deploymentMismatch ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      Frontend and backend are running different commits. Deploy both layers for changes to appear consistently.
+                    </div>
+                  ) : buildInfo.error ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      {buildInfo.error}
+                    </div>
+                  ) : null}
                   <div className="pt-4 border-t border-gray-100">
-                      <p className="text-xs text-gray-400">Last updated: {new Date().toLocaleTimeString()}</p>
+                      <p className="text-xs text-gray-400">
+                        Frontend built: {buildInfo.frontend?.time ? new Date(buildInfo.frontend.time).toLocaleString() : 'unknown'}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Backend reported: {buildInfo.backend?.time ? new Date(buildInfo.backend.time).toLocaleString() : 'unknown'}
+                      </p>
                   </div>
               </div>
            </div>

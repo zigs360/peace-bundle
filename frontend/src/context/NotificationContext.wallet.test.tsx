@@ -31,11 +31,16 @@ vi.mock('react-hot-toast', () => {
 });
 
 function Probe() {
-  const { walletBalance, walletVersion } = useNotifications();
+  const { walletBalance, walletVersion, treasuryBalance, treasuryVersion, treasurySnapshot } = useNotifications();
   return (
     <div>
       <div data-testid="balance">{walletBalance === null ? 'null' : String(walletBalance)}</div>
       <div data-testid="version">{String(walletVersion)}</div>
+      <div data-testid="treasury-balance">{treasuryBalance === null ? 'null' : String(treasuryBalance)}</div>
+      <div data-testid="treasury-version">{String(treasuryVersion)}</div>
+      <div data-testid="treasury-revenue">
+        {treasurySnapshot ? String(treasurySnapshot.revenue.totalRecognizedRevenue) : 'null'}
+      </div>
     </div>
   );
 }
@@ -83,5 +88,60 @@ describe('NotificationContext wallet_balance_updated', () => {
 
     expect(screen.getByTestId('balance').textContent).toBe('2000');
     vi.useRealTimers();
+  });
+
+  it('updates treasury snapshot and increments treasuryVersion on treasury_balance_updated', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue({ data: { success: true, data: [] } } as any);
+
+    render(
+      <NotificationProvider>
+        <Probe />
+      </NotificationProvider>
+    );
+
+    expect(screen.getByTestId('treasury-balance').textContent).toBe('null');
+    expect(screen.getByTestId('treasury-version').textContent).toBe('0');
+
+    const listeners = handlers['treasury_balance_updated'] || [];
+    expect(listeners.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      await listeners[0]({
+        balance: '650.00',
+        currency: 'NGN',
+        lastSyncAt: '2026-04-17T00:00:00.000Z',
+        snapshot: {
+          balance: 650,
+          currency: 'NGN',
+          lastSyncAt: '2026-04-17T00:00:00.000Z',
+          revenue: {
+            totalRecognizedRevenue: 1720,
+            feeRevenue: 420,
+            dataProfit: 1300,
+            syncEntries: 8,
+          },
+          withdrawals: {
+            totalCompletedWithdrawals: 1070,
+            totalPendingWithdrawals: 0,
+            totalFailedWithdrawals: 0,
+            totalReversals: 0,
+            completedCount: 3,
+            pendingCount: 0,
+            failedCount: 0,
+            reversalCount: 0,
+          },
+          reconciliation: {
+            expectedAvailableBalance: 650,
+            actualAvailableBalance: 650,
+            difference: 0,
+            isConsistent: true,
+          },
+        },
+      });
+    });
+
+    expect(screen.getByTestId('treasury-balance').textContent).toBe('650');
+    expect(screen.getByTestId('treasury-version').textContent).toBe('1');
+    expect(screen.getByTestId('treasury-revenue').textContent).toBe('1720');
   });
 });

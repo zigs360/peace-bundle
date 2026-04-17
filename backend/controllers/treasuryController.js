@@ -1,5 +1,4 @@
 const treasuryService = require('../services/treasuryService');
-const SystemSetting = require('../models/SystemSetting');
 const logger = require('../utils/logger');
 
 const getTreasuryBalance = async (req, res) => {
@@ -8,10 +7,9 @@ const getTreasuryBalance = async (req, res) => {
     if (autoSyncEnabled) {
       await treasuryService.syncRevenue({ adminUserId: req.user?.id || null });
     }
-    const balance = await treasuryService.getBalance();
-    const lastSyncAt = await SystemSetting.get('treasury_last_sync_at', null);
+    const snapshot = await treasuryService.getTreasurySnapshot();
     res.set('Cache-Control', 'no-store');
-    res.json({ success: true, balance, currency: 'NGN', lastSyncAt });
+    res.json({ success: true, ...snapshot });
   } catch (e) {
     logger.error('Admin Get Treasury Balance Error:', { error: e.message, adminId: req.user?.id });
     res.status(500).json({ success: false, message: 'Server error' });
@@ -21,10 +19,9 @@ const getTreasuryBalance = async (req, res) => {
 const syncTreasuryRevenue = async (req, res) => {
   try {
     const result = await treasuryService.syncRevenue({ adminUserId: req.user?.id || null });
-    const balance = await treasuryService.getBalance();
-    const lastSyncAt = await SystemSetting.get('treasury_last_sync_at', null);
+    const snapshot = await treasuryService.getTreasurySnapshot();
     res.set('Cache-Control', 'no-store');
-    res.json({ success: true, ...result, balance, lastSyncAt });
+    res.json({ success: true, ...result, ...snapshot });
   } catch (e) {
     logger.error('Admin Treasury Sync Error:', { error: e.message, adminId: req.user?.id });
     res.status(500).json({ success: false, message: 'Server error' });

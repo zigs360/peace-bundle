@@ -2,6 +2,7 @@ const { User, Transaction, Wallet, Sim, DataPlan, SystemSetting, SupportTicket }
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const walletService = require('../services/walletService');
+const treasuryService = require('../services/treasuryService');
 const WebhookEvent = require('../models/WebhookEvent');
 const fs = require('fs');
 const path = require('path');
@@ -724,30 +725,26 @@ const getAdminStats = async (req, res) => {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
+        await treasuryService.syncRevenue({ adminUserId: req.user?.id || null });
+
         const [
             totalUsers,
             totalResellers,
             totalTransactions,
             successfulTransactions,
-            totalRevenue,
             pendingTransactions,
             totalSims,
             activeSims,
             revenueByProvider,
             recentTransactions,
             trends,
-            systemWalletBalance
+            systemWalletBalance,
+            treasurySnapshot
         ] = await Promise.all([
             User.count(),
             User.count({ where: { role: 'reseller' } }),
             Transaction.count(),
             Transaction.count({ where: { status: 'completed' } }),
-            Transaction.sum('amount', { 
-                where: { 
-                    status: 'completed',
-                    type: 'debit' // Real revenue is from debits (purchases)
-                } 
-            }).then(sum => parseFloat(sum || 0)),
             Transaction.count({ where: { status: 'pending' } }),
             Sim.count(),
             Sim.count({ where: { status: 'active' } }),
@@ -772,8 +769,11 @@ const getAdminStats = async (req, res) => {
                 limit: 10
             }),
             getTransactionTrends(),
-            Wallet.sum('balance').then(sum => parseFloat(sum || 0))
+            Wallet.sum('balance').then(sum => parseFloat(sum || 0)),
+            treasuryService.getTreasurySnapshot()
         ]);
+
+        const totalRevenue = treasurySnapshot.revenue.totalRecognizedRevenue;
 
         res.json({
             stats: {
@@ -785,8 +785,15 @@ const getAdminStats = async (req, res) => {
                 pending_transactions: pendingTransactions,
                 total_sims: totalSims,
                 active_sims: activeSims,
-                system_wallet_balance: systemWalletBalance
+                system_wallet_balance: systemWalletBalance,
+                treasury_available_balance: treasurySnapshot.balance,
+                treasury_fee_revenue: treasurySnapshot.revenue.feeRevenue,
+                treasury_data_profit: treasurySnapshot.revenue.dataProfit,
+                treasury_withdrawn_total: treasurySnapshot.withdrawals.totalCompletedWithdrawals,
+                treasury_pending_withdrawals: treasurySnapshot.withdrawals.totalPendingWithdrawals,
+                treasury_reconciliation_difference: treasurySnapshot.reconciliation.difference
             },
+            treasury: treasurySnapshot,
             revenueByProvider: revenueByProvider.map(r => ({
                 provider: r.provider,
                 total: parseFloat(r.total || 0)

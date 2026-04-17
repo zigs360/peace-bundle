@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/writeBuildMeta.mjs && vite build",
     "lint": "eslint .",
     "test": "vitest",
     "preview": "vite preview"

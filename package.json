@@ -5,7 +5,8 @@
   "scripts": {
     "build": "cd frontend && npm install && npm run build",
     "install": "cd frontend && npm install && cd ../backend && npm install",
-    "start": "cd backend && node server.js"
+    "start": "cd backend && node server.js",
+    "verify:live-deploy": "node scripts/verify-live-deploy.mjs"
   },
   "dependencies": {
   }
