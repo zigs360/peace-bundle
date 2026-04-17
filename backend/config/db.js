@@ -237,6 +237,12 @@ const connectDB = async () => {
       const callPlansTable = typeof CallPlan.getTableName === 'function' ? CallPlan.getTableName() : 'CallPlans';
       const voiceBundlePurchasesTable =
         typeof VoiceBundlePurchase.getTableName === 'function' ? VoiceBundlePurchase.getTableName() : 'voice_bundle_purchases';
+      const ensureVoiceBundlePurchaseColumns = async () =>
+        Promise.all([
+          ensureColumn(voiceBundlePurchasesTable, 'expires_at', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(voiceBundlePurchasesTable, 'bundle_category', { type: DataTypes.STRING, allowNull: false, defaultValue: 'minute' }),
+          ensureColumn(voiceBundlePurchasesTable, 'migrated_from_purchase_id', { type: DataTypes.UUID, allowNull: true }),
+        ]);
 
       if (process.env.NODE_ENV !== 'test') {
         await Promise.all([
@@ -245,6 +251,7 @@ const connectDB = async () => {
           ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
           ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
           ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
+          ensureVoiceBundlePurchaseColumns(),
         ]);
       }
 
@@ -287,11 +294,7 @@ const connectDB = async () => {
       try {
         await VoiceBundlePurchase.sync();
         await VoiceBundlePurchaseAudit.sync();
-        await Promise.all([
-          ensureColumn(voiceBundlePurchasesTable, 'expires_at', { type: DataTypes.DATE, allowNull: true }),
-          ensureColumn(voiceBundlePurchasesTable, 'bundle_category', { type: DataTypes.STRING, allowNull: false, defaultValue: 'minute' }),
-          ensureColumn(voiceBundlePurchasesTable, 'migrated_from_purchase_id', { type: DataTypes.UUID, allowNull: true }),
-        ]);
+        await ensureVoiceBundlePurchaseColumns();
       } catch (e) {
         console.error('Voice bundle purchase tables sync failed:', e.message);
       }

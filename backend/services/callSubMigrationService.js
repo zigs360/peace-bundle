@@ -170,14 +170,14 @@ class CallSubMigrationService {
             {
               purchaseId: purchase.id,
               userId: purchase.userId,
-              eventType: 'migration_source_marked',
-              metadata: { migratedReference, targetCode: credit.publicBundle.code },
+              eventType: 'completed',
+              metadata: { auditKind: 'migration_source_marked', migratedReference, targetCode: credit.publicBundle.code },
             },
             {
               purchaseId: migratedPurchase.id,
               userId: purchase.userId,
-              eventType: 'migrated_credit_created',
-              metadata: { sourcePurchaseId: purchase.id, sourceReference: purchase.reference },
+              eventType: 'created',
+              metadata: { auditKind: 'migrated_credit_created', sourcePurchaseId: purchase.id, sourceReference: purchase.reference },
             },
           ],
           { transaction },
