@@ -6,7 +6,9 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "lint": "eslint .",
-    "test": "cross-env NODE_ENV=test jest --testTimeout=30000 --runInBand --detectOpenHandles"
+    "test": "cross-env NODE_ENV=test jest --testTimeout=30000 --runInBand --detectOpenHandles",
+    "migrate:legacy-validity": "node scripts/migrateLegacyValidityBundles.js airtel",
+    "migrate:legacy-validity:dry-run": "node scripts/migrateLegacyValidityBundles.js airtel --dry-run"
   },
   "keywords": [],
   "author": "",

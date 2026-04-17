@@ -11,7 +11,6 @@ import { useNotifications } from '../../context/NotificationContext';
 const SERVICE_LABELS: Record<string, string> = {
   airtime: 'Airtime',
   data: 'Data Bundle',
-  callsub: 'Call Sub',
 };
 
 export default function BuyAirtime() {
@@ -22,7 +21,6 @@ export default function BuyAirtime() {
   const [planId, setPlanId] = useState('');
   const [loading, setLoading] = useState(false);
   const [dataPlans, setDataPlans] = useState<any[]>([]);
-  const [voiceBundles, setVoiceBundles] = useState<any[]>([]);
   const [activationCode, setActivationCode] = useState<string | null>(null);
   const [isPhoneValid, setIsPhoneValid] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
@@ -46,7 +44,6 @@ export default function BuyAirtime() {
         setServiceType('airtime');
       }
       fetchDataPlans(detected);
-      fetchVoiceBundles(detected);
     } else if (!detected && phone.length < 4) {
       setNetwork(null);
     }
@@ -55,7 +52,6 @@ export default function BuyAirtime() {
   useEffect(() => {
     if (!network) return;
     fetchDataPlans(network);
-    fetchVoiceBundles(network);
   }, [network, pricingVersion]);
 
   const fetchDataPlans = async (provider: string) => {
@@ -69,16 +65,6 @@ export default function BuyAirtime() {
       setDataPlans(mapped);
     } catch (err) {
       console.error('Failed to fetch data plans', err);
-    }
-  };
-
-  const fetchVoiceBundles = async (network: string) => {
-    try {
-      const res = await api.get('/plans/voice-bundles', { params: { network, status: 'active' } });
-      const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-      setVoiceBundles(raw);
-    } catch (err) {
-      console.error('Failed to fetch voice bundles', err);
     }
   };
 
@@ -249,7 +235,6 @@ export default function BuyAirtime() {
                     setNetwork(val);
                     setManualOverride(true);
                     fetchDataPlans(val);
-                    fetchVoiceBundles(val);
                   }} 
                 />
               </motion.div>
@@ -295,9 +280,6 @@ export default function BuyAirtime() {
                           setServiceType(rec.type);
                           if (rec.type === 'data') {
                             setAmount(rec.amount.toString());
-                          } else if (rec.type === 'callsub') {
-                            setAmount(rec.amount.toString());
-                            if (rec.planId) setPlanId(rec.planId);
                           } else {
                             setAmount(rec.amount.toString());
                           }
@@ -324,27 +306,6 @@ export default function BuyAirtime() {
                     {dataPlans.map((plan) => (
                       <option key={plan.id} value={plan.id}>
                         {plan.size} - ₦{plan.admin_price} ({plan.validity})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : serviceType === 'callsub' && voiceBundles.length > 0 ? (
-                <div>
-                  <label className="block text-gray-700 font-bold mb-2">Select Call Sub Plan</label>
-                  <select
-                    value={planId}
-                    onChange={(e) => {
-                      const selected = voiceBundles.find(b => b.api_plan_id === e.target.value);
-                      setPlanId(e.target.value);
-                      if (selected) setAmount(selected.amount.toString());
-                    }}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    required
-                  >
-                    <option value="">Choose call sub plan...</option>
-                    {voiceBundles.map((bundle) => (
-                      <option key={bundle.id} value={bundle.api_plan_id}>
-                        {bundle.plan_name} - ₦{bundle.amount} ({bundle.validity})
                       </option>
                     ))}
                   </select>

@@ -13,6 +13,7 @@ const {
   purchaseCallSubBundle,
   getMyCallSubHistory,
   adminCallSubAnalytics,
+  adminCallSubMonitoring,
 } = require('../controllers/callPlanController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
@@ -33,5 +34,6 @@ router.post('/', protect, admin, createCallPlan);
 router.put('/:id', protect, admin, updateCallPlan);
 router.delete('/:id', protect, admin, deleteCallPlan);
 router.get('/admin/call-sub/:provider/analytics', protect, admin, adminCallSubAnalytics);
+router.get('/admin/call-sub/:provider/monitoring', protect, admin, adminCallSubMonitoring);
 
 module.exports = router;

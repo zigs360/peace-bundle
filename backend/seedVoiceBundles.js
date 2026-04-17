@@ -1,5 +1,6 @@
 const { connectDB } = require('./config/db');
 const VoiceBundle = require('./models/VoiceBundle');
+const { Op } = require('sequelize');
 
 const seedVoiceBundles = async () => {
   try {
@@ -9,15 +10,26 @@ const seedVoiceBundles = async () => {
     await VoiceBundle.sync();
 
     const bundles = [
-      { network: 'airtel', plan_name: 'TalkMore 100', amount: 100, validity: '3 days', api_plan_id: 'TM100' },
-      { network: 'airtel', plan_name: 'TalkMore 200', amount: 200, validity: '7 days', api_plan_id: 'TM200' },
-      { network: 'airtel', plan_name: 'TalkMore 300', amount: 300, validity: '7 days', api_plan_id: 'TM300' },
-      { network: 'airtel', plan_name: 'TalkMore 500', amount: 500, validity: '14 days', api_plan_id: 'TM500' },
-      { network: 'airtel', plan_name: 'TalkMore 1000', amount: 1000, validity: '14 days', api_plan_id: 'TM1000' },
-      { network: 'airtel', plan_name: 'TalkMore 1500', amount: 1500, validity: '30 days', api_plan_id: 'TM1500' },
+      { network: 'airtel', plan_name: 'Call Sub 10 Minutes', amount: 120, validity: '3 days', api_plan_id: 'ATM-120-10M' },
+      { network: 'airtel', plan_name: 'Call Sub 20 Minutes', amount: 230, validity: '7 days', api_plan_id: 'ATM-230-20M' },
+      { network: 'airtel', plan_name: 'Call Sub 30 Minutes', amount: 330, validity: '7 days', api_plan_id: 'ATM-330-30M' },
+      { network: 'airtel', plan_name: 'Call Sub 50 Minutes', amount: 700, validity: '14 days', api_plan_id: 'ATM-700-50M' },
+      { network: 'airtel', plan_name: 'Call Sub 150 Minutes', amount: 2000, validity: '30 days', api_plan_id: 'ATM-2000-150M-30D' },
     ];
 
-    console.log('Seeding Airtel TalkMore bundles...');
+    console.log('Seeding Airtel Call Sub minute bundles...');
+
+    await VoiceBundle.update(
+      { is_active: false },
+      {
+        where: {
+          network: 'airtel',
+          api_plan_id: {
+            [Op.notIn]: bundles.map((bundle) => bundle.api_plan_id),
+          },
+        },
+      }
+    );
     
     for (const bundle of bundles) {
       await VoiceBundle.findOrCreate({

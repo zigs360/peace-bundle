@@ -4,12 +4,17 @@ import api from '../../../services/api';
 export default function Airtel() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
+  const [monitoring, setMonitoring] = useState<any>(null);
 
   useEffect(() => {
     const run = async () => {
       try {
-        const res = await api.get('/callplans/admin/call-sub/airtel/analytics');
-        setData(res.data);
+        const [analyticsRes, monitoringRes] = await Promise.all([
+          api.get('/callplans/admin/call-sub/airtel/analytics'),
+          api.get('/callplans/admin/call-sub/airtel/monitoring'),
+        ]);
+        setData(analyticsRes.data);
+        setMonitoring(monitoringRes.data?.data || null);
       } finally {
         setLoading(false);
       }
@@ -46,6 +51,25 @@ export default function Airtel() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="text-[10px] uppercase tracking-widest text-gray-400 font-black">Legacy Active</div>
+          <div className="text-2xl font-black text-amber-700 mt-2">{monitoring?.activeLegacyPurchaseCount || 0}</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="text-[10px] uppercase tracking-widest text-gray-400 font-black">Unmigrated Active</div>
+          <div className="text-2xl font-black text-red-700 mt-2">{monitoring?.unmigratedActiveLegacyCount || 0}</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="text-[10px] uppercase tracking-widest text-gray-400 font-black">Migrated Credits</div>
+          <div className="text-2xl font-black text-primary-700 mt-2">{monitoring?.migratedCreditCount || 0}</div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="text-[10px] uppercase tracking-widest text-gray-400 font-black">Expiry Mismatches</div>
+          <div className="text-2xl font-black text-gray-900 mt-2">{monitoring?.invalidPublicExpiryCount || 0}</div>
+        </div>
+      </div>
+
       <div className="bg-white border border-gray-200 rounded-xl p-6">
         <div className="text-sm font-black text-gray-800 mb-3">Top Bundles</div>
         <div className="overflow-auto">
@@ -71,6 +95,41 @@ export default function Airtel() {
                 <tr>
                   <td className="py-6 text-gray-400" colSpan={4}>
                     No bundle activity yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-xl p-6">
+        <div className="text-sm font-black text-gray-800 mb-3">Legacy Reference Watchlist</div>
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-500">
+                <th className="py-2 pr-4">Ref</th>
+                <th className="py-2 pr-4">Bundle</th>
+                <th className="py-2 pr-4">Category</th>
+                <th className="py-2 pr-4">Expires</th>
+                <th className="py-2 pr-4">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(monitoring?.legacyReferences || []).map((item: any) => (
+                <tr key={item.reference} className="border-t border-gray-100">
+                  <td className="py-2 pr-4 font-mono text-xs">{item.reference}</td>
+                  <td className="py-2 pr-4 font-mono text-xs">{item.apiPlanId || '-'}</td>
+                  <td className="py-2 pr-4">{item.bundleCategory}</td>
+                  <td className="py-2 pr-4">{item.expiresAt ? new Date(item.expiresAt).toLocaleDateString() : '-'}</td>
+                  <td className="py-2 pr-4">{item.status}</td>
+                </tr>
+              ))}
+              {(!monitoring?.legacyReferences || monitoring.legacyReferences.length === 0) && (
+                <tr>
+                  <td className="py-6 text-gray-400" colSpan={5}>
+                    No residual legacy validity references detected.
                   </td>
                 </tr>
               )}

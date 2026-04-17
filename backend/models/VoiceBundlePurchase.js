@@ -54,6 +54,11 @@ const VoiceBundlePurchase = sequelize.define(
       defaultValue: 0,
       field: 'validity_days',
     },
+    expiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'expires_at',
+    },
     apiPlanId: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -74,6 +79,17 @@ const VoiceBundlePurchase = sequelize.define(
       allowNull: true,
       field: 'failure_reason',
     },
+    bundleCategory: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'minute',
+      field: 'bundle_category',
+    },
+    migratedFromPurchaseId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      field: 'migrated_from_purchase_id',
+    },
     metadata: {
       type: DataTypes.JSONB,
       allowNull: false,
@@ -90,10 +106,12 @@ const VoiceBundlePurchase = sequelize.define(
       { fields: ['transaction_id'] },
       { fields: ['provider'] },
       { fields: ['status'] },
+      { fields: ['bundle_category'] },
+      { fields: ['expires_at'] },
+      { fields: ['migrated_from_purchase_id'] },
       { fields: ['createdAt'] },
     ],
   }
 );
 
 module.exports = VoiceBundlePurchase;
-

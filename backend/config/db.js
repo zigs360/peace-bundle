@@ -1,6 +1,6 @@
 const sequelize = require('./database'); // Correct import of instance
 const bcrypt = require('bcryptjs');
-const { DataTypes } = require('sequelize');
+const { DataTypes, Op } = require('sequelize');
 
 let isConnected = false;
 const globalState = globalThis.__peacebundle_db_state || {
@@ -235,6 +235,8 @@ const connectDB = async () => {
       const dataPlansTable = typeof DataPlan.getTableName === 'function' ? DataPlan.getTableName() : 'data_plans';
       const simsTable = typeof Sim.getTableName === 'function' ? Sim.getTableName() : 'Sims';
       const callPlansTable = typeof CallPlan.getTableName === 'function' ? CallPlan.getTableName() : 'CallPlans';
+      const voiceBundlePurchasesTable =
+        typeof VoiceBundlePurchase.getTableName === 'function' ? VoiceBundlePurchase.getTableName() : 'voice_bundle_purchases';
 
       if (process.env.NODE_ENV !== 'test') {
         await Promise.all([
@@ -285,6 +287,11 @@ const connectDB = async () => {
       try {
         await VoiceBundlePurchase.sync();
         await VoiceBundlePurchaseAudit.sync();
+        await Promise.all([
+          ensureColumn(voiceBundlePurchasesTable, 'expires_at', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(voiceBundlePurchasesTable, 'bundle_category', { type: DataTypes.STRING, allowNull: false, defaultValue: 'minute' }),
+          ensureColumn(voiceBundlePurchasesTable, 'migrated_from_purchase_id', { type: DataTypes.UUID, allowNull: true }),
+        ]);
       } catch (e) {
         console.error('Voice bundle purchase tables sync failed:', e.message);
       }
@@ -320,6 +327,24 @@ const connectDB = async () => {
               });
             }),
           ),
+        );
+        await Promise.all(
+          providers.map(async (provider) => {
+            const activeCodes = (provider.bundles || []).map((bundle) => bundle.code);
+            await CallPlan.update(
+              { status: 'inactive' },
+              {
+                where: {
+                  provider: provider.key,
+                  type: 'voice',
+                  api_plan_id: {
+                    [Op.like]: `${provider.apiPlanPrefix}%`,
+                    [Op.notIn]: activeCodes,
+                  },
+                },
+              },
+            );
+          }),
         );
       } catch (e) {
         console.error('Call Sub seed failed:', e.message);

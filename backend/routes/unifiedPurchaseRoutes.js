@@ -7,7 +7,7 @@ const { check } = require('express-validator');
 
 router.post('/unified', protect, validate([
     check('phone').matches(/^(0|234|\+234)[7-9][0-1]\d{8}$/).withMessage('Valid Nigerian phone number is required'),
-    check('serviceType').isIn(['airtime', 'data', 'callsub']).withMessage('Invalid service type'),
+    check('serviceType').isIn(['airtime', 'data']).withMessage('Invalid service type'),
     check('network').notEmpty().withMessage('Network is required'),
     check('amount').optional().isFloat({ gt: 0 }).withMessage('Amount must be positive'),
     check('planId').optional().notEmpty().withMessage('Plan ID is required for data')

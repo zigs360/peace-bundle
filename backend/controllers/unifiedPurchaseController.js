@@ -12,10 +12,10 @@ const logger = require('../utils/logger');
 const sequelize = require('../config/database');
 
 const networkServices = {
-  airtel: { airtime: true, data: true, callsub: true },
-  mtn: { airtime: true, data: true, callsub: false },
-  glo: { airtime: true, data: true, callsub: false },
-  '9mobile': { airtime: true, data: true, callsub: false }
+  airtel: { airtime: true, data: true },
+  mtn: { airtime: true, data: true },
+  glo: { airtime: true, data: true },
+  '9mobile': { airtime: true, data: true }
 };
 
 /**
@@ -72,9 +72,9 @@ const purchaseUnified = async (req, res) => {
       let description;
       let finalAmount = parseFloat(amount || 0);
 
-      if (serviceType === 'airtime' || serviceType === 'callsub') {
+      if (serviceType === 'airtime') {
         transactionType = 'airtime_purchase';
-        description = `${network.toUpperCase()} ${serviceType === 'callsub' ? 'Call Sub' : 'Airtime'} ₦${finalAmount} to ${cleanPhone}`;
+        description = `${network.toUpperCase()} Airtime ₦${finalAmount} to ${cleanPhone}`;
 
         const quote = await pricingService.quoteAirtime({ user, provider: cleanNetwork, faceValue: finalAmount });
         const chargedAmount = parseFloat(String(quote.charged_amount));
@@ -127,10 +127,10 @@ const purchaseUnified = async (req, res) => {
         return res.json({
           success: true,
           message: providerResult?.pending
-            ? `${serviceType === 'callsub' ? 'Call Sub' : 'Airtime'} purchase queued for verification`
-            : `${serviceType === 'callsub' ? 'Call Sub' : 'Airtime'} purchase successful`,
+            ? 'Airtime purchase queued for verification'
+            : 'Airtime purchase successful',
           transaction: newTransaction,
-          activationCode: serviceType === 'callsub' ? `*234*${finalAmount}#` : null
+          activationCode: null
         });
 
       } else if (serviceType === 'data') {

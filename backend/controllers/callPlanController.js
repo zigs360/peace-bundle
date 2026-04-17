@@ -10,6 +10,8 @@ const walletService = require('../services/walletService');
 const pricingService = require('../services/pricingService');
 const ussdParserService = require('../services/ussdParserService');
 const callSubTelecomService = require('../services/callSubTelecomService');
+const callSubLifecycleService = require('../services/callSubLifecycleService');
+const callSubMigrationService = require('../services/callSubMigrationService');
 const { getCallSubProvider, listCallSubProviders } = require('../services/callSubCatalog');
 const notificationRealtimeService = require('../services/notificationRealtimeService');
 const { sendEmail, sendSMS } = require('../services/notificationService');
@@ -24,16 +26,23 @@ const jwt = require('jsonwebtoken');
 const getVoiceBundles = async (req, res) => {
   try {
     const { network, status } = req.query;
-    const where = {};
+    if (!network || String(network).toLowerCase() === 'airtel') {
+      const bundles = callSubLifecycleService.getPublicBundles('airtel').map((bundle) => ({
+        id: bundle.code,
+        network: 'airtel',
+        plan_name: bundle.name,
+        amount: bundle.price,
+        validity: `${bundle.validityDays} days`,
+        api_plan_id: bundle.code,
+        minutes: bundle.minutes,
+        is_active: status !== 'inactive',
+      }));
+      return res.json(bundles);
+    }
 
-    if (network) where.network = network.toLowerCase();
+    const where = { network: network.toLowerCase() };
     if (status !== undefined) where.is_active = status === 'active';
-
-    const bundles = await VoiceBundle.findAll({
-      where,
-      order: [['amount', 'ASC']],
-    });
-
+    const bundles = await VoiceBundle.findAll({ where, order: [['amount', 'ASC']] });
     res.json(bundles);
   } catch (error) {
     logger.error(`[CallPlan] Voice bundle fetch error: ${error.message}`);
@@ -57,6 +66,13 @@ const createCallPlan = async (req, res) => {
       return res.status(400).json({ 
         success: false, 
         message: 'Name, provider, and price are required' 
+      });
+    }
+
+    if (String(type || 'prepaid') === 'voice' && Number(minutes || 0) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Legacy validity bundles are retired. Voice plans must include minute credits.',
       });
     }
 
@@ -227,6 +243,9 @@ const purchaseCallSubBundle = async (req, res) => {
     if (!callPlan || callPlan.provider !== provider.key) {
       return res.status(404).json({ success: false, message: 'Selected bundle no longer exists' });
     }
+    if (Number(callPlan.minutes || 0) <= 0) {
+      return res.status(400).json({ success: false, message: 'Legacy validity bundles can no longer be purchased' });
+    }
     if (!callPlan.api_plan_id || !String(callPlan.api_plan_id).startsWith(provider.apiPlanPrefix)) {
       return res.status(400).json({ success: false, message: 'This bundle is not available for activation' });
     }
@@ -236,6 +255,7 @@ const purchaseCallSubBundle = async (req, res) => {
     if (!Number.isFinite(chargedAmount) || chargedAmount <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid bundle price' });
     }
+    const expiresAt = callSubLifecycleService.computeExpiryFromBundle(callPlan.toJSON(), new Date());
 
     const reference = `${provider.apiPlanPrefix}${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
@@ -276,9 +296,11 @@ const purchaseCallSubBundle = async (req, res) => {
           amountCharged: chargedAmount,
           minutes: callPlan.minutes,
           validityDays: callPlan.validityDays,
+          expiresAt,
           apiPlanId: callPlan.api_plan_id,
           status: 'processing',
-          metadata: { pricing: quote },
+          bundleCategory: 'minute',
+          metadata: { pricing: quote, bundleCategory: 'minute' },
         },
         { transaction: t },
       );
@@ -405,7 +427,18 @@ const getMyCallSubHistory = async (req, res) => {
       offset,
     });
     res.set('Cache-Control', 'no-store');
-    res.json({ success: true, count, rows });
+    res.json({
+      success: true,
+      count,
+      rows: rows.map((row) => {
+        const json = row.toJSON();
+        return {
+          ...json,
+          bundleCategory: json.bundleCategory || callSubLifecycleService.inferBundleCategory(json),
+          expiresAt: json.expiresAt || callSubLifecycleService.getNaturalExpiryForPurchase(json),
+        };
+      }),
+    });
   } catch (error) {
     const statusCode = error.statusCode || 500;
     logger.error(`[CallPlan] Call sub history error: ${error.message}`);
@@ -422,11 +455,13 @@ const adminCallSubAnalytics = async (req, res) => {
 
     const totals = rows.reduce(
       (acc, r) => {
-        const amt = parseFloat(String(r.amountCharged || 0));
+        const amt = r.bundleCategory === 'migrated_credit' ? 0 : parseFloat(String(r.amountCharged || 0));
         acc.count += 1;
         if (r.status === 'completed') acc.completed += 1;
         if (r.status === 'failed') acc.failed += 1;
         if (r.status === 'refunded') acc.refunded += 1;
+        if (r.bundleCategory === 'legacy_validity' || callSubLifecycleService.isLegacyValidityPurchase(r)) acc.legacyValidity += 1;
+        if (r.bundleCategory === 'migrated_credit') acc.migratedCredits += 1;
         acc.amount += Number.isFinite(amt) ? amt : 0;
         const key = String(r.apiPlanId || r.callPlanId);
         const item = acc.byBundle.get(key) || { key, name: r.apiPlanId || '', count: 0, amount: 0, completed: 0 };
@@ -436,20 +471,40 @@ const adminCallSubAnalytics = async (req, res) => {
         acc.byBundle.set(key, item);
         return acc;
       },
-      { count: 0, completed: 0, failed: 0, refunded: 0, amount: 0, byBundle: new Map() },
+      { count: 0, completed: 0, failed: 0, refunded: 0, amount: 0, legacyValidity: 0, migratedCredits: 0, byBundle: new Map() },
     );
 
     res.json({
       success: true,
       provider: provider.key,
       since: since.toISOString(),
-      totals: { count: totals.count, completed: totals.completed, failed: totals.failed, refunded: totals.refunded, amount: totals.amount },
+      totals: {
+        count: totals.count,
+        completed: totals.completed,
+        failed: totals.failed,
+        refunded: totals.refunded,
+        amount: totals.amount,
+        legacyValidity: totals.legacyValidity,
+        migratedCredits: totals.migratedCredits,
+      },
       bundles: Array.from(totals.byBundle.values()).sort((a, b) => b.count - a.count),
     });
   } catch (error) {
     const statusCode = error.statusCode || 500;
     logger.error(`[CallPlan] Call sub analytics error: ${error.message}`);
     res.status(statusCode).json({ success: false, message: statusCode === 404 ? error.message : 'Failed to retrieve analytics' });
+  }
+};
+
+const adminCallSubMonitoring = async (req, res) => {
+  try {
+    const provider = resolveCallSubProvider(req.params.provider);
+    const snapshot = await callSubMigrationService.buildMonitoringSnapshot(provider.key);
+    res.json({ success: true, data: snapshot });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    logger.error(`[CallPlan] Call sub monitoring error: ${error.message}`);
+    res.status(statusCode).json({ success: false, message: statusCode === 404 ? error.message : 'Failed to retrieve monitoring snapshot' });
   }
 };
 
@@ -497,6 +552,13 @@ const updateCallPlan = async (req, res) => {
       return res.status(404).json({ 
         success: false, 
         message: 'Call plan not found' 
+      });
+    }
+
+    if (String(type || callPlan.type) === 'voice' && Number(minutes ?? callPlan.minutes) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Legacy validity bundles are retired. Voice plans must include minute credits.',
       });
     }
 
@@ -646,4 +708,5 @@ module.exports = {
   purchaseCallSubBundle,
   getMyCallSubHistory,
   adminCallSubAnalytics,
+  adminCallSubMonitoring,
 };

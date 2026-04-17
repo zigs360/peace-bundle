@@ -18,10 +18,12 @@ type Bundle = {
 type Purchase = {
   reference: string;
   status: string;
+  bundleCategory?: string;
   recipientPhoneNumber: string;
   amountCharged: number | string;
   minutes: number;
   validityDays: number;
+  expiresAt?: string | null;
   providerReference?: string | null;
   createdAt: string;
 };
@@ -81,12 +83,6 @@ export default function Airtel() {
     };
     void init();
   }, []);
-
-  const grouped = useMemo(() => {
-    const minuteBundles = bundles.filter((bundle) => Number(bundle.minutes || 0) > 0);
-    const validityBundles = bundles.filter((bundle) => Number(bundle.minutes || 0) === 0);
-    return { minuteBundles, validityBundles };
-  }, [bundles]);
 
   const priceFor = (bundle: Bundle) => {
     const value = bundle.effective_price !== undefined ? bundle.effective_price : bundle.price;
@@ -179,51 +175,26 @@ export default function Airtel() {
         {!phone || isValidNgPhone(phone) ? null : <div className="text-xs text-red-600 mt-2 font-bold">Invalid phone number</div>}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <div className="text-sm font-black text-gray-800 mb-4">Minute Bundles</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {grouped.minuteBundles.map((bundle) => {
-              const amount = priceFor(bundle);
-              const active = selected?.id === bundle.id;
-              return (
-                <button
-                  key={bundle.id}
-                  onClick={() => setSelected(bundle)}
-                  className={`text-left p-4 rounded-2xl border transition-all ${
-                    active ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="text-sm font-black text-gray-900">{bundle.minutes} mins</div>
-                  <div className="text-xs text-gray-500 mt-1">{bundle.validityDays} days validity</div>
-                  <div className="text-lg font-black text-primary-700 mt-2">₦{amount.toLocaleString()}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <div className="text-sm font-black text-gray-800 mb-4">Validity Bundles</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {grouped.validityBundles.map((bundle) => {
-              const amount = priceFor(bundle);
-              const active = selected?.id === bundle.id;
-              return (
-                <button
-                  key={bundle.id}
-                  onClick={() => setSelected(bundle)}
-                  className={`text-left p-4 rounded-2xl border transition-all ${
-                    active ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="text-sm font-black text-gray-900">{bundle.validityDays} days</div>
-                  <div className="text-xs text-gray-500 mt-1">Call bundle validity package</div>
-                  <div className="text-lg font-black text-primary-700 mt-2">₦{amount.toLocaleString()}</div>
-                </button>
-              );
-            })}
-          </div>
+      <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+        <div className="text-sm font-black text-gray-800 mb-4">Available Bundles</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {bundles.map((bundle) => {
+            const amount = priceFor(bundle);
+            const active = selected?.id === bundle.id;
+            return (
+              <button
+                key={bundle.id}
+                onClick={() => setSelected(bundle)}
+                className={`text-left p-4 rounded-2xl border transition-all ${
+                  active ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div className="text-sm font-black text-gray-900">{bundle.minutes} mins</div>
+                <div className="text-xs text-gray-500 mt-1">{bundle.validityDays} days validity</div>
+                <div className="text-lg font-black text-primary-700 mt-2">₦{amount.toLocaleString()}</div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -253,6 +224,7 @@ export default function Airtel() {
                 <th className="py-2 pr-4">Phone</th>
                 <th className="py-2 pr-4">Bundle</th>
                 <th className="py-2 pr-4">Amount</th>
+                <th className="py-2 pr-4">Expires</th>
                 <th className="py-2 pr-4">Status</th>
                 <th className="py-2 pr-4">Ref</th>
               </tr>
@@ -262,8 +234,9 @@ export default function Airtel() {
                 <tr key={item.reference} className="border-t border-gray-100">
                   <td className="py-2 pr-4">{new Date(item.createdAt).toLocaleString()}</td>
                   <td className="py-2 pr-4 font-mono">{item.recipientPhoneNumber}</td>
-                  <td className="py-2 pr-4">{item.minutes > 0 ? `${item.minutes} mins` : `${item.validityDays} days`}</td>
+                  <td className="py-2 pr-4">{item.minutes} mins</td>
                   <td className="py-2 pr-4 font-black">₦{Number(item.amountCharged || 0).toLocaleString()}</td>
+                  <td className="py-2 pr-4">{item.expiresAt ? new Date(item.expiresAt).toLocaleDateString() : '-'}</td>
                   <td className="py-2 pr-4">
                     <span className={`font-black ${item.status === 'completed' ? 'text-green-700' : item.status === 'failed' ? 'text-red-700' : 'text-gray-600'}`}>
                       {item.status}
@@ -274,7 +247,7 @@ export default function Airtel() {
               ))}
               {history.length === 0 && (
                 <tr>
-                  <td className="py-6 text-gray-400" colSpan={6}>
+                  <td className="py-6 text-gray-400" colSpan={7}>
                     No purchases yet.
                   </td>
                 </tr>

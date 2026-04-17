@@ -40,18 +40,16 @@ export const detectNetwork = (phone: string): string | null => {
 };
 
 export const networkServices: Record<string, Record<string, boolean>> = {
-  airtel: { airtime: true, data: true, callsub: true },
-  mtn: { airtime: true, data: true, callsub: false },
-  glo: { airtime: true, data: true, callsub: false },
-  '9mobile': { airtime: true, data: true, callsub: false },
+  airtel: { airtime: true, data: true },
+  mtn: { airtime: true, data: true },
+  glo: { airtime: true, data: true },
+  '9mobile': { airtime: true, data: true },
 };
 
 export const recommendations: Record<string, { title: string, amount: number, type: string, planId?: string }[]> = {
   airtel: [
-    { title: 'Call Sub 100', amount: 100, type: 'callsub', planId: 'TM100' },
-    { title: 'Call Sub 200', amount: 200, type: 'callsub', planId: 'TM200' },
-    { title: 'Call Sub 500 (Recommended)', amount: 500, type: 'callsub', planId: 'TM500' },
-    { title: 'Call Sub 1000', amount: 1000, type: 'callsub', planId: 'TM1000' },
+    { title: 'Airtime 500 (Recommended)', amount: 500, type: 'airtime' },
+    { title: 'Airtime 1000', amount: 1000, type: 'airtime' },
   ],
   mtn: [
     { title: '1GB Data (Recommended)', amount: 350, type: 'data' },
