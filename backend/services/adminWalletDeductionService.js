@@ -10,6 +10,8 @@ const logger = require('../utils/logger');
 const crypto = require('crypto');
 
 const sha256Hex = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
+const WALLET_DEDUCTION_TXN_SOURCE = 'withdrawal';
+const WALLET_REVERSAL_TXN_SOURCE = 'refund';
 
 class AdminWalletDeductionService {
   isSuperAdmin(user) {
@@ -95,7 +97,7 @@ class AdminWalletDeductionService {
       const { txn: createdTxn, wallet: updatedWallet } = await walletService.adminAdjust(
         user,
         -numeric,
-        'admin_wallet_deduction',
+        WALLET_DEDUCTION_TXN_SOURCE,
         `Admin deduction: ₦${Number(numeric).toLocaleString()} - ${trimmedReason}`,
         {
           reference,
@@ -241,7 +243,7 @@ class AdminWalletDeductionService {
       const { txn: createdTxn, wallet: updatedWallet } = await walletService.adminAdjust(
         user,
         Number(locked.amount),
-        'admin_wallet_deduction_reversal',
+        WALLET_REVERSAL_TXN_SOURCE,
         `Admin reversal for ${locked.reference}: ₦${Number(locked.amount).toLocaleString()} - ${trimmedReason}`,
         {
           reference: creditReference,

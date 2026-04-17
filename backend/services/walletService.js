@@ -5,7 +5,22 @@ const { Op } = require('sequelize');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 
+const LEGACY_TRANSACTION_SOURCE_MAP = {
+  admin_wallet_deduction: 'withdrawal',
+  admin_wallet_deduction_reversal: 'refund',
+  wallet_funding: 'funding',
+};
+
 class WalletService {
+  normalizeTransactionSource(source) {
+    const raw = String(source || '').trim();
+    const normalized = LEGACY_TRANSACTION_SOURCE_MAP[raw] || raw;
+    if (raw && normalized !== raw) {
+      logger.warn('[WalletService] Normalized legacy transaction source', { from: raw, to: normalized });
+    }
+    return normalized;
+  }
+
   /**
    * Credit user wallet
    * @param {Object} user
@@ -36,6 +51,7 @@ class WalletService {
       await wallet.increment('balance', { by: amountNum, transaction: transaction });
       await wallet.reload({ transaction: transaction });
       const newBalance = parseFloat(wallet.balance);
+      const txnSource = this.normalizeTransactionSource(source);
       
       // Create transaction record
       const txn = await Transaction.create({
@@ -45,7 +61,7 @@ class WalletService {
         amount: amountNum,
         balance_before: balanceBefore,
         balance_after: newBalance,
-        source: source,
+        source: txnSource,
         reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
         description: description,
         metadata: metadata,
@@ -190,6 +206,7 @@ class WalletService {
 
       const balanceBefore = currentBalance;
       const balanceAfter = currentBalance - debitAmount;
+      const txnSource = this.normalizeTransactionSource(source);
       
       await wallet.update({ 
         balance: balanceAfter,
@@ -205,7 +222,7 @@ class WalletService {
         amount: debitAmount,
         balance_before: balanceBefore,
         balance_after: balanceAfter,
-        source: source,
+        source: txnSource,
         reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
         description: description,
         metadata: metadata,
@@ -241,6 +258,7 @@ class WalletService {
 
       const balanceBefore = currentBalance;
       const balanceAfter = nextBalance;
+      const txnSource = this.normalizeTransactionSource(source);
       await wallet.update(
         {
           balance: balanceAfter,
@@ -259,7 +277,7 @@ class WalletService {
           amount: txnAmount,
           balance_before: balanceBefore,
           balance_after: balanceAfter,
-          source,
+          source: txnSource,
           reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
           description,
           metadata,

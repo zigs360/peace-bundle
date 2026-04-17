@@ -1,8 +1,10 @@
 const sequelize = require('../config/database');
-const { QueryTypes, Op, Transaction } = require('sequelize');
+const { QueryTypes, Op, Transaction: SequelizeTransaction } = require('sequelize');
 const SystemSetting = require('../models/SystemSetting');
 const TreasuryBalance = require('../models/TreasuryBalance');
 const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
+const TransactionModel = require('../models/Transaction');
+const DataPlan = require('../models/DataPlan');
 const User = require('../models/User');
 const notificationRealtimeService = require('./notificationRealtimeService');
 const logger = require('../utils/logger');
@@ -25,6 +27,7 @@ const parseDateOrEpoch = (value) => {
 class TreasuryService {
   constructor() {
     this._sqliteSyncGate = Promise.resolve();
+    this._alertCooldowns = new Map();
   }
 
   async withSqliteSyncMutex(fn) {
@@ -95,6 +98,218 @@ class TreasuryService {
     }
   }
 
+  getRevenueRecognitionAt(txn) {
+    const candidates = [txn?.completed_at, txn?.completedAt, txn?.updatedAt, txn?.createdAt];
+    for (const value of candidates) {
+      const parsed = parseDateOrEpoch(value);
+      if (parsed.getTime() > 0) return parsed;
+    }
+    return new Date(0);
+  }
+
+  isWithinWindow(date, since, until) {
+    const ts = date instanceof Date ? date.getTime() : parseDateOrEpoch(date).getTime();
+    return ts > since.getTime() && ts <= until.getTime();
+  }
+
+  async sendTreasuryAlert({
+    key,
+    title,
+    message,
+    metadata = {},
+    type = 'warning',
+    priority = 'high',
+    cooldownMs = Number(process.env.TREASURY_ALERT_COOLDOWN_MS || 10 * 60 * 1000),
+  }) {
+    try {
+      const now = Date.now();
+      const previous = this._alertCooldowns.get(key) || 0;
+      if (now - previous < cooldownMs) return { ok: true, suppressed: true };
+
+      const admins = await User.findAll({ where: { role: 'admin' }, attributes: ['id'] });
+      const adminIds = admins.map((admin) => admin.id);
+      if (!adminIds.length) return { ok: true, suppressed: true, reason: 'no_admins' };
+
+      await notificationRealtimeService.sendBulk(adminIds, {
+        title,
+        message,
+        type,
+        priority,
+        link: '/admin/treasury',
+        metadata,
+      });
+      this._alertCooldowns.set(key, now);
+      logger.warn('[Treasury] Alert sent', { key, title, metadata });
+      return { ok: true, alerted: true };
+    } catch (e) {
+      logger.error('[Treasury] Failed to send alert', { key, error: e.message });
+      return { ok: false, error: e.message };
+    }
+  }
+
+  buildTimeWindowWhere(since, until) {
+    return {
+      [Op.or]: [
+        { createdAt: { [Op.gt]: since, [Op.lte]: until } },
+        { updatedAt: { [Op.gt]: since, [Op.lte]: until } },
+        { completed_at: { [Op.gt]: since, [Op.lte]: until } },
+      ],
+    };
+  }
+
+  async collectRevenueCandidates({ since, until, transaction }) {
+    const dialect = sequelize.getDialect ? sequelize.getDialect() : null;
+    const candidates = await TransactionModel.findAll({
+      where: {
+        status: 'completed',
+        [Op.and]: [
+          {
+            [Op.or]: [
+              { type: 'credit', source: 'funding' },
+              { type: 'debit', source: 'data_purchase' },
+            ],
+          },
+          this.buildTimeWindowWhere(since, until),
+        ],
+      },
+      order: [['createdAt', 'ASC'], ['id', 'ASC']],
+      transaction,
+      ...(dialect === 'sqlite' ? {} : { lock: transaction.LOCK.UPDATE }),
+    });
+
+    const dataPlanIds = Array.from(
+      new Set(
+        candidates
+          .filter((txn) => txn.source === 'data_purchase' && txn.dataPlanId)
+          .map((txn) => txn.dataPlanId)
+      )
+    );
+
+    const plans = dataPlanIds.length
+      ? await DataPlan.findAll({
+          where: { id: dataPlanIds },
+          transaction,
+          ...(dialect === 'sqlite' ? {} : { lock: transaction.LOCK.SHARE }),
+        })
+      : [];
+
+    return {
+      candidates,
+      plansById: new Map(plans.map((plan) => [String(plan.id), plan])),
+    };
+  }
+
+  evaluateRevenueCandidate(txn, plansById, since, until) {
+    const metadata = txn?.metadata && typeof txn.metadata === 'object' ? txn.metadata : {};
+    const existingSync = metadata.treasury_sync || null;
+    if (existingSync?.syncedAt) {
+      return { eligible: false, reason: 'already_synced' };
+    }
+
+    const recognizedAt = this.getRevenueRecognitionAt(txn);
+    if (!this.isWithinWindow(recognizedAt, since, until)) {
+      return { eligible: false, reason: 'outside_window' };
+    }
+
+    if (txn.type === 'credit' && txn.source === 'funding') {
+      const feeRaw = metadata.fee_amount;
+      const grossAmount = Number(metadata.gross_amount);
+      const netAmount = Number(txn.amount);
+      let feeAmount = Number(feeRaw);
+
+      if (!Number.isFinite(feeAmount) && Number.isFinite(grossAmount) && Number.isFinite(netAmount)) {
+        feeAmount = grossAmount - netAmount;
+      }
+
+      if (!Number.isFinite(feeAmount)) {
+        return {
+          eligible: false,
+          invalid: true,
+          reason: 'invalid_fee_amount',
+          recognizedAt,
+          details: { fee_amount: feeRaw ?? null, reference: txn.reference },
+        };
+      }
+
+      if (feeAmount < 0) {
+        return {
+          eligible: false,
+          invalid: true,
+          reason: 'negative_fee_amount',
+          recognizedAt,
+          details: { feeAmount, reference: txn.reference },
+        };
+      }
+
+      if (feeAmount === 0) return { eligible: false, reason: 'zero_fee_revenue', recognizedAt };
+
+      return {
+        eligible: true,
+        amount: feeAmount,
+        bucket: 'funding_fee',
+        recognizedAt,
+      };
+    }
+
+    if (txn.type === 'debit' && txn.source === 'data_purchase') {
+      if (!txn.dataPlanId) {
+        return {
+          eligible: false,
+          invalid: true,
+          reason: 'missing_data_plan_id',
+          recognizedAt,
+          details: { reference: txn.reference },
+        };
+      }
+
+      const plan = plansById.get(String(txn.dataPlanId));
+      if (!plan) {
+        return {
+          eligible: false,
+          invalid: true,
+          reason: 'data_plan_not_found',
+          recognizedAt,
+          details: { reference: txn.reference, dataPlanId: txn.dataPlanId },
+        };
+      }
+
+      const amountRaw = txn.amount;
+      const apiCostRaw = plan.api_cost;
+      const amount = Number(amountRaw);
+      const apiCost = Number(apiCostRaw);
+      if (amountRaw === null || amountRaw === undefined || amountRaw === '' || !Number.isFinite(amount) || amount <= 0) {
+        return {
+          eligible: false,
+          invalid: true,
+          reason: 'invalid_transaction_amount',
+          recognizedAt,
+          details: { reference: txn.reference, amount: amountRaw },
+        };
+      }
+      if (apiCostRaw === null || apiCostRaw === undefined || apiCostRaw === '' || !Number.isFinite(apiCost) || apiCost < 0) {
+        return {
+          eligible: false,
+          invalid: true,
+          reason: 'invalid_api_cost',
+          recognizedAt,
+          details: { reference: txn.reference, apiCost: apiCostRaw, dataPlanId: txn.dataPlanId },
+        };
+      }
+
+      const profit = amount - apiCost;
+      if (profit <= 0) return { eligible: false, reason: 'non_positive_profit', recognizedAt };
+
+      return {
+        eligible: true,
+        amount: profit,
+        bucket: 'data_profit',
+        recognizedAt,
+      };
+    }
+
+    return { eligible: false, reason: 'unsupported_source' };
+  }
+
   async checkBalanceIntegrity(context = {}) {
     try {
       const [bal, last] = await Promise.all([
@@ -112,6 +327,20 @@ class TreasuryService {
           lastAfter,
           lastRef: last.reference,
           lastSource: last.source,
+        });
+        await this.sendTreasuryAlert({
+          key: 'treasury-balance-drift',
+          title: 'Treasury balance drift detected',
+          message: `Treasury balance mismatch detected. Stored balance ₦${rowBalance.toLocaleString()} but latest ledger shows ₦${lastAfter.toLocaleString()}.`,
+          metadata: {
+            ...context,
+            rowBalance,
+            lastAfter,
+            lastRef: last.reference,
+            lastSource: last.source,
+          },
+          type: 'error',
+          priority: 'critical',
         });
       }
     } catch (e) {
@@ -141,10 +370,11 @@ class TreasuryService {
     let feeRevenue = 0;
     let dataProfit = 0;
     let since = new Date(0);
+    let invalidRevenueTransactions = [];
 
     const txOptions = {};
-    if (dialect === 'postgres') txOptions.isolationLevel = Transaction.ISOLATION_LEVELS.READ_COMMITTED;
-    if (dialect === 'sqlite') txOptions.type = Transaction.TYPES.IMMEDIATE;
+    if (dialect === 'postgres') txOptions.isolationLevel = SequelizeTransaction.ISOLATION_LEVELS.READ_COMMITTED;
+    if (dialect === 'sqlite') txOptions.type = SequelizeTransaction.TYPES.IMMEDIATE;
 
     const run = async () =>
       sequelize.transaction(txOptions, async (t) => {
@@ -153,72 +383,53 @@ class TreasuryService {
         since = parseDateOrEpoch(lastSyncRow?.value);
         const until = syncNow;
 
-        if (dialect === 'sqlite') {
-          const TxModel = require('../models/Transaction');
-          const DataPlan = require('../models/DataPlan');
+        const { candidates, plansById } = await this.collectRevenueCandidates({ since, until, transaction: t });
+        const recognized = [];
+        invalidRevenueTransactions = [];
 
-          const txns = await TxModel.findAll({
-            where: {
-              status: 'completed',
-              createdAt: { [Op.gt]: since, [Op.lte]: until },
-            },
-            transaction: t,
+        for (const txn of candidates) {
+          const evaluation = this.evaluateRevenueCandidate(txn, plansById, since, until);
+          if (evaluation.invalid) {
+            invalidRevenueTransactions.push({
+              id: txn.id,
+              reference: txn.reference,
+              source: txn.source,
+              reason: evaluation.reason,
+              details: evaluation.details || {},
+            });
+            logger.warn('[Treasury] Revenue transaction validation failed', {
+              transactionId: txn.id,
+              reference: txn.reference,
+              source: txn.source,
+              reason: evaluation.reason,
+              details: evaluation.details || {},
+            });
+            continue;
+          }
+          if (!evaluation.eligible) continue;
+
+          recognized.push({
+            txn,
+            amount: evaluation.amount,
+            bucket: evaluation.bucket,
+            recognizedAt: evaluation.recognizedAt,
           });
-
-          for (const tx of txns) {
-            if (tx.type === 'credit' && tx.source === 'funding') {
-              feeRevenue += toNumber(tx.metadata?.fee_amount || 0);
-            }
-          }
-
-          const dataTxns = txns.filter(
-            (x) => x.type === 'debit' && x.status === 'completed' && x.source === 'data_purchase' && x.dataPlanId,
-          );
-          if (dataTxns.length) {
-            const plans = await DataPlan.findAll({ where: { id: dataTxns.map((x) => x.dataPlanId) }, transaction: t });
-            const byId = new Map(plans.map((p) => [String(p.id), p]));
-            for (const tx of dataTxns) {
-              const p = byId.get(String(tx.dataPlanId));
-              const apiCost = toNumber(p?.api_cost || 0);
-              dataProfit += Math.max(0, toNumber(tx.amount) - apiCost);
-            }
-          }
-        } else {
-          const feesRow = await sequelize.query(
-            `
-              SELECT COALESCE(SUM(NULLIF(("metadata"::jsonb #>> '{fee_amount}'), '')::numeric), 0) AS fee_total
-              FROM transactions
-              WHERE "status" = 'completed'
-                AND "type" = 'credit'
-                AND "source" = 'funding'
-                AND "createdAt" > :since
-                AND "createdAt" <= :until
-            `,
-            { replacements: { since, until }, type: QueryTypes.SELECT, transaction: t },
-          );
-          feeRevenue = toNumber(feesRow?.[0]?.fee_total || 0);
-
-          const profitRow = await sequelize.query(
-            `
-              SELECT COALESCE(SUM(t.amount - COALESCE(dp.api_cost, 0)), 0) AS profit
-              FROM transactions t
-              LEFT JOIN data_plans dp ON dp.id = t."dataPlanId"
-              WHERE t."status" = 'completed'
-                AND t."type" = 'debit'
-                AND t."source" = 'data_purchase'
-                AND t."createdAt" > :since
-                AND t."createdAt" <= :until
-            `,
-            { replacements: { since, until }, type: QueryTypes.SELECT, transaction: t },
-          );
-          dataProfit = Math.max(0, toNumber(profitRow?.[0]?.profit || 0));
         }
 
+        feeRevenue = recognized
+          .filter((entry) => entry.bucket === 'funding_fee')
+          .reduce((sum, entry) => sum + toNumber(entry.amount), 0);
+        dataProfit = recognized
+          .filter((entry) => entry.bucket === 'data_profit')
+          .reduce((sum, entry) => sum + toNumber(entry.amount), 0);
+
         const totalCredit = feeRevenue + dataProfit;
+        let syncReference = null;
         if (totalCredit > 0) {
           const balanceRow = await this.getBalanceRow(t);
           const before = toNumber(balanceRow.balance);
           const after = before + totalCredit;
+          syncReference = genRef('TRSY-SYNC');
 
           await TreasuryLedgerEntry.create(
             {
@@ -228,14 +439,52 @@ class TreasuryService {
               balance_before: before,
               balance_after: after,
               source: 'revenue_sync',
-              reference: genRef('TRSY-SYNC'),
-              metadata: { adminUserId, since: since.toISOString(), until: until.toISOString(), feeRevenue, dataProfit },
+              reference: syncReference,
+              metadata: {
+                adminUserId,
+                since: since.toISOString(),
+                until: until.toISOString(),
+                feeRevenue,
+                dataProfit,
+                transactions: recognized.map((entry) => ({
+                  id: entry.txn.id,
+                  reference: entry.txn.reference,
+                  source: entry.txn.source,
+                  bucket: entry.bucket,
+                  amount: entry.amount,
+                  recognizedAt: entry.recognizedAt.toISOString(),
+                })),
+              },
             },
             { transaction: t },
           );
 
+          for (const entry of recognized) {
+            const currentMetadata = entry.txn.metadata && typeof entry.txn.metadata === 'object' ? entry.txn.metadata : {};
+            entry.txn.metadata = {
+              ...currentMetadata,
+              treasury_sync: {
+                syncedAt: syncNow.toISOString(),
+                syncReference,
+                bucket: entry.bucket,
+                amount: entry.amount,
+                recognizedAt: entry.recognizedAt.toISOString(),
+              },
+            };
+            await entry.txn.save({ transaction: t });
+          }
+
           balanceRow.balance = after;
           await balanceRow.save({ transaction: t });
+          logger.info('[AUDIT][Treasury] Revenue sync ledger applied', {
+            adminUserId,
+            syncReference,
+            before,
+            after,
+            feeRevenue,
+            dataProfit,
+            transactionCount: recognized.length,
+          });
         }
 
         lastSyncRow.value = syncNow.toISOString();
@@ -245,9 +494,33 @@ class TreasuryService {
       });
 
     if (dialect === 'sqlite') {
-      await this.withSqliteSyncMutex(run);
+      try {
+        await this.withSqliteSyncMutex(run);
+      } catch (error) {
+        await this.sendTreasuryAlert({
+          key: 'treasury-sync-failed',
+          title: 'Treasury sync failed',
+          message: `Treasury sync failed with error: ${error.message}`,
+          metadata: { adminUserId, error: error.message },
+          type: 'error',
+          priority: 'critical',
+        });
+        throw error;
+      }
     } else {
-      await run();
+      try {
+        await run();
+      } catch (error) {
+        await this.sendTreasuryAlert({
+          key: 'treasury-sync-failed',
+          title: 'Treasury sync failed',
+          message: `Treasury sync failed with error: ${error.message}`,
+          metadata: { adminUserId, error: error.message },
+          type: 'error',
+          priority: 'critical',
+        });
+        throw error;
+      }
     }
 
     const credited = feeRevenue + dataProfit;
@@ -258,10 +531,24 @@ class TreasuryService {
       feeRevenue,
       dataProfit,
       totalCredit: credited,
+      invalidRevenueTransactions: invalidRevenueTransactions.length,
     });
+    if (invalidRevenueTransactions.length) {
+      await this.sendTreasuryAlert({
+        key: 'treasury-revenue-validation',
+        title: 'Treasury revenue validation warning',
+        message: `${invalidRevenueTransactions.length} revenue transaction(s) were skipped during treasury sync because their revenue metadata was invalid.`,
+        metadata: {
+          adminUserId,
+          count: invalidRevenueTransactions.length,
+          references: invalidRevenueTransactions.slice(0, 10).map((entry) => entry.reference),
+          items: invalidRevenueTransactions.slice(0, 10),
+        },
+      });
+    }
     await this.checkBalanceIntegrity({ action: 'sync', adminUserId });
     await this.emitTreasuryBalanceUpdate(credited > 0 ? 'sync' : 'sync_noop');
-    return { ok: true, credited, feeRevenue, dataProfit };
+    return { ok: true, credited, feeRevenue, dataProfit, invalidRevenueTransactions: invalidRevenueTransactions.length };
   }
 
   async withdrawToSettlement({ adminUserId, amount, description = null, idempotencyKey = null }) {
@@ -292,6 +579,7 @@ class TreasuryService {
     let balanceAfterDebit = null;
 
     try {
+      await this.syncRevenue({ adminUserId });
       if (idempotencyKey) {
         const fixedRef = `TRSY-WD-${sha256Hex(idempotencyKey).slice(0, 24).toUpperCase()}`;
         const existing = await TreasuryLedgerEntry.findOne({ where: { reference: fixedRef, source: 'settlement_withdrawal' } });

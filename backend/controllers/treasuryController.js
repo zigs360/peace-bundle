@@ -4,6 +4,10 @@ const logger = require('../utils/logger');
 
 const getTreasuryBalance = async (req, res) => {
   try {
+    const autoSyncEnabled = String(process.env.TREASURY_AUTO_SYNC_ON_READ || 'true').toLowerCase() !== 'false';
+    if (autoSyncEnabled) {
+      await treasuryService.syncRevenue({ adminUserId: req.user?.id || null });
+    }
     const balance = await treasuryService.getBalance();
     const lastSyncAt = await SystemSetting.get('treasury_last_sync_at', null);
     res.set('Cache-Control', 'no-store');

@@ -26,6 +26,21 @@ const requirePasswordReauth = async (req) => {
   return admin;
 };
 
+const mapDeductionError = (error) => {
+  const code = error?.code || error?.message || '';
+  const text = String(code);
+
+  if (code === 'admin_password_required') return { status: 400, message: 'Admin password is required' };
+  if (code === 'invalid_admin_password') return { status: 401, message: 'Invalid admin password' };
+  if (code === 'user_not_found') return { status: 404, message: 'User not found' };
+  if (code === 'wallet_not_found' || text === 'Wallet not found') return { status: 404, message: 'Wallet not found' };
+  if (code === 'insufficient_wallet_balance' || text === 'Insufficient wallet balance') {
+    return { status: 400, message: 'Insufficient wallet balance' };
+  }
+  if (text.startsWith('Wallet is ')) return { status: 400, message: text };
+  return null;
+};
+
 const getUserWalletSnapshot = async (req, res) => {
   try {
     const { id } = req.params;
@@ -68,12 +83,8 @@ const createWalletDeduction = async (req, res) => {
 
     res.json({ success: true, data: result.deduction, transaction: result.transaction });
   } catch (e) {
-    const code = e.code || e.message;
-    if (code === 'admin_password_required') return res.status(400).json({ success: false, message: 'Admin password is required' });
-    if (code === 'invalid_admin_password') return res.status(401).json({ success: false, message: 'Invalid admin password' });
-    if (code === 'insufficient_wallet_balance' || code === 'Insufficient wallet balance') {
-      return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
-    }
+    const mapped = mapDeductionError(e);
+    if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message });
     logger.error('Admin Wallet Deduction Error:', { error: e.message, adminId: req.user?.id });
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -123,9 +134,8 @@ const reverseWalletDeduction = async (req, res) => {
 
     res.json({ success: true, data: result.deduction, transaction: result.transaction });
   } catch (e) {
-    const code = e.code || e.message;
-    if (code === 'admin_password_required') return res.status(400).json({ success: false, message: 'Admin password is required' });
-    if (code === 'invalid_admin_password') return res.status(401).json({ success: false, message: 'Invalid admin password' });
+    const mapped = mapDeductionError(e);
+    if (mapped) return res.status(mapped.status).json({ success: false, message: mapped.message });
     logger.error('Admin Wallet Deduction Reverse Error:', { error: e.message, adminId: req.user?.id });
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -137,4 +147,3 @@ module.exports = {
   listWalletDeductions,
   reverseWalletDeduction,
 };
-

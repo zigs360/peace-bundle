@@ -6,6 +6,8 @@ const app = require('../server');
 const { connectDB, User } = require('../config/db');
 const Wallet = require('../models/Wallet');
 const AdminWalletDeduction = require('../models/AdminWalletDeduction');
+const Transaction = require('../models/Transaction');
+const walletService = require('../services/walletService');
 
 describe('Admin wallet deduction + rollback', () => {
   beforeAll(async () => {
@@ -51,6 +53,10 @@ describe('Admin wallet deduction + rollback', () => {
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
     expect(parseFloat(String(walletAfter.balance))).toBe(5000);
+
+    const txn = await Transaction.findOne({ where: { reference: res.body.data.reference } });
+    expect(txn).toBeTruthy();
+    expect(txn.source).toBe('withdrawal');
   });
 
   it('blocks invalid admin password', async () => {
@@ -78,6 +84,22 @@ describe('Admin wallet deduction + rollback', () => {
 
     expect(res.statusCode).toBe(400);
     expect(String(res.body.message).toLowerCase()).toContain('insufficient');
+  });
+
+  it('returns 404 instead of 500 when target wallet is missing', async () => {
+    const admin = await makeUser('admin', 'admin_missing_wallet');
+    const user = await makeUser('user', 'target_missing_wallet');
+    const token = jwt.sign({ id: admin.id }, process.env.JWT_SECRET);
+
+    await Wallet.destroy({ where: { userId: user.id } });
+
+    const res = await request(app)
+      .post('/api/admin/wallet/deductions')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ userId: user.id, amount: 1000, reason: 'Test', admin_password: 'password123' });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body.message).toBe('Wallet not found');
   });
 
   it('allows super-admin rollback within 24h', async () => {
@@ -108,5 +130,25 @@ describe('Admin wallet deduction + rollback', () => {
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
     expect(parseFloat(String(walletAfter.balance))).toBe(50000);
+
+    const reversalRef = reverse.body.transaction.reference;
+    const reversalTxn = await Transaction.findOne({ where: { reference: reversalRef } });
+    expect(reversalTxn).toBeTruthy();
+    expect(reversalTxn.source).toBe('refund');
+  });
+
+  it('normalizes legacy admin deduction transaction sources', async () => {
+    const user = await makeUser('user', 'legacy_source_user');
+
+    const result = await walletService.adminAdjust(
+      user,
+      -1000,
+      'admin_wallet_deduction',
+      'Legacy source compatibility test',
+      { reference: `LEGACY-${Date.now()}` }
+    );
+
+    expect(result.txn).toBeTruthy();
+    expect(result.txn.source).toBe('withdrawal');
   });
 });
