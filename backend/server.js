@@ -14,6 +14,7 @@ const notificationRealtimeService = require('./services/notificationRealtimeServ
 const { startVirtualAccountProvisioningJob } = require('./jobs/virtualAccountProvisioningJob');
 const { startAirtimeReconcileJob } = require('./jobs/airtimeReconcileJob');
 const { startWebhookAlertJob } = require('./jobs/webhookAlertJob');
+const { startWalletReconciliationJob } = require('./jobs/walletReconciliationJob');
 
 const path = require('path');
 const fs = require('fs');
@@ -219,6 +220,7 @@ if (require.main === module) {
       startVirtualAccountProvisioningJob();
       startAirtimeReconcileJob();
       startWebhookAlertJob();
+      startWalletReconciliationJob();
     });
   })();
 }

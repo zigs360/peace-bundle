@@ -2,6 +2,7 @@ const { Transaction, User, Wallet, Sim, Commission } = require('../models');
 const { Op, QueryTypes } = require('sequelize');
 const sequelize = require('../config/database');
 const logger = require('../utils/logger');
+const walletReconciliationService = require('../services/walletReconciliationService');
 
 // @desc    Get System Stats (Admin)
 // @route   GET /api/reports/stats
@@ -192,8 +193,48 @@ const getAirtimeProviderStats = async (req, res) => {
     }
 };
 
+const getWalletReconciliationReport = async (req, res) => {
+    try {
+        const includeTransactions = String(req.query.includeTransactions || 'false').toLowerCase() === 'true';
+        const userId = req.query.userId ? String(req.query.userId) : null;
+        const limitRaw = parseInt(String(req.query.limit || '500'), 10);
+        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(1000, limitRaw)) : 500;
+
+        const report = await walletReconciliationService.runReconciliation({
+            userId,
+            includeTransactions,
+            persist: true,
+            alertOnDiscrepancy: false,
+            limit,
+        });
+
+        return res.json(report);
+    } catch (error) {
+        logger.error(`[Report] Wallet reconciliation report error: ${error.message}`);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to generate wallet reconciliation report'
+        });
+    }
+};
+
+const getLatestWalletReconciliationReport = async (req, res) => {
+    try {
+        const latest = await walletReconciliationService.getLatestStoredReport();
+        return res.json({ success: true, report: latest });
+    } catch (error) {
+        logger.error(`[Report] Latest wallet reconciliation report error: ${error.message}`);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to load latest wallet reconciliation report'
+        });
+    }
+};
+
 module.exports = {
     getSystemStats,
     getChartData,
-    getAirtimeProviderStats
+    getAirtimeProviderStats,
+    getWalletReconciliationReport,
+    getLatestWalletReconciliationReport
 };

@@ -700,6 +700,18 @@ const refundTransaction = async (req, res) => {
 
             await t.commit();
 
+            try {
+                const notificationRealtimeService = require('../services/notificationRealtimeService');
+                notificationRealtimeService.emitToUser(transaction.userId, 'wallet_balance_updated', {
+                    reference: transaction.reference,
+                    amount: parseFloat(transaction.amount),
+                    gateway: 'refund',
+                    balance: await walletService.getBalance(transaction.user),
+                });
+            } catch (e) {
+                void e;
+            }
+
             res.json({
                 success: true,
                 message: 'Transaction refunded successfully',
@@ -929,7 +941,6 @@ const toggleBlockUser = async (req, res) => {
 // @route   POST /api/admin/users/:id/fund
 // @access  Private (Admin)
 const fundUserWallet = async (req, res) => {
-    const walletService = require('../services/walletService');
     const { sendEmail } = require('../services/notificationService');
     const notificationRealtimeService = require('../services/notificationRealtimeService');
     const t = await sequelize.transaction();
@@ -955,25 +966,26 @@ const fundUserWallet = async (req, res) => {
             return res.status(400).json({ message: 'Invalid amount' });
         }
 
-        // Credit Wallet
-        user.wallet.balance = parseFloat(user.wallet.balance) + numericAmount;
-        await user.wallet.save({ transaction: t });
-
-        // Create Transaction Record
-        const txn = await Transaction.create({
-            userId: user.id,
-            type: 'credit',
-            amount: numericAmount,
-            description: 'Admin Wallet Funding',
-            status: 'completed',
-            reference: `ADMIN_FUND_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-            source: 'wallet_funding'
-        }, { transaction: t });
+        const reference = `ADMIN-FUND-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const result = await walletService.adminAdjust(
+            user,
+            numericAmount,
+            'funding',
+            'Admin Wallet Funding',
+            {
+                reference,
+                kind: 'wallet_funding_admin',
+                admin_id: req.user?.id || null,
+                user_id: user.id
+            },
+            t
+        );
+        const txn = result.txn;
 
         await t.commit();
 
         try {
-            const balance = parseFloat(user.wallet.balance);
+            const balance = parseFloat(String(txn.balance_after));
             notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
                 reference: txn.reference,
                 amount: numericAmount,
@@ -1000,7 +1012,8 @@ const fundUserWallet = async (req, res) => {
 
         res.json({
             message: 'Wallet funded successfully',
-            newBalance: user.wallet.balance
+            newBalance: parseFloat(String(txn.balance_after)),
+            transaction: txn
         });
     } catch (error) {
         await t.rollback();
@@ -1708,6 +1721,17 @@ const approvePendingFundingReview = async (req, res) => {
             await txn.save({ transaction: t });
 
             await t.commit();
+            try {
+                const notificationRealtimeService = require('../services/notificationRealtimeService');
+                notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+                    reference: txn.reference,
+                    amount,
+                    gateway: 'funding_review_approval',
+                    balance: balanceAfter,
+                });
+            } catch (e) {
+                void e;
+            }
             return res.json({ success: true, message: 'Approved', transaction: txn });
         } catch (err) {
             if (t && !t.finished) await t.rollback();

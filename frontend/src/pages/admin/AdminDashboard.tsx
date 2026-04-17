@@ -191,6 +191,7 @@ export default function AdminDashboard() {
     frontendCommit &&
     backendCommit &&
     frontendCommit !== backendCommit;
+  const isCreditTransaction = (tx: any) => String(tx?.type || '').toLowerCase() === 'credit';
 
   return (
     <div className="p-6">
@@ -236,9 +237,9 @@ export default function AdminDashboard() {
                 <div key={tx.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition">
                   <div className="flex items-center">
                     <div className={`p-2 rounded-full mr-4 ${
-                      tx.type === 'fund' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                      isCreditTransaction(tx) ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
                     }`}>
-                      {tx.type === 'fund' ? <Wallet className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
+                      {isCreditTransaction(tx) ? <Wallet className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-900">{tx.description}</p>
@@ -253,9 +254,9 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className={`text-sm font-bold flex items-center ${
-                    tx.type === 'fund' ? 'text-green-600' : 'text-red-600'
+                    isCreditTransaction(tx) ? 'text-green-600' : 'text-red-600'
                   }`}>
-                    {tx.type === 'fund' ? <ArrowDownLeft className="w-4 h-4 mr-1" /> : <ArrowUpRight className="w-4 h-4 mr-1" />}
+                    {isCreditTransaction(tx) ? <ArrowDownLeft className="w-4 h-4 mr-1" /> : <ArrowUpRight className="w-4 h-4 mr-1" />}
                     ₦{Number(tx.amount).toLocaleString()}
                   </div>
                 </div>

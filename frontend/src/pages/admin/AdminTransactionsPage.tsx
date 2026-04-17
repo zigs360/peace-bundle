@@ -16,6 +16,7 @@ type Transaction = {
 export default function AdminTransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const isCreditTransaction = (tx: Transaction) => String(tx.type || '').toLowerCase() === 'credit';
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -63,11 +64,13 @@ export default function AdminTransactionsPage() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className={`p-2 rounded-full mr-3 ${
-                        tx.type === 'fund' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                        isCreditTransaction(tx) ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
                       }`}>
-                        {tx.type === 'fund' ? <Wallet className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
+                        {isCreditTransaction(tx) ? <Wallet className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
                       </div>
-                      <span className="text-sm font-medium text-gray-900 capitalize">{tx.type.replace('_', ' ')}</span>
+                      <span className={`text-sm font-medium capitalize ${isCreditTransaction(tx) ? 'text-green-700' : 'text-red-700'}`}>
+                        {tx.type.replace('_', ' ')}
+                      </span>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -75,9 +78,9 @@ export default function AdminTransactionsPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className={`flex items-center text-sm font-bold ${
-                      tx.type === 'fund' ? 'text-green-600' : 'text-red-600'
+                      isCreditTransaction(tx) ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {tx.type === 'fund' ? <ArrowDownLeft className="w-4 h-4 mr-1" /> : <ArrowUpRight className="w-4 h-4 mr-1" />}
+                      {isCreditTransaction(tx) ? <ArrowDownLeft className="w-4 h-4 mr-1" /> : <ArrowUpRight className="w-4 h-4 mr-1" />}
                       ₦{Number(tx.amount).toLocaleString()}
                     </div>
                   </td>

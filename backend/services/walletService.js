@@ -65,7 +65,8 @@ class WalletService {
         reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
         description: description,
         metadata: metadata,
-        status: 'completed'
+        status: 'completed',
+        completed_at: new Date()
       }, { transaction: transaction, returning: false });
 
       return txn;
@@ -139,7 +140,8 @@ class WalletService {
                 review_reason: exceedsCap ? 'mock_bvn_cap' : 'mock_bvn_velocity',
                 mock_bvn: true
               },
-              status: 'pending'
+              status: 'pending',
+              completed_at: null
             },
             { transaction: transaction, returning: false }
           );
@@ -226,7 +228,8 @@ class WalletService {
         reference: metadata?.reference ? String(metadata.reference) : this.generateReference(),
         description: description,
         metadata: metadata,
-        status: 'completed' 
+        status: 'completed',
+        completed_at: new Date()
       }, { transaction: transaction, returning: false });
 
       return txn;
@@ -282,6 +285,7 @@ class WalletService {
           description,
           metadata,
           status: 'completed',
+          completed_at: new Date(),
         },
         { transaction, returning: false }
       );
@@ -330,7 +334,8 @@ class WalletService {
         reference: this.generateReference(),
         description: `Transfer to ${recipient.name || recipient.email}`,
         metadata: { recipient_id: recipient.id },
-        status: 'completed'
+        status: 'completed',
+        completed_at: new Date()
       }, { transaction: transaction, returning: false });
 
       // 2. Credit Recipient
@@ -358,7 +363,8 @@ class WalletService {
         reference: this.generateReference(),
         description: `Transfer from ${sender.name || sender.email}`,
         metadata: { sender_id: sender.id },
-        status: 'completed'
+        status: 'completed',
+        completed_at: new Date()
       }, { transaction: transaction, returning: false });
 
       return {
@@ -435,7 +441,9 @@ class WalletService {
         source: 'commission',
         reference: this.generateReference(),
         description: description || 'Affiliate commission earned',
-        status: 'completed'
+        metadata: { kind: 'commission_earned' },
+        status: 'completed',
+        completed_at: new Date()
       }, { transaction: transaction, returning: false });
     };
 
@@ -484,7 +492,9 @@ class WalletService {
         source: 'commission',
         reference: this.generateReference(),
         description: 'Commission transfer to main wallet',
-        status: 'completed'
+        metadata: { kind: 'commission_transfer_to_main_balance' },
+        status: 'completed',
+        completed_at: new Date()
       }, { transaction: transaction, returning: false });
     };
 
