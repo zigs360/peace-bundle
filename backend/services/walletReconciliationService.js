@@ -29,8 +29,16 @@ const toNumber = (value) => {
 const round2 = (value) => Number(toNumber(value).toFixed(2));
 
 class WalletReconciliationService {
+  transactionHasBalanceImpact(txn) {
+    if (!txn) return false;
+    const before = toNumber(txn.balance_before);
+    const after = toNumber(txn.balance_after);
+    return Math.abs(round2(after - before)) > 0.009;
+  }
+
   transactionAffectsMainBalance(txn) {
-    if (!txn || txn.status !== 'completed') return false;
+    if (!txn) return false;
+    if (!this.transactionHasBalanceImpact(txn)) return false;
     if (MAIN_BALANCE_SOURCES.has(txn.source)) return true;
     if (txn.source === 'commission') {
       const meta = txn.metadata && typeof txn.metadata === 'object' ? txn.metadata : {};
@@ -137,7 +145,7 @@ class WalletReconciliationService {
     if (hiddenMainBalanceTransactions.length) {
       discrepancies.push({
         type: 'orphan_main_balance_transactions',
-        message: `${hiddenMainBalanceTransactions.length} completed main-balance transaction(s) are not attached to the current wallet ledger.`,
+        message: `${hiddenMainBalanceTransactions.length} wallet-affecting transaction(s) are not attached to the current wallet ledger.`,
         count: hiddenMainBalanceTransactions.length,
         references: hiddenMainBalanceTransactions.slice(0, 20).map((txn) => txn.reference),
       });

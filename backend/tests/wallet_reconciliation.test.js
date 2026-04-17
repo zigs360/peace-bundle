@@ -142,6 +142,46 @@ describe('Wallet reconciliation system', () => {
     expect(alert).toBeTruthy();
   });
 
+  it('does not flag ledger sequence inconsistency for refunded debits that already changed balance', async () => {
+    const { user, wallet } = await makeUser('user', 'recon_refunded_user');
+    await wallet.update({ balance: 450 });
+
+    const original = await Transaction.create({
+      userId: user.id,
+      walletId: wallet.id,
+      type: 'debit',
+      amount: 100,
+      balance_before: 450,
+      balance_after: 350,
+      source: 'airtime_purchase',
+      reference: `REFUND-ORIG-${Date.now()}`,
+      description: 'Airtime purchase later refunded',
+      status: 'refunded',
+      completed_at: new Date(),
+    });
+
+    await Transaction.create({
+      userId: user.id,
+      walletId: wallet.id,
+      type: 'credit',
+      amount: 100,
+      balance_before: 350,
+      balance_after: 450,
+      source: 'refund',
+      reference: `REFUND-CREDIT-${Date.now()}`,
+      description: `Refund for failed airtime purchase: ${original.reference}`,
+      metadata: { original_reference: original.reference },
+      status: 'completed',
+      completed_at: new Date(),
+    });
+
+    const report = await walletReconciliationService.buildUserReport(user.id, { includeTransactions: true });
+    expect(report.ok).toBe(true);
+    expect(report.summary.latestLedgerBalance).toBe(450);
+    expect(report.summary.actualBalance).toBe(450);
+    expect(report.discrepancies.some((item) => item.type === 'ledger_sequence_inconsistency')).toBe(false);
+  });
+
   it('exposes reconciliation reports through the admin reports API', async () => {
     const { user: admin } = await makeUser('admin', 'recon_admin_route');
     const token = jwt.sign({ id: admin.id }, process.env.JWT_SECRET);
