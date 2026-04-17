@@ -5,11 +5,11 @@ const { connectDB, User } = require('../config/db');
 const Wallet = require('../models/Wallet');
 const VoiceBundlePurchase = require('../models/VoiceBundlePurchase');
 
-describe('Airtel Talk More purchase flow', () => {
+describe('Call sub Airtel purchase flow', () => {
   beforeAll(async () => {
     await connectDB();
     process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret';
-    process.env.AIRTEL_TALKMORE_MODE = 'mock';
+    process.env.CALL_SUB_AIRTEL_MODE = 'mock';
   });
 
   beforeEach(async () => {
@@ -18,8 +18,8 @@ describe('Airtel Talk More purchase flow', () => {
 
   const makeUserWithBalance = async (balance) => {
     const user = await User.create({
-      name: 'TalkMore User',
-      email: `talkmore_${Date.now()}@test.com`,
+      name: 'Call Sub User',
+      email: `callsub_${Date.now()}@test.com`,
       phone: `0802${Math.floor(Math.random() * 10000000).toString().padStart(7, '0')}`,
       password: 'password123',
       role: 'user',
@@ -30,22 +30,36 @@ describe('Airtel Talk More purchase flow', () => {
     return user;
   };
 
-  it('lists Airtel Talk More bundles', async () => {
-    const res = await request(app).get('/api/callplans/airtel-talk-more/bundles');
+  it('lists call sub providers', async () => {
+    const res = await request(app).get('/api/callplans/call-sub/providers');
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'airtel',
+          label: 'Airtel',
+        }),
+      ])
+    );
+  });
+
+  it('lists Airtel call sub bundles', async () => {
+    const res = await request(app).get('/api/callplans/call-sub/airtel/bundles');
     expect(res.statusCode).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
     expect(res.body.data.length).toBeGreaterThan(0);
   });
 
-  it('purchases a bundle and records purchase history', async () => {
+  it('purchases an Airtel bundle and records history', async () => {
     const user = await makeUserWithBalance(10000);
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
-    const bundles = await request(app).get('/api/callplans/airtel-talk-more/bundles');
+    const bundles = await request(app).get('/api/callplans/call-sub/airtel/bundles');
     const bundle = bundles.body.data[0];
 
     const res = await request(app)
-      .post(`/api/callplans/airtel-talk-more/${bundle.id}/purchase`)
+      .post(`/api/callplans/call-sub/airtel/${bundle.id}/purchase`)
       .set('Authorization', `Bearer ${token}`)
       .send({ recipientPhoneNumber: '08081234567' });
 
@@ -54,7 +68,7 @@ describe('Airtel Talk More purchase flow', () => {
     expect(res.body.data.reference).toBeTruthy();
 
     const history = await request(app)
-      .get('/api/callplans/airtel-talk-more/history')
+      .get('/api/callplans/call-sub/airtel/history')
       .set('Authorization', `Bearer ${token}`);
 
     expect(history.statusCode).toBe(200);
@@ -66,11 +80,11 @@ describe('Airtel Talk More purchase flow', () => {
   it('rejects invalid phone number', async () => {
     const user = await makeUserWithBalance(10000);
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
-    const bundles = await request(app).get('/api/callplans/airtel-talk-more/bundles');
+    const bundles = await request(app).get('/api/callplans/call-sub/airtel/bundles');
     const bundle = bundles.body.data[0];
 
     const res = await request(app)
-      .post(`/api/callplans/airtel-talk-more/${bundle.id}/purchase`)
+      .post(`/api/callplans/call-sub/airtel/${bundle.id}/purchase`)
       .set('Authorization', `Bearer ${token}`)
       .send({ recipientPhoneNumber: '123' });
 
@@ -80,11 +94,11 @@ describe('Airtel Talk More purchase flow', () => {
   it('rejects purchase when wallet is insufficient', async () => {
     const user = await makeUserWithBalance(10);
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
-    const bundles = await request(app).get('/api/callplans/airtel-talk-more/bundles');
-    const bundle = bundles.body.data.find((b) => Number(b.price) >= 100) || bundles.body.data[0];
+    const bundles = await request(app).get('/api/callplans/call-sub/airtel/bundles');
+    const bundle = bundles.body.data.find((item) => Number(item.price) >= 100) || bundles.body.data[0];
 
     const res = await request(app)
-      .post(`/api/callplans/airtel-talk-more/${bundle.id}/purchase`)
+      .post(`/api/callplans/call-sub/airtel/${bundle.id}/purchase`)
       .set('Authorization', `Bearer ${token}`)
       .send({ recipientPhoneNumber: '08081234567' });
 
@@ -92,4 +106,3 @@ describe('Airtel Talk More purchase flow', () => {
     expect(String(res.body.message).toLowerCase()).toContain('insufficient');
   });
 });
-

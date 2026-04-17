@@ -11,7 +11,7 @@ import { useNotifications } from '../../context/NotificationContext';
 const SERVICE_LABELS: Record<string, string> = {
   airtime: 'Airtime',
   data: 'Data Bundle',
-  talkmore: 'TalkMore',
+  callsub: 'Call Sub',
 };
 
 export default function BuyAirtime() {
@@ -295,7 +295,7 @@ export default function BuyAirtime() {
                           setServiceType(rec.type);
                           if (rec.type === 'data') {
                             setAmount(rec.amount.toString());
-                          } else if (rec.type === 'talkmore') {
+                          } else if (rec.type === 'callsub') {
                             setAmount(rec.amount.toString());
                             if (rec.planId) setPlanId(rec.planId);
                           } else {
@@ -328,9 +328,9 @@ export default function BuyAirtime() {
                     ))}
                   </select>
                 </div>
-              ) : serviceType === 'talkmore' && voiceBundles.length > 0 ? (
+              ) : serviceType === 'callsub' && voiceBundles.length > 0 ? (
                 <div>
-                  <label className="block text-gray-700 font-bold mb-2">Select TalkMore Plan</label>
+                  <label className="block text-gray-700 font-bold mb-2">Select Call Sub Plan</label>
                   <select
                     value={planId}
                     onChange={(e) => {
@@ -341,7 +341,7 @@ export default function BuyAirtime() {
                     className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
                     required
                   >
-                    <option value="">Choose TalkMore plan...</option>
+                    <option value="">Choose call sub plan...</option>
                     {voiceBundles.map((bundle) => (
                       <option key={bundle.id} value={bundle.api_plan_id}>
                         {bundle.plan_name} - ₦{bundle.amount} ({bundle.validity})
@@ -384,13 +384,13 @@ export default function BuyAirtime() {
                 <div className="mt-6 p-6 bg-green-50 rounded-2xl border-2 border-green-200 text-center animate-pulse">
                   <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
                   <h3 className="text-xl font-bold text-green-800 mb-2">Purchase Successful!</h3>
-                  <p className="text-green-700 mb-6 font-medium">To activate TalkMore, click the button below or dial <span className="font-bold">{activationCode}</span></p>
+                  <p className="text-green-700 mb-6 font-medium">To activate Call Sub, click the button below or dial <span className="font-bold">{activationCode}</span></p>
                   <button
                     type="button"
                     onClick={() => handleDeepLinkDial(activationCode)}
                     className="w-full bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-500/30 flex items-center justify-center"
                   >
-                    Activate TalkMore (Dialer)
+                    Activate Call Sub (Dialer)
                   </button>
                 </div>
               )}

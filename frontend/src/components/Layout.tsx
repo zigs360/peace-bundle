@@ -231,9 +231,9 @@ export default function Layout() {
             {!isCollapsed && <span>Wallet Deduct</span>}
           </Link>
 
-          <Link to="/admin/airtel-talk-more" className={getLinkClasses('/admin/airtel-talk-more')} title={isCollapsed ? "TalkMore" : ""}>
-            <PhoneCall className={getIconClasses('/admin/airtel-talk-more')} />
-            {!isCollapsed && <span>Talk More</span>}
+          <Link to="/admin/call-sub" className={getLinkClasses('/admin/call-sub')} title={isCollapsed ? "Call Sub" : ""}>
+            <PhoneCall className={getIconClasses('/admin/call-sub')} />
+            {!isCollapsed && <span>Call Sub</span>}
           </Link>
 
           <Link to="/admin/bulk-sms" className={getLinkClasses('/admin/bulk-sms')} title={isCollapsed ? "Bulk SMS" : ""}>

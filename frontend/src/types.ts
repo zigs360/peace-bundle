@@ -46,10 +46,8 @@ export interface Transaction {
 
 export interface DashboardStats {
   balance: number;
-  totalSpent: number;
-  totalFunded: number;
-  referrals: number;
-  transactions: Transaction[];
+  transactionsCount: number;
+  recentTransactions: Transaction[];
 }
 
 export interface ApiResponse<T = any> {

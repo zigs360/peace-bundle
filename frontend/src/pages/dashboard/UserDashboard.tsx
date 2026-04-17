@@ -89,7 +89,7 @@ export default function UserDashboard() {
       {/* Virtual Account Section */}
       <VirtualAccountWidget state={va} onReveal={revealVa} onCopy={auditCopy} onRetry={refreshVa} onRequest={requestVa} variant="dashboard" />
 
-      <StaggerContainer className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+      <StaggerContainer className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-2 mb-8">
         <StaggerItem>
           <StatCard 
             title="Wallet Balance" 
@@ -100,24 +100,8 @@ export default function UserDashboard() {
         </StaggerItem>
         <StaggerItem>
           <StatCard 
-            title="Total Spent" 
-            value={`₦${stats?.totalSpent?.toLocaleString() || 0}`} 
-            icon={<Activity className="w-6 h-6 text-secondary" />} 
-            borderClass="border-secondary"
-          />
-        </StaggerItem>
-        <StaggerItem>
-          <StatCard 
-            title="Total Funded" 
-            value={`₦${stats?.totalFunded?.toLocaleString() || 0}`} 
-            icon={<Wallet className="w-6 h-6 text-primary-600" />} 
-            borderClass="border-primary-500"
-          />
-        </StaggerItem>
-        <StaggerItem>
-          <StatCard 
-            title="Referrals" 
-            value={stats?.referrals || 0} 
+            title="Recent Transactions" 
+            value={stats?.transactionsCount || 0} 
             icon={<Activity className="w-6 h-6 text-secondary" />} 
             borderClass="border-secondary"
           />
@@ -163,8 +147,8 @@ export default function UserDashboard() {
             <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">View All</button>
           </div>
           <div className="divide-y divide-gray-200">
-            {stats?.transactions && stats.transactions.length > 0 ? (
-              stats.transactions.map((tx) => (
+            {stats?.recentTransactions && stats.recentTransactions.length > 0 ? (
+              stats.recentTransactions.map((tx) => (
                 <div key={tx.id} className="px-6 py-4 flex items-center justify-between">
                   <div className="flex items-center">
                     <div className={`p-2 rounded-full ${

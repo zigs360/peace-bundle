@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import api from '../../services/api';
-import { useNotifications } from '../../context/NotificationContext';
-import { getStoredUser } from '../../utils/storage';
+import api from '../../../services/api';
+import { useNotifications } from '../../../context/NotificationContext';
+import { getStoredUser } from '../../../utils/storage';
 import { PhoneCall, Wallet, RefreshCw } from 'lucide-react';
 
 type Bundle = {
@@ -26,16 +26,16 @@ type Purchase = {
   createdAt: string;
 };
 
-const formatPhone = (v: string) => v.replace(/[^0-9+]/g, '');
+const formatPhone = (value: string) => value.replace(/[^0-9+]/g, '');
 
-const isValidNgPhone = (v: string) => {
-  const clean = formatPhone(v);
+const isValidNgPhone = (value: string) => {
+  const clean = formatPhone(value);
   const normalized = clean.startsWith('+234') ? `0${clean.slice(4)}` : clean.startsWith('234') ? `0${clean.slice(3)}` : clean;
   const withZero = normalized.length === 10 && !normalized.startsWith('0') ? `0${normalized}` : normalized;
   return /^0\d{10}$/.test(withZero);
 };
 
-export default function AirtelTalkMore() {
+export default function Airtel() {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [history, setHistory] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,13 +53,13 @@ export default function AirtelTalkMore() {
   }, [walletBalance, walletBalanceUpdatedAt, statsBalance]);
 
   const refresh = async (uid: string) => {
-    const [bundleRes, histRes, statsRes] = await Promise.all([
-      api.get('/callplans/airtel-talk-more/bundles'),
-      api.get('/callplans/airtel-talk-more/history', { params: { limit: 20, page: 1 } }),
+    const [bundleRes, historyRes, statsRes] = await Promise.all([
+      api.get('/callplans/call-sub/airtel/bundles'),
+      api.get('/callplans/call-sub/airtel/history', { params: { limit: 20, page: 1 } }),
       api.get(`/transactions/stats/${encodeURIComponent(uid)}`),
     ]);
     setBundles(bundleRes.data?.data || []);
-    setHistory(histRes.data?.rows || []);
+    setHistory(historyRes.data?.rows || []);
     setStatsBalance(Number(statsRes.data?.balance || 0));
   };
 
@@ -83,15 +83,15 @@ export default function AirtelTalkMore() {
   }, []);
 
   const grouped = useMemo(() => {
-    const minuteBundles = bundles.filter((b) => Number(b.minutes || 0) > 0);
-    const validityBundles = bundles.filter((b) => Number(b.minutes || 0) === 0);
+    const minuteBundles = bundles.filter((bundle) => Number(bundle.minutes || 0) > 0);
+    const validityBundles = bundles.filter((bundle) => Number(bundle.minutes || 0) === 0);
     return { minuteBundles, validityBundles };
   }, [bundles]);
 
-  const priceFor = (b: Bundle) => {
-    const v = b.effective_price !== undefined ? b.effective_price : b.price;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
+  const priceFor = (bundle: Bundle) => {
+    const value = bundle.effective_price !== undefined ? bundle.effective_price : bundle.price;
+    const amount = Number(value);
+    return Number.isFinite(amount) ? amount : 0;
   };
 
   const submit = async () => {
@@ -100,23 +100,23 @@ export default function AirtelTalkMore() {
       alert('Enter a valid Nigerian phone number');
       return;
     }
-    const amt = priceFor(selected);
-    if (amt > displayBalance) {
+    const amount = priceFor(selected);
+    if (amount > displayBalance) {
       alert('Insufficient wallet balance. Please fund your wallet.');
       return;
     }
-    const confirmText = `Confirm Airtel Talk More purchase\n\nBundle: ${selected.name}\nAmount: ₦${amt.toLocaleString()}\nPhone: ${phone}`;
+    const confirmText = `Confirm Airtel call bundle purchase\n\nBundle: ${selected.name}\nAmount: ₦${amount.toLocaleString()}\nPhone: ${phone}`;
     if (!window.confirm(confirmText)) return;
 
     setPurchasing(true);
     try {
-      const res = await api.post(`/callplans/airtel-talk-more/${selected.id}/purchase`, { recipientPhoneNumber: phone });
+      const res = await api.post(`/callplans/call-sub/airtel/${selected.id}/purchase`, { recipientPhoneNumber: phone });
       setConfirmation(res.data?.data || null);
       setSelected(null);
       setPhone('');
       if (userId) await refresh(userId);
-    } catch (err: any) {
-      alert(err.response?.data?.message || 'Purchase failed');
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Purchase failed');
       if (userId) await refresh(userId);
     } finally {
       setPurchasing(false);
@@ -126,14 +126,14 @@ export default function AirtelTalkMore() {
   if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center">
+          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
             <PhoneCall className="w-6 h-6 mr-2 text-primary-600" />
-            Airtel Talk More
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">Buy Airtel voice bundles directly from your wallet balance.</p>
+            Airtel
+          </h2>
+          <p className="text-sm text-gray-500 mt-1">Buy Airtel call bundles directly from your wallet balance.</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm">
           <Wallet className="w-5 h-5 text-primary-600" />
@@ -172,7 +172,7 @@ export default function AirtelTalkMore() {
         <div className="text-sm font-black text-gray-800 mb-3">Target Phone Number</div>
         <input
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
+          onChange={(event) => setPhone(event.target.value)}
           placeholder="e.g. 08081234567"
           className="w-full md:max-w-md border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200"
         />
@@ -183,20 +183,20 @@ export default function AirtelTalkMore() {
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
           <div className="text-sm font-black text-gray-800 mb-4">Minute Bundles</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {grouped.minuteBundles.map((b) => {
-              const amt = priceFor(b);
-              const active = selected?.id === b.id;
+            {grouped.minuteBundles.map((bundle) => {
+              const amount = priceFor(bundle);
+              const active = selected?.id === bundle.id;
               return (
                 <button
-                  key={b.id}
-                  onClick={() => setSelected(b)}
+                  key={bundle.id}
+                  onClick={() => setSelected(bundle)}
                   className={`text-left p-4 rounded-2xl border transition-all ${
                     active ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'
                   }`}
                 >
-                  <div className="text-sm font-black text-gray-900">{b.minutes} mins</div>
-                  <div className="text-xs text-gray-500 mt-1">{b.validityDays} days validity</div>
-                  <div className="text-lg font-black text-primary-700 mt-2">₦{amt.toLocaleString()}</div>
+                  <div className="text-sm font-black text-gray-900">{bundle.minutes} mins</div>
+                  <div className="text-xs text-gray-500 mt-1">{bundle.validityDays} days validity</div>
+                  <div className="text-lg font-black text-primary-700 mt-2">₦{amount.toLocaleString()}</div>
                 </button>
               );
             })}
@@ -206,20 +206,20 @@ export default function AirtelTalkMore() {
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
           <div className="text-sm font-black text-gray-800 mb-4">Validity Bundles</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {grouped.validityBundles.map((b) => {
-              const amt = priceFor(b);
-              const active = selected?.id === b.id;
+            {grouped.validityBundles.map((bundle) => {
+              const amount = priceFor(bundle);
+              const active = selected?.id === bundle.id;
               return (
                 <button
-                  key={b.id}
-                  onClick={() => setSelected(b)}
+                  key={bundle.id}
+                  onClick={() => setSelected(bundle)}
                   className={`text-left p-4 rounded-2xl border transition-all ${
                     active ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'
                   }`}
                 >
-                  <div className="text-sm font-black text-gray-900">{b.validityDays} days</div>
-                  <div className="text-xs text-gray-500 mt-1">Talk More validity package</div>
-                  <div className="text-lg font-black text-primary-700 mt-2">₦{amt.toLocaleString()}</div>
+                  <div className="text-sm font-black text-gray-900">{bundle.validityDays} days</div>
+                  <div className="text-xs text-gray-500 mt-1">Call bundle validity package</div>
+                  <div className="text-lg font-black text-primary-700 mt-2">₦{amount.toLocaleString()}</div>
                 </button>
               );
             })}
@@ -258,18 +258,18 @@ export default function AirtelTalkMore() {
               </tr>
             </thead>
             <tbody>
-              {history.map((h) => (
-                <tr key={h.reference} className="border-t border-gray-100">
-                  <td className="py-2 pr-4">{new Date(h.createdAt).toLocaleString()}</td>
-                  <td className="py-2 pr-4 font-mono">{h.recipientPhoneNumber}</td>
-                  <td className="py-2 pr-4">{h.minutes > 0 ? `${h.minutes} mins` : `${h.validityDays} days`}</td>
-                  <td className="py-2 pr-4 font-black">₦{Number(h.amountCharged || 0).toLocaleString()}</td>
+              {history.map((item) => (
+                <tr key={item.reference} className="border-t border-gray-100">
+                  <td className="py-2 pr-4">{new Date(item.createdAt).toLocaleString()}</td>
+                  <td className="py-2 pr-4 font-mono">{item.recipientPhoneNumber}</td>
+                  <td className="py-2 pr-4">{item.minutes > 0 ? `${item.minutes} mins` : `${item.validityDays} days`}</td>
+                  <td className="py-2 pr-4 font-black">₦{Number(item.amountCharged || 0).toLocaleString()}</td>
                   <td className="py-2 pr-4">
-                    <span className={`font-black ${h.status === 'completed' ? 'text-green-700' : h.status === 'failed' ? 'text-red-700' : 'text-gray-600'}`}>
-                      {h.status}
+                    <span className={`font-black ${item.status === 'completed' ? 'text-green-700' : item.status === 'failed' ? 'text-red-700' : 'text-gray-600'}`}>
+                      {item.status}
                     </span>
                   </td>
-                  <td className="py-2 pr-4 font-mono text-xs">{h.reference}</td>
+                  <td className="py-2 pr-4 font-mono text-xs">{item.reference}</td>
                 </tr>
               ))}
               {history.length === 0 && (
@@ -286,4 +286,3 @@ export default function AirtelTalkMore() {
     </div>
   );
 }
-

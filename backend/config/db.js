@@ -292,34 +292,37 @@ const connectDB = async () => {
       console.log('Database Synced');
 
       try {
-        const { bundles } = require('../services/airtelTalkMoreCatalog');
+        const { getAllCallSubProviders } = require('../services/callSubCatalog');
+        const providers = Object.values(getAllCallSubProviders());
         await Promise.all(
-          (bundles || []).map(async (b) => {
-            const existing = await CallPlan.findOne({ where: { provider: 'airtel', api_plan_id: b.code } });
-            if (existing) {
-              existing.name = b.name;
-              existing.price = b.price;
-              existing.minutes = b.minutes;
-              existing.validityDays = b.validityDays;
-              existing.status = 'active';
-              existing.type = 'voice';
-              await existing.save();
-              return;
-            }
-            await CallPlan.create({
-              name: b.name,
-              provider: 'airtel',
-              price: b.price,
-              minutes: b.minutes,
-              validityDays: b.validityDays,
-              status: 'active',
-              type: 'voice',
-              api_plan_id: b.code,
-            });
-          }),
+          providers.flatMap((provider) =>
+            (provider.bundles || []).map(async (bundle) => {
+              const existing = await CallPlan.findOne({ where: { provider: provider.key, api_plan_id: bundle.code } });
+              if (existing) {
+                existing.name = bundle.name;
+                existing.price = bundle.price;
+                existing.minutes = bundle.minutes;
+                existing.validityDays = bundle.validityDays;
+                existing.status = 'active';
+                existing.type = 'voice';
+                await existing.save();
+                return;
+              }
+              await CallPlan.create({
+                name: bundle.name,
+                provider: provider.key,
+                price: bundle.price,
+                minutes: bundle.minutes,
+                validityDays: bundle.validityDays,
+                status: 'active',
+                type: 'voice',
+                api_plan_id: bundle.code,
+              });
+            }),
+          ),
         );
       } catch (e) {
-        console.error('Airtel Talk More seed failed:', e.message);
+        console.error('Call Sub seed failed:', e.message);
       }
 
       if (process.env.NODE_ENV !== 'test') {

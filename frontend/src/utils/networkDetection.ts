@@ -40,18 +40,18 @@ export const detectNetwork = (phone: string): string | null => {
 };
 
 export const networkServices: Record<string, Record<string, boolean>> = {
-  airtel: { airtime: true, data: true, talkmore: true },
-  mtn: { airtime: true, data: true, talkmore: false },
-  glo: { airtime: true, data: true, talkmore: false },
-  '9mobile': { airtime: true, data: true, talkmore: false },
+  airtel: { airtime: true, data: true, callsub: true },
+  mtn: { airtime: true, data: true, callsub: false },
+  glo: { airtime: true, data: true, callsub: false },
+  '9mobile': { airtime: true, data: true, callsub: false },
 };
 
 export const recommendations: Record<string, { title: string, amount: number, type: string, planId?: string }[]> = {
   airtel: [
-    { title: 'TalkMore 100', amount: 100, type: 'talkmore', planId: 'TM100' },
-    { title: 'TalkMore 200', amount: 200, type: 'talkmore', planId: 'TM200' },
-    { title: 'TalkMore 500 (Recommended)', amount: 500, type: 'talkmore', planId: 'TM500' },
-    { title: 'TalkMore 1000', amount: 1000, type: 'talkmore', planId: 'TM1000' },
+    { title: 'Call Sub 100', amount: 100, type: 'callsub', planId: 'TM100' },
+    { title: 'Call Sub 200', amount: 200, type: 'callsub', planId: 'TM200' },
+    { title: 'Call Sub 500 (Recommended)', amount: 500, type: 'callsub', planId: 'TM500' },
+    { title: 'Call Sub 1000', amount: 1000, type: 'callsub', planId: 'TM1000' },
   ],
   mtn: [
     { title: '1GB Data (Recommended)', amount: 350, type: 'data' },

@@ -1029,25 +1029,6 @@ const getDashboardStats = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Total Spent
-        const totalSpent = await Transaction.sum('amount', {
-            where: { 
-                walletId: user.wallet.id, 
-                type: 'debit',
-                status: 'completed'
-            }
-        }) || 0;
-
-        // Total Funded
-        const totalFunded = await Transaction.sum('amount', {
-            where: { 
-                walletId: user.wallet.id, 
-                type: 'credit',
-                source: 'funding',
-                status: 'completed'
-            }
-        }) || 0;
-
         const transactionsCount = await Transaction.count({
             where: { walletId: user.wallet.id }
         });
@@ -1060,8 +1041,6 @@ const getDashboardStats = async (req, res) => {
         });
 
         res.json({
-            totalSpent,
-            totalFunded,
             transactionsCount,
             balance: parseFloat(user.wallet.balance || 0),
             commission: parseFloat(user.wallet.commission_balance || 0),

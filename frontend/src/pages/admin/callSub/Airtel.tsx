@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import api from '../../services/api';
+import api from '../../../services/api';
 
-export default function AirtelTalkMoreAnalytics() {
+export default function Airtel() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
 
   useEffect(() => {
     const run = async () => {
       try {
-        const res = await api.get('/callplans/admin/airtel-talk-more/analytics');
+        const res = await api.get('/callplans/admin/call-sub/airtel/analytics');
         setData(res.data);
       } finally {
         setLoading(false);
@@ -21,10 +21,10 @@ export default function AirtelTalkMoreAnalytics() {
   if (!data?.success) return <div className="p-6">Failed to load analytics</div>;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Airtel Talk More Analytics</h1>
-        <p className="text-sm text-gray-500 mt-1">Bundle usage and revenue overview (last 30 days).</p>
+        <h2 className="text-2xl font-bold text-gray-900">Airtel</h2>
+        <p className="text-sm text-gray-500 mt-1">Bundle usage and revenue overview for the last 30 days.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -59,12 +59,12 @@ export default function AirtelTalkMoreAnalytics() {
               </tr>
             </thead>
             <tbody>
-              {(data.bundles || []).map((b: any) => (
-                <tr key={b.key} className="border-t border-gray-100">
-                  <td className="py-2 pr-4 font-mono text-xs">{b.key}</td>
-                  <td className="py-2 pr-4 font-black">{b.count}</td>
-                  <td className="py-2 pr-4 font-black text-green-700">{b.completed}</td>
-                  <td className="py-2 pr-4 font-black">₦{Number(b.amount || 0).toLocaleString()}</td>
+              {(data.bundles || []).map((bundle: any) => (
+                <tr key={bundle.key} className="border-t border-gray-100">
+                  <td className="py-2 pr-4 font-mono text-xs">{bundle.key}</td>
+                  <td className="py-2 pr-4 font-black">{bundle.count}</td>
+                  <td className="py-2 pr-4 font-black text-green-700">{bundle.completed}</td>
+                  <td className="py-2 pr-4 font-black">₦{Number(bundle.amount || 0).toLocaleString()}</td>
                 </tr>
               ))}
               {(!data.bundles || data.bundles.length === 0) && (
@@ -81,4 +81,3 @@ export default function AirtelTalkMoreAnalytics() {
     </div>
   );
 }
-

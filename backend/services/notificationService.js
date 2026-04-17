@@ -8,6 +8,22 @@ const isPlaceholder = (value) => {
     return !str || str.includes('your_') || str.includes('example') || str.includes('ethereal_');
 };
 
+const getErrorText = (error) => {
+    const parts = [
+        error?.message,
+        error?.response?.data?.message,
+        error?.response?.data?.error,
+        error?.response?.statusText,
+    ].filter(Boolean);
+    return parts.join(' ').toLowerCase();
+};
+
+const isSmsProviderBalanceError = (error) => {
+    const status = Number(error?.response?.status || 0);
+    const text = getErrorText(error);
+    return status === 400 && text.includes('insufficient balance');
+};
+
 const resolveSmtpSettings = () => {
     const host = isPlaceholder(process.env.SMTP_HOST) ? process.env.gmail_host : (process.env.SMTP_HOST || process.env.gmail_host);
     const portRaw = isPlaceholder(process.env.SMTP_PORT) ? process.env.gmail_port : (process.env.SMTP_PORT || process.env.gmail_port);
@@ -104,7 +120,7 @@ const sendEmail = async (to, subject, text, html) => {
 const sendSMS = async (phone, message, options = {}) => {
     try {
         if (process.env.NODE_ENV === 'test') return;
-        if (!phone) return;
+        if (!phone) return { success: false, skipped: true, reason: 'missing_phone' };
 
         const digitsOnly = String(phone || '').replace(/[^\d+]/g, '');
         let formattedPhone = digitsOnly.startsWith('+') ? digitsOnly.slice(1) : digitsOnly;
@@ -138,19 +154,43 @@ const sendSMS = async (phone, message, options = {}) => {
                 String(response.data?.message || '').toLowerCase().includes('success');
             if (ok) {
                 logger.info('[Termii SMS] Sent', { to: formattedPhone });
+                return { success: true, provider: 'termii', to: formattedPhone, response: response.data };
             } else {
                 logger.warn('[Termii SMS] Non-success response', { to: formattedPhone, response: response.data });
+                return { success: false, provider: 'termii', to: formattedPhone, response: response.data };
             }
         } else {
-            // Fallback to mock log if credentials are missing
             logger.info('[Mock SMS] Missing credentials', { to: formattedPhone });
+            return { success: false, skipped: true, reason: 'provider_not_configured', to: formattedPhone };
         }
     } catch (error) {
+        if (isSmsProviderBalanceError(error)) {
+            logger.warn('[SMS] Provider balance exhausted', {
+                to: String(phone || ''),
+                status: error.response?.status,
+                response: error.response?.data,
+            });
+            return {
+                success: false,
+                provider: 'termii',
+                retryable: false,
+                reason: 'provider_insufficient_balance',
+                status: error.response?.status,
+            };
+        }
+
         logger.error('Error sending SMS', {
             error: error.message,
             status: error.response?.status,
             response: error.response?.data,
         });
+        return {
+            success: false,
+            provider: String(process.env.SMS_PROVIDER || '').trim().toLowerCase() || 'unknown',
+            retryable: true,
+            reason: 'provider_request_failed',
+            status: error.response?.status,
+        };
     }
 };
 

@@ -160,9 +160,9 @@ export default function UserLayout() {
             {!isCollapsed && <span>Airtime</span>}
           </Link>
 
-          <Link to="/dashboard/airtel-talk-more" className={getLinkClasses('/dashboard/airtel-talk-more')} title={isCollapsed ? "Talk More" : ""}>
-            <PhoneCall className={getIconClasses('/dashboard/airtel-talk-more')} />
-            {!isCollapsed && <span>Airtel Talk More</span>}
+          <Link to="/dashboard/call-sub" className={getLinkClasses('/dashboard/call-sub')} title={isCollapsed ? "Call Sub" : ""}>
+            <PhoneCall className={getIconClasses('/dashboard/call-sub')} />
+            {!isCollapsed && <span>Call Sub</span>}
           </Link>
 
           <Link to="/dashboard/transfer" className={getLinkClasses('/dashboard/transfer')} title={isCollapsed ? "Transfer" : ""}>
