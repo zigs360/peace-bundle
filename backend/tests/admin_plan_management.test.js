@@ -152,4 +152,31 @@ describe('Admin plan management', () => {
     const historyCount = await PlanPriceHistory.count({ where: { reason: 'Quarterly adjustment' } });
     expect(historyCount).toBe(2);
   });
+
+  it('imports plans from an uploaded csv file', async () => {
+    const csv = [
+      'Plan Name,Plan ID,Validity,Teleco Price,Our Price,Wallet Price,Network,Source',
+      '2GB [GIFTING],30002,7 Days,900,855,880,Airtel,ogdams',
+    ].join('\n');
+
+    const res = await request(app)
+      .post('/api/admin/plans/import')
+      .set('Authorization', `Bearer ${token}`)
+      .field('dryRun', 'false')
+      .attach('file', Buffer.from(csv, 'utf8'), 'airtel-plans.csv');
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.summary.created).toBe(1);
+
+    const imported = await DataPlan.findOne({
+      where: {
+        provider: 'airtel',
+        plan_id: '30002',
+      },
+    });
+    expect(imported).toBeTruthy();
+    expect(imported.source).toBe('ogdams');
+    expect(Number(imported.your_price)).toBe(855);
+    expect(Number(imported.wallet_price)).toBe(880);
+  });
 });

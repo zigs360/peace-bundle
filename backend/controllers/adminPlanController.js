@@ -1,7 +1,9 @@
 const { Op } = require('sequelize');
+const fs = require('fs');
 const sequelize = require('../config/database');
 const { DataPlan, PlanPriceHistory } = require('../config/db');
 const logger = require('../utils/logger');
+const { importPlanFile } = require('../scripts/importDataPlans');
 
 const EDITABLE_FIELDS = new Set([
   'your_price',
@@ -578,6 +580,47 @@ const createPlan = async (req, res) => {
   }
 };
 
+const importPlansFromFile = async (req, res) => {
+  const filePath = req.file?.path;
+  try {
+    if (!req.file || !filePath) {
+      return res.status(400).json({ success: false, message: 'CSV or JSON file is required' });
+    }
+
+    const source = req.body?.source ? String(req.body.source).toLowerCase() : undefined;
+    const network = req.body?.network ? String(req.body.network).toLowerCase() : undefined;
+    const dryRun = String(req.body?.dryRun || 'false').toLowerCase() === 'true';
+
+    const result = await importPlanFile({
+      filePath,
+      source,
+      network,
+      dryRun,
+    });
+
+    return res.json({
+      success: true,
+      message: dryRun
+        ? `Import preview ready for ${result.imported.length} plans`
+        : `Imported plans successfully. Created ${result.summary.created}, updated ${result.summary.updated}, skipped ${result.summary.skipped}.`,
+      summary: result.summary,
+      dryRun,
+      sample: result.imported.slice(0, 10),
+    });
+  } catch (error) {
+    logger.error('[AdminPlans] import failed', { error: error.message });
+    return res.status(400).json({ success: false, message: error.message || 'Plan import failed' });
+  } finally {
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (e) {
+        void e;
+      }
+    }
+  }
+};
+
 module.exports = {
   listPlans,
   getPlanFilters,
@@ -592,4 +635,5 @@ module.exports = {
   getRecentPriceUpdates,
   getCheapestPlans,
   createPlan,
+  importPlansFromFile,
 };

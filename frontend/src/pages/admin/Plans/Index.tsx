@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../../services/api';
-import { Download, Eye, Plus, Save, Search } from 'lucide-react';
+import { Download, Eye, Plus, Save, Search, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 type Plan = {
@@ -61,6 +61,13 @@ export default function PlansIndex() {
   const [bulkPreview, setBulkPreview] = useState<any[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [modalState, setModalState] = useState<Partial<Plan> & { reason?: string }>({});
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importSource, setImportSource] = useState('');
+  const [importNetwork, setImportNetwork] = useState('');
+  const [importDryRun, setImportDryRun] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
 
   useEffect(() => {
     void Promise.all([fetchPlans(), fetchSidebarData(), fetchFilters()]);
@@ -173,6 +180,38 @@ export default function PlansIndex() {
     }
   };
 
+  const submitImport = async () => {
+    if (!importFile) {
+      alert('Select a CSV or JSON file to import');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', importFile);
+    if (importSource) formData.append('source', importSource);
+    if (importNetwork) formData.append('network', importNetwork);
+    formData.append('dryRun', String(importDryRun));
+
+    setImporting(true);
+    try {
+      const res = await api.post('/admin/plans/import', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      setImportResult(res.data);
+      if (!importDryRun) {
+        await fetchPlans(filters);
+        await fetchSidebarData();
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.message || 'Failed to import plans');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const runBulkUpdate = async (previewOnly: boolean) => {
     try {
       const payload: any = {
@@ -222,6 +261,10 @@ export default function PlansIndex() {
           <Link to="/admin/audit/price-history" className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
             Price History
           </Link>
+          <button onClick={() => setShowImportModal(true)} className="flex items-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+            <Upload className="w-4 h-4 mr-2" />
+            Import CSV
+          </button>
           <button onClick={exportCsv} className="flex items-center px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
             <Download className="w-4 h-4 mr-2" />
             Export CSV
@@ -554,6 +597,91 @@ export default function PlansIndex() {
                 className="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700"
               >
                 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-6 space-y-5">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Import Plans</h2>
+              <p className="text-sm text-gray-600">Upload a provider CSV or JSON file to create or update plan records in bulk.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Source Override</span>
+                <select value={importSource} onChange={(e) => setImportSource(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2">
+                  <option value="">Infer from file</option>
+                  <option value="ogdams">OGDams</option>
+                  <option value="smeplug">SMEPlug</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Network Override</span>
+                <select value={importNetwork} onChange={(e) => setImportNetwork(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2">
+                  <option value="">Infer from file</option>
+                  <option value="mtn">MTN</option>
+                  <option value="airtel">Airtel</option>
+                  <option value="glo">Glo</option>
+                </select>
+              </label>
+            </div>
+
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Plan File</span>
+              <input
+                type="file"
+                accept=".csv,.json"
+                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+              />
+            </label>
+
+            <label className="flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-3">
+              <input type="checkbox" checked={importDryRun} onChange={(e) => setImportDryRun(e.target.checked)} />
+              <span className="text-sm font-medium text-gray-700">Preview only, do not save changes</span>
+            </label>
+
+            {importResult && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                <div className="font-semibold mb-2">{importResult.message}</div>
+                <div>Created: {importResult.summary?.created || 0}</div>
+                <div>Updated: {importResult.summary?.updated || 0}</div>
+                <div>Skipped: {importResult.summary?.skipped || 0}</div>
+                {(importResult.sample || []).length > 0 && (
+                  <div className="mt-3 space-y-1">
+                    {importResult.sample.slice(0, 5).map((item: any, index: number) => (
+                      <div key={`${item.plan_id || index}`}>{item.name} ({String(item.provider || '').toUpperCase()})</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportResult(null);
+                  setImportFile(null);
+                  setImportDryRun(false);
+                  setImportSource('');
+                  setImportNetwork('');
+                }}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => void submitImport()}
+                disabled={importing}
+                className="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60"
+              >
+                {importing ? 'Importing...' : importDryRun ? 'Preview Import' : 'Import Plans'}
               </button>
             </div>
           </div>

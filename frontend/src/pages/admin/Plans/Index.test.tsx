@@ -157,4 +157,49 @@ describe('PlansIndex', () => {
       );
     });
   });
+
+  it('opens the import modal and uploads a csv file', async () => {
+    render(
+      <MemoryRouter>
+        <PlansIndex />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Plans Management')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Import CSV'));
+
+    expect(await screen.findByRole('heading', { name: 'Import Plans' })).toBeInTheDocument();
+
+    const file = new File(
+      ['Plan Name,Plan ID\n1GB [GIFTING],20002\n'],
+      'mtn-plans.csv',
+      { type: 'text/csv' },
+    );
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    apiPost.mockResolvedValueOnce({
+      data: {
+        message: 'Imported plans successfully. Created 1, updated 0, skipped 0.',
+        summary: { created: 1, updated: 0, skipped: 0 },
+        sample: [{ name: '1GB [GIFTING]', provider: 'mtn', plan_id: '20002' }],
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import Plans' }));
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith(
+        '/admin/plans/import',
+        expect.any(FormData),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Content-Type': 'multipart/form-data',
+          }),
+        }),
+      );
+    });
+
+    expect(await screen.findByText(/Imported plans successfully/i)).toBeInTheDocument();
+  });
 });

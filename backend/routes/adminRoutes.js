@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
 const { 
     getAdminStats, 
     updateUser, 
@@ -61,6 +63,25 @@ const {
 const { protect, admin } = require('../middleware/authMiddleware');
 const rateLimit = require('express-rate-limit');
 
+const planImportUpload = multer({
+    storage: multer.diskStorage({
+        destination: (_req, _file, cb) => {
+            cb(null, path.join(__dirname, '../uploads/'));
+        },
+        filename: (_req, file, cb) => {
+            cb(null, `plans-${Date.now()}${path.extname(file.originalname || '')}`);
+        },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+        const ext = path.extname(file.originalname || '').toLowerCase();
+        if (ext === '.csv' || ext === '.json') {
+            return cb(null, true);
+        }
+        return cb(new Error('Only CSV or JSON plan files are allowed'));
+    }
+});
+
 const ogdamsAdminPurchaseLimiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 10,
@@ -108,6 +129,7 @@ router.get('/plans/filters', protect, admin, adminPlanController.getPlanFilters)
 router.get('/plans/:id', protect, admin, adminPlanController.getPlanById);
 router.get('/plans', protect, admin, adminPlanController.listPlans);
 router.post('/plans', protect, admin, adminPlanController.createPlan);
+router.post('/plans/import', protect, admin, planImportUpload.single('file'), adminPlanController.importPlansFromFile);
 router.post('/plans/bulk-update', protect, admin, adminPlanController.bulkUpdatePlans);
 router.put('/plans/:id/toggle-status', protect, admin, adminPlanController.togglePlanStatus);
 router.put('/plans/:id', protect, admin, adminPlanController.updatePlan);

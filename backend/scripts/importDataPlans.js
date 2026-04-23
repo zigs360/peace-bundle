@@ -218,6 +218,15 @@ async function importPlans({ inputPath, source, network, dryRun = false }) {
   return { summary, imported };
 }
 
+async function importPlanFile({ filePath, source, network, dryRun = false }) {
+  return importPlans({
+    inputPath: filePath,
+    source,
+    network,
+    dryRun,
+  });
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const inputPath = args.input;
@@ -262,5 +271,6 @@ module.exports = {
   parseArgs,
   normalizeRecord,
   importPlans,
+  importPlanFile,
   loadRecordsFromFile,
 };
