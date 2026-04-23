@@ -3,13 +3,20 @@ const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const {
+    NETWORK_ORDER,
+    comparePlans,
+    extractPlanSearchTokens,
+    parseValidityToDays,
+    toFiniteNumber,
+} = require('../utils/dataPlanUtils');
 
 // @desc    Get all data plans
 // @route   GET /api/plans
 // @access  Public
 const getDataPlans = async (req, res) => {
     try {
-        const { provider } = req.query;
+        const { provider, search } = req.query;
         const where = { is_active: true };
         
         if (provider) {
@@ -45,11 +52,36 @@ const getDataPlans = async (req, res) => {
                     void e;
                     json.effective_price = parseFloat(String(plan.admin_price));
                 }
+                json.plan_id = json.plan_id || json.smeplug_plan_id || json.ogdams_sku || String(json.id);
+                json.network = json.provider;
+                json.plan = json.name;
+                json.source = json.source || (json.ogdams_sku ? 'ogdams' : 'smeplug');
+                json.data_size = json.data_size || json.size || null;
+                json.teleco_price = toFiniteNumber(json.original_price ?? json.api_cost, NaN);
+                json.our_price = toFiniteNumber(json.effective_price, toFiniteNumber(json.your_price ?? json.admin_price));
+                json.wallet_price = toFiniteNumber(json.wallet_price ?? json.api_cost, 0);
+                json.validity_days = parseValidityToDays(json.validity);
+                json.search_text = extractPlanSearchTokens(json);
                 return json;
             })
         );
 
-        res.json(payload);
+        const filtered = payload.filter((plan) => {
+            const telecoPrice = toFiniteNumber(plan.teleco_price, NaN);
+            if (!Number.isFinite(telecoPrice) || telecoPrice <= 0) return false;
+            if (!NETWORK_ORDER.includes(String(plan.provider || '').toLowerCase())) return false;
+            if (plan.available_wallet === false && plan.available_sim === false) return false;
+            if (!search) return true;
+            return plan.search_text.includes(String(search).trim().toLowerCase());
+        });
+
+        filtered.sort(comparePlans);
+
+        res.json(filtered.map((plan) => {
+            const clean = { ...plan };
+            delete clean.search_text;
+            return clean;
+        }));
     } catch (error) {
         logger.error(`[DataPlan] Fetch error: ${error.message}`, { db: error.original?.message || null });
         res.status(500).json({ 

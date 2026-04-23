@@ -1,86 +1,274 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../../services/api';
-import { Wifi, Smartphone, CheckCircle } from 'lucide-react';
-import { SlideUp, FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
-import SelectProvider from '../../components/Forms/SelectProvider';
+import { Wifi, Smartphone, CheckCircle, Search, Wallet, RefreshCw } from 'lucide-react';
+import { FadeIn, HoverCard, SlideUp, StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 import { useNotifications } from '../../context/NotificationContext';
-import { getStoredUser } from '../../utils/storage';
 
-const NETWORKS = ['mtn', 'airtel', 'glo', '9mobile'];
+const NETWORKS = ['mtn', 'airtel', 'glo'] as const;
+const PLAN_CACHE_KEY = 'buy_data_plan_catalog_v1';
+const PLAN_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+const DUPLICATE_GUARD_MS = 45 * 1000;
+
+type NetworkName = typeof NETWORKS[number];
+
+type Feedback = { type: 'success' | 'error'; text: string } | null;
 
 interface DataPlan {
   id: string;
+  network: NetworkName | string;
+  provider: string;
+  plan: string;
   name: string;
-  price: number;
-  data: number;
+  plan_id: string;
   validity: string;
+  validity_days?: number;
+  teleco_price: number;
+  our_price: number;
+  effective_price?: number;
+  admin_price?: number;
+  size?: string;
+  size_mb?: number;
+}
+
+interface CachedPlanCatalog {
+  fetchedAt: number;
+  version: number;
+  plans: DataPlan[];
+}
+
+const NETWORK_LABELS: Record<string, string> = {
+  mtn: 'MTN',
+  airtel: 'Airtel',
+  glo: 'Glo',
+};
+
+const PHONE_PREFIXES: Record<string, string[]> = {
+  mtn: ['0803', '0806', '0703', '0706', '0810', '0813', '0814', '0816'],
+  airtel: ['0802', '0808', '0708', '0812', '0901', '0902', '0907', '0904'],
+  glo: ['0805', '0807', '0705', '0811', '0905', '0915'],
+};
+
+function toNumber(value: unknown, fallback = 0) {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizePhone(phone: string) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.startsWith('234') && digits.length === 13) return `0${digits.slice(3)}`;
+  if (digits.length === 10 && !digits.startsWith('0')) return `0${digits}`;
+  return digits;
+}
+
+function getPhoneError(network: string, phone: string) {
+  const normalized = normalizePhone(phone);
+  if (!/^\d{11}$/.test(normalized)) return 'Phone number must be 11 digits';
+  const prefixes = PHONE_PREFIXES[network] || [];
+  if (!prefixes.includes(normalized.slice(0, 4))) {
+    return `Phone number prefix does not match ${NETWORK_LABELS[network] || network}`;
+  }
+  return null;
+}
+
+function extractPlanSize(plan: DataPlan) {
+  const text = String(plan.plan || plan.name || '').toUpperCase();
+  const match = text.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/);
+  if (match) return `${match[1]}${match[2]}`;
+  if (plan.size) return String(plan.size).toUpperCase();
+  if (plan.size_mb && plan.size_mb >= 1024) return `${(plan.size_mb / 1024).toFixed(plan.size_mb % 1024 === 0 ? 0 : 1)}GB`;
+  if (plan.size_mb) return `${plan.size_mb}MB`;
+  return text;
+}
+
+function getDuplicateGuardKey(plan: DataPlan, phone: string) {
+  return `buy_data_guard:${String(plan.network)}:${String(plan.plan_id)}:${normalizePhone(phone)}`;
+}
+
+function readCachedPlans(version: number) {
+  const raw = localStorage.getItem(PLAN_CACHE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as CachedPlanCatalog;
+    if (!Array.isArray(parsed.plans)) return null;
+    if (parsed.version !== version) return null;
+    if (Date.now() - parsed.fetchedAt > PLAN_CACHE_MAX_AGE_MS) return null;
+    return parsed.plans;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedPlans(plans: DataPlan[], version: number) {
+  const payload: CachedPlanCatalog = {
+    fetchedAt: Date.now(),
+    version,
+    plans,
+  };
+  localStorage.setItem(PLAN_CACHE_KEY, JSON.stringify(payload));
 }
 
 export default function BuyData() {
-  const [network, setNetwork] = useState(NETWORKS[0]);
   const [plans, setPlans] = useState<DataPlan[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [phone, setPhone] = useState('');
+  const [search, setSearch] = useState('');
+  const [activeNetwork, setActiveNetwork] = useState<NetworkName>('mtn');
   const [loading, setLoading] = useState(false);
   const [plansLoading, setPlansLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  const { pricingVersion } = useNotifications();
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const { pricingVersion, walletBalance, walletBalanceUpdatedAt } = useNotifications();
 
-  useEffect(() => {
-    fetchPlans(network);
-  }, [network, pricingVersion]);
-
-  const fetchPlans = async (net: string) => {
+  const fetchPlans = useCallback(async (forceRefresh = false) => {
     setPlansLoading(true);
+    setFeedback(null);
     try {
-      const res = await api.get(`/plans?provider=${net}`);
-      const data = (res.data as any[]).map((p: any) => ({
-        ...p,
-        id: p.id,
-        name: p.name,
-        price: p.effective_price ?? p.admin_price,
-        data: p.size_mb,
-        validity: p.validity
-      }));
-      setPlans(data);
-      if (data.length > 0) {
-        setSelectedPlanId(data[0].id);
+      if (!forceRefresh) {
+        const cached = readCachedPlans(pricingVersion);
+        if (cached) {
+          setPlans(cached);
+          return;
+        }
       }
+
+      const res = await api.get('/plans');
+      const raw = Array.isArray(res.data) ? res.data : [];
+      const mapped = raw.map((plan: any) => ({
+        ...plan,
+        id: String(plan.id),
+        network: String(plan.network || plan.provider || '').toLowerCase(),
+        provider: String(plan.provider || plan.network || '').toLowerCase(),
+        plan: String(plan.plan || plan.name || ''),
+        name: String(plan.name || plan.plan || ''),
+        plan_id: String(plan.plan_id || plan.smeplug_plan_id || plan.id),
+        validity: String(plan.validity || ''),
+        teleco_price: toNumber(plan.teleco_price, NaN),
+        our_price: toNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, 0),
+        effective_price: toNumber(plan.effective_price ?? plan.our_price ?? plan.admin_price, 0),
+        admin_price: toNumber(plan.admin_price, 0),
+        size: plan.size ? String(plan.size) : undefined,
+        size_mb: plan.size_mb ? toNumber(plan.size_mb) : undefined,
+      })) as DataPlan[];
+
+      setPlans(mapped);
+      writeCachedPlans(mapped, pricingVersion);
     } catch (err) {
       console.error('Failed to fetch plans', err);
       setPlans([]);
+      setFeedback({ type: 'error', text: 'Failed to load data plans. Please try again.' });
     } finally {
       setPlansLoading(false);
     }
-  };
+  }, [pricingVersion]);
+
+  useEffect(() => {
+    void fetchPlans(false);
+  }, [fetchPlans]);
+
+  const filteredPlans = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return plans.filter((plan) => {
+      if (!NETWORKS.includes(plan.network as NetworkName)) return false;
+      if (!(toNumber(plan.teleco_price, NaN) > 0)) return false;
+      if (!query) return true;
+      const haystack = `${plan.plan} ${plan.name} ${extractPlanSize(plan)} ${plan.validity}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [plans, search]);
+
+  const groupedPlans = useMemo(() => {
+    return NETWORKS.reduce((acc, network) => {
+      acc[network] = filteredPlans.filter((plan) => plan.network === network);
+      return acc;
+    }, {} as Record<NetworkName, DataPlan[]>);
+  }, [filteredPlans]);
+
+  const selectedPlan = useMemo(
+    () => plans.find((plan) => String(plan.id) === String(selectedPlanId)) || null,
+    [plans, selectedPlanId],
+  );
+
+  useEffect(() => {
+    if (selectedPlan) return;
+    const firstAvailable = NETWORKS.flatMap((network) => groupedPlans[network]).find(Boolean);
+    if (firstAvailable) {
+      setSelectedPlanId(String(firstAvailable.id));
+      setActiveNetwork(firstAvailable.network as NetworkName);
+    }
+  }, [groupedPlans, selectedPlan]);
+
+  const liveWalletBalance = useMemo(() => {
+    if (walletBalance !== null && walletBalanceUpdatedAt > 0) return walletBalance;
+    return null;
+  }, [walletBalance, walletBalanceUpdatedAt]);
+
+  const estimatedRemainingBalance = selectedPlan && liveWalletBalance !== null
+    ? Math.max(0, liveWalletBalance - toNumber(selectedPlan.our_price))
+    : null;
 
   const handleBuy = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedPlan) {
+      setFeedback({ type: 'error', text: 'Please select a data plan.' });
+      return;
+    }
+
+    const normalizedPhone = normalizePhone(phone);
+    const phoneError = getPhoneError(selectedPlan.network, normalizedPhone);
+    if (phoneError) {
+      setFeedback({ type: 'error', text: phoneError });
+      return;
+    }
+
+    const duplicateKey = getDuplicateGuardKey(selectedPlan, normalizedPhone);
+    const previousAttemptAt = Number(sessionStorage.getItem(duplicateKey) || '0');
+    if (Date.now() - previousAttemptAt < DUPLICATE_GUARD_MS) {
+      setFeedback({ type: 'error', text: 'This plan was already requested recently for this number. Please wait a moment before retrying.' });
+      return;
+    }
+
+    const confirmText = [
+      `Confirm data purchase`,
+      ``,
+      `Network: ${NETWORK_LABELS[selectedPlan.network] || selectedPlan.network}`,
+      `Plan: ${selectedPlan.plan}`,
+      `Validity: ${selectedPlan.validity}`,
+      `Phone: ${normalizedPhone}`,
+      `Charge: ₦${toNumber(selectedPlan.our_price).toLocaleString()}`,
+      `Provider Plan ID: ${selectedPlan.plan_id}`,
+    ].join('\n');
+
+    if (!window.confirm(confirmText)) return;
+
     setLoading(true);
-    setMessage(null);
+    setFeedback(null);
+    const reference = `DATA-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
 
     try {
-      const user = getStoredUser<any>();
-      if (!user?.id) throw new Error('User not found');
-
-      // Find selected plan details
-      const selectedPlan = plans.find(p => p.id === selectedPlanId);
-
-      await api.post('/transactions/data', {
-        userId: user.id,
-        network,
-        planId: selectedPlanId,
-        planName: selectedPlan?.name,
-        phone,
-        amount: selectedPlan?.price
+      sessionStorage.setItem(duplicateKey, String(Date.now()));
+      const res = await api.post('/transactions/data', {
+        network: selectedPlan.network,
+        planId: Number(selectedPlan.id),
+        phone: normalizedPhone,
+        amount: toNumber(selectedPlan.our_price),
+        reference,
+      }, {
+        headers: {
+          'Idempotency-Key': reference,
+        },
       });
 
-      setMessage({ type: 'success', text: 'Data bundle purchased successfully!' });
+      const transactionRef = res.data?.transaction_ref || res.data?.transaction?.reference || reference;
+      const chargedPrice = toNumber(res.data?.charged_price, toNumber(selectedPlan.our_price));
+      setFeedback({
+        type: 'success',
+        text: `Purchase successful. Charged ₦${chargedPrice.toLocaleString()} with reference ${transactionRef}.`,
+      });
       setPhone('');
     } catch (err: any) {
-      setMessage({ 
-        type: 'error', 
-        text: err.response?.data?.message || 'Purchase failed. Please try again.' 
+      sessionStorage.removeItem(duplicateKey);
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.message || 'Purchase failed. Please try again.',
       });
     } finally {
       setLoading(false);
@@ -88,91 +276,192 @@ export default function BuyData() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-5xl mx-auto">
       <FadeIn className="flex items-center mb-8">
         <div className="p-3 bg-primary-100 rounded-full mr-4">
           <Wifi className="w-8 h-8 text-primary-600" />
         </div>
         <div>
-            <h1 className="text-2xl font-bold text-gray-800">Buy Data Bundle</h1>
-            <p className="text-gray-600">Purchase data plans for all networks instantly</p>
+          <h1 className="text-2xl font-bold text-gray-800">Buy Data Bundle</h1>
+          <p className="text-gray-600">Browse live plans grouped by network, then confirm your purchase.</p>
         </div>
       </FadeIn>
 
-      <SlideUp className="bg-white p-8 rounded-lg shadow-md border border-gray-100">
-        {message && (
-            <div className={`p-4 mb-6 rounded-md ${
-            message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-            }`}>
-            {message.text}
+      <div className="grid grid-cols-1 xl:grid-cols-[2fr,1fr] gap-8">
+        <SlideUp className="bg-white p-6 rounded-lg shadow-md border border-gray-100">
+          {feedback && (
+            <div className={`p-4 mb-6 rounded-md ${feedback.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+              {feedback.text}
             </div>
-        )}
+          )}
 
-        <form onSubmit={handleBuy}>
-            <div className="mb-6">
-                <SelectProvider value={network} onChange={setNetwork} />
+          <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-gray-400" />
+              </div>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder='Search by size, e.g. "1GB" or "10GB"'
+              />
             </div>
+            <button
+              type="button"
+              onClick={() => void fetchPlans(true)}
+              disabled={plansLoading}
+              className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-4 h-4 ${plansLoading ? 'animate-spin' : ''}`} />
+              Refresh Plans
+            </button>
+          </div>
 
-            <div className="mb-6">
-            <label className="block text-gray-700 font-bold mb-3">Select Plan</label>
-            {plansLoading ? (
-                <div className="text-center py-4 text-gray-500">Loading plans...</div>
-            ) : (
-                <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                    {plans.map((plan) => (
-                        <StaggerItem 
+          <div className="flex flex-wrap gap-2 mb-6">
+            {NETWORKS.map((network) => (
+              <button
+                key={network}
+                type="button"
+                onClick={() => setActiveNetwork(network)}
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                  activeNetwork === network
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {NETWORK_LABELS[network]} ({groupedPlans[network].length})
+              </button>
+            ))}
+          </div>
+
+          {plansLoading ? (
+            <div className="text-center py-8 text-gray-500">Loading plans...</div>
+          ) : (
+            <div className="space-y-8">
+              {NETWORKS.map((network) => {
+                const networkPlans = groupedPlans[network];
+                if (networkPlans.length === 0) return null;
+                return (
+                  <section key={network} className={activeNetwork === network ? '' : 'opacity-70'}>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="text-lg font-bold text-gray-900">{NETWORK_LABELS[network]}</h2>
+                      <span className="text-xs text-gray-500">Sorted by validity, then price</span>
+                    </div>
+                    <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {networkPlans.map((plan) => {
+                        const selected = String(selectedPlanId) === String(plan.id);
+                        return (
+                          <StaggerItem
                             key={plan.id}
-                            onClick={() => setSelectedPlanId(plan.id)}
-                            className={`p-3 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${
-                                selectedPlanId === plan.id 
-                                ? 'border-primary-500 bg-primary-50' 
+                            onClick={() => {
+                              setSelectedPlanId(String(plan.id));
+                              setActiveNetwork(network);
+                            }}
+                            className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                              selected
+                                ? 'border-primary-500 bg-primary-50'
                                 : 'border-gray-200 hover:border-primary-200'
                             }`}
-                        >
-                            <div>
-                                <div className="font-bold text-gray-800">{plan.name}</div>
-                                <div className="text-xs text-gray-500">{plan.validity}</div>
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="font-bold text-gray-800">{plan.plan}</div>
+                                <div className="text-sm text-gray-500">{plan.validity}</div>
+                                <div className="text-xs text-gray-400 mt-1">Plan ID: {plan.plan_id}</div>
+                              </div>
+                              <div className="text-right">
+                                <div className="font-bold text-primary-700">₦{toNumber(plan.our_price).toLocaleString()}</div>
+                                <div className="text-xs text-gray-500">{extractPlanSize(plan)}</div>
+                                {selected && <CheckCircle className="w-4 h-4 text-primary-600 ml-auto mt-2" />}
+                              </div>
                             </div>
-                            <div className="flex items-center">
-                                <span className="font-bold text-primary-600 mr-2">₦{plan.price}</span>
-                                {selectedPlanId === plan.id && <CheckCircle className="w-4 h-4 text-primary-600" />}
-                            </div>
-                        </StaggerItem>
-                    ))}
-                </StaggerContainer>
+                          </StaggerItem>
+                        );
+                      })}
+                    </StaggerContainer>
+                  </section>
+                );
+              })}
+              {filteredPlans.length === 0 && (
+                <div className="text-center py-8 text-gray-500">No plans match your search.</div>
+              )}
+            </div>
+          )}
+        </SlideUp>
+
+        <SlideUp className="bg-white p-6 rounded-lg shadow-md border border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">Purchase Details</h2>
+
+          <div className="space-y-3 mb-6">
+            <div className="flex items-center text-sm text-gray-600">
+              <Wallet className="w-4 h-4 mr-2 text-primary-600" />
+              Wallet Balance:{' '}
+              <span className="ml-1 font-semibold text-gray-900">
+                {liveWalletBalance === null ? 'Unavailable' : `₦${liveWalletBalance.toLocaleString()}`}
+              </span>
+            </div>
+            {selectedPlan && estimatedRemainingBalance !== null && (
+              <div className="text-sm text-gray-600">
+                Remaining after purchase: <span className="font-semibold text-gray-900">₦{estimatedRemainingBalance.toLocaleString()}</span>
+              </div>
             )}
+          </div>
+
+          <form onSubmit={handleBuy}>
+            <div className="mb-5">
+              <label className="block text-gray-700 font-bold mb-2">Selected Plan</label>
+              <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 min-h-[110px]">
+                {selectedPlan ? (
+                  <>
+                    <div className="font-bold text-gray-900">{selectedPlan.plan}</div>
+                    <div className="text-sm text-gray-600 mt-1">{NETWORK_LABELS[selectedPlan.network] || selectedPlan.network}</div>
+                    <div className="text-sm text-gray-600">{selectedPlan.validity}</div>
+                    <div className="text-lg font-bold text-primary-700 mt-2">₦{toNumber(selectedPlan.our_price).toLocaleString()}</div>
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-500">Select a plan from the catalog.</div>
+                )}
+              </div>
             </div>
 
-            <div className="mb-8">
-            <label className="block text-gray-700 font-bold mb-2">Phone Number</label>
-            <div className="relative">
+            <div className="mb-6">
+              <label className="block text-gray-700 font-bold mb-2">Phone Number</label>
+              <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Smartphone className="h-5 w-5 text-gray-400" />
+                  <Smartphone className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    placeholder="08012345678"
-                    required
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="08012345678"
+                  required
                 />
-            </div>
+              </div>
+              {selectedPlan && phone && (
+                <p className={`text-xs mt-2 ${getPhoneError(selectedPlan.network, phone) ? 'text-red-600' : 'text-green-600'}`}>
+                  {getPhoneError(selectedPlan.network, phone) || 'Phone number matches selected network'}
+                </p>
+              )}
             </div>
 
             <HoverCard>
               <button
-              type="submit"
-              disabled={loading || plansLoading || !selectedPlanId}
-              className={`w-full py-3 px-4 bg-primary-600 text-white font-bold rounded-lg hover:bg-primary-700 transition duration-200 ${
-                  (loading || plansLoading || !selectedPlanId) ? 'opacity-70 cursor-not-allowed' : ''
-              }`}
+                type="submit"
+                disabled={loading || plansLoading || !selectedPlan}
+                className={`w-full py-3 px-4 bg-primary-600 text-white font-bold rounded-lg hover:bg-primary-700 transition duration-200 ${
+                  loading || plansLoading || !selectedPlan ? 'opacity-70 cursor-not-allowed' : ''
+                }`}
               >
-              {loading ? 'Processing...' : 'Purchase Data Bundle'}
+                {loading ? 'Processing...' : 'Buy Selected Plan'}
               </button>
             </HoverCard>
-        </form>
-      </SlideUp>
+          </form>
+        </SlideUp>
+      </div>
     </div>
   );
 }

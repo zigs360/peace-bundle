@@ -22,6 +22,9 @@ export default function AdminDashboard() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawDescription, setWithdrawDescription] = useState('Settlement payout');
   const [buildInfo, setBuildInfo] = useState<any>({ frontend: null, backend: null, error: null });
+  const [planSummary, setPlanSummary] = useState<any>(null);
+  const [recentPriceUpdates, setRecentPriceUpdates] = useState<any[]>([]);
+  const [cheapestPlanSnapshot, setCheapestPlanSnapshot] = useState<any>({});
   const { treasuryBalance: rtTreasuryBalance, treasuryBalanceUpdatedAt, treasurySnapshot: rtTreasurySnapshot } = useNotifications();
 
   const applyTreasurySnapshot = (snapshot: any) => {
@@ -64,9 +67,17 @@ export default function AdminDashboard() {
               : null,
         });
 
-        const statsRes = await api.get('/admin/stats');
+        const [statsRes, planSummaryRes, recentPriceRes, cheapestPlanRes] = await Promise.all([
+          api.get('/admin/stats'),
+          api.get('/admin/stats/summary'),
+          api.get('/admin/stats/recent-updates'),
+          api.get('/admin/stats/cheapest-plans'),
+        ]);
         setStats(statsRes.data);
         applyTreasurySnapshot(statsRes.data?.treasury);
+        setPlanSummary(planSummaryRes.data || null);
+        setRecentPriceUpdates(recentPriceRes.data?.items || []);
+        setCheapestPlanSnapshot(cheapestPlanRes.data?.items || {});
         // Use recent transactions from stats endpoint
         setRecentTransactions(statsRes.data.recentTransactions || []);
         try {
@@ -222,6 +233,67 @@ export default function AdminDashboard() {
           icon={<BarChart className="w-6 h-6 text-primary-600" />} 
           borderClass="border-primary-500"
         />
+      </div>
+
+      <div className="bg-white rounded-lg shadow border border-gray-100 p-6 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">Plan Pricing Snapshot</h2>
+            <p className="text-sm text-gray-600">Active plan counts, recent edits, and lowest prices by network.</p>
+          </div>
+          <Link to="/admin/plans" className="text-sm text-primary-600 hover:text-primary-700 font-medium">Open Plans</Link>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
+          <div className="rounded-lg bg-gray-50 p-4">
+            <div className="text-xs uppercase text-gray-500">Total Plans</div>
+            <div className="text-2xl font-bold text-gray-900 mt-1">{planSummary?.totalPlans || 0}</div>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <div className="text-xs uppercase text-gray-500">Active Plans</div>
+            <div className="text-2xl font-bold text-gray-900 mt-1">{planSummary?.activePlans || 0}</div>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <div className="text-xs uppercase text-gray-500">Zero Price / Inactive</div>
+            <div className="text-2xl font-bold text-gray-900 mt-1">{planSummary?.zeroPricePlans || 0}</div>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <div className="text-xs uppercase text-gray-500">Recent Price Changes</div>
+            <div className="text-2xl font-bold text-gray-900 mt-1">{recentPriceUpdates.length}</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Latest Updates</h3>
+            <div className="space-y-3">
+              {recentPriceUpdates.slice(0, 5).map((item) => (
+                <div key={item.id} className="text-sm border-b border-gray-100 pb-3">
+                  <div className="font-medium text-gray-900">{item.plan?.name || 'Plan'} ({String(item.plan?.provider || '').toUpperCase()})</div>
+                  <div className="text-gray-600">{item.field_name}: {item.new_price ?? item.new_value ?? '—'}</div>
+                  <div className="text-xs text-gray-500">{item.changed_by}</div>
+                </div>
+              ))}
+              {!recentPriceUpdates.length && <div className="text-sm text-gray-500">No recent plan changes.</div>}
+            </div>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Cheapest Plans</h3>
+            <div className="space-y-3">
+              {Object.entries(cheapestPlanSnapshot || {}).map(([network, items]: any) => (
+                <div key={network}>
+                  <div className="text-xs uppercase text-gray-500 mb-1">{network}</div>
+                  <div className="space-y-2">
+                    {(items || []).slice(0, 2).map((plan: any) => (
+                      <div key={plan.id} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700">{plan.name}</span>
+                        <span className="font-semibold text-primary-700">₦{Number(plan.your_price || 0).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

@@ -13,6 +13,7 @@ import AdminUsersPage from './pages/admin/AdminUsersPage';
 import Transactions from './pages/admin/AdminTransactionsPage';
 import AdminPricing from './pages/admin/AdminPricing';
 import PlansIndex from './pages/admin/Plans/Index';
+import PriceHistory from './pages/admin/PriceHistory';
 import CreatePlan from './pages/admin/Plans/Create';
 import SimsIndex from './pages/admin/Sims/Index';
 import CreateSim from './pages/admin/Sims/Create';
@@ -106,6 +107,7 @@ function App() {
             <Route path="plans" element={<PlansIndex />} />
             <Route path="plans/create" element={<CreatePlan />} />
             <Route path="plans/edit/:id" element={<CreatePlan />} />
+            <Route path="audit/price-history" element={<PriceHistory />} />
             <Route path="sims" element={<SimsIndex />} />
             <Route path="sims/create" element={<CreateSim />} />
             <Route path="bulk-sms" element={<BulkSMSIndex />} />

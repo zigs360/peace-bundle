@@ -1,0 +1,212 @@
+const request = require('supertest');
+const jwt = require('jsonwebtoken');
+
+const app = require('../server');
+const { connectDB, User } = require('../config/db');
+const Wallet = require('../models/Wallet');
+const DataPlan = require('../models/DataPlan');
+const Transaction = require('../models/Transaction');
+const WalletTransaction = require('../models/WalletTransaction');
+const smeplugService = require('../services/smeplugService');
+
+describe('Data plan catalog and purchase flow', () => {
+  let token;
+  let user;
+
+  beforeAll(async () => {
+    await connectDB();
+  });
+
+  beforeEach(async () => {
+    const unique = Date.now();
+    user = await User.create({
+      name: 'Bundle Buyer',
+      email: `bundle-buyer-${unique}@test.com`,
+      password: 'password123',
+      phone: `0803${String(unique).slice(-7)}`,
+      role: 'user',
+    });
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    await wallet.update({
+      balance: 5000,
+      status: 'active',
+    });
+
+    token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  });
+
+  afterEach(async () => {
+    await Transaction.destroy({ where: {}, force: true });
+    await WalletTransaction.destroy({ where: {}, force: true });
+    await DataPlan.destroy({ where: {}, force: true });
+    await Wallet.destroy({ where: {}, force: true });
+    await User.destroy({ where: { email: { [require('sequelize').Op.like]: 'bundle-buyer-%@test.com' } }, force: true });
+    jest.clearAllMocks();
+  });
+
+  it('GET /api/plans hides invalid teleco prices and sorts by network, validity, then price', async () => {
+    await DataPlan.bulkCreate([
+      {
+        provider: 'glo',
+        category: 'gifting',
+        name: '10GB [GIFTING]',
+        size: '10GB',
+        size_mb: 10240,
+        validity: '30 Days',
+        admin_price: 4700,
+        api_cost: 4200,
+        smeplug_plan_id: 'GLO-10GB',
+        is_active: true,
+      },
+      {
+        provider: 'mtn',
+        category: 'gifting',
+        name: '1GB [GIFTING]',
+        size: '1GB',
+        size_mb: 1024,
+        validity: '1 Day',
+        admin_price: 475,
+        api_cost: 500,
+        smeplug_plan_id: '20002',
+        is_active: true,
+      },
+      {
+        provider: 'mtn',
+        category: 'gifting',
+        name: '110MB [GIFTING]',
+        size: '110MB',
+        size_mb: 110,
+        validity: '1 Day',
+        admin_price: 95,
+        api_cost: 100,
+        smeplug_plan_id: '20001',
+        is_active: true,
+      },
+      {
+        provider: 'airtel',
+        category: 'gifting',
+        name: '2GB [GIFTING]',
+        size: '2GB',
+        size_mb: 2048,
+        validity: '7 Days',
+        admin_price: 980,
+        api_cost: 900,
+        smeplug_plan_id: 'AIRTEL-2GB',
+        is_active: true,
+      },
+      {
+        provider: 'glo',
+        category: 'gifting',
+        name: 'Broken Plan',
+        size: '500MB',
+        size_mb: 500,
+        validity: '1 Day',
+        admin_price: 50,
+        api_cost: 0,
+        smeplug_plan_id: 'GLO-BROKEN',
+        is_active: true,
+      },
+      {
+        provider: 'mtn',
+        category: 'gifting',
+        name: 'NaN Plan',
+        size: '2GB',
+        size_mb: 2048,
+        validity: '2 Days',
+        admin_price: 700,
+        api_cost: 'NaN',
+        smeplug_plan_id: 'MTN-NAN',
+        is_active: true,
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/api/plans')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.map((plan) => plan.name)).toEqual([
+      '110MB [GIFTING]',
+      '1GB [GIFTING]',
+      '2GB [GIFTING]',
+      '10GB [GIFTING]',
+    ]);
+    expect(res.body[0].plan_id).toBe('20001');
+    expect(res.body[0].network).toBe('mtn');
+    expect(res.body[0].our_price).toBeGreaterThan(0);
+    expect(res.body.some((plan) => plan.name === 'Broken Plan')).toBe(false);
+    expect(res.body.some((plan) => plan.name === 'NaN Plan')).toBe(false);
+  });
+
+  it('POST /api/transactions/data rejects phone numbers with the wrong network prefix', async () => {
+    const plan = await DataPlan.create({
+      provider: 'mtn',
+      category: 'gifting',
+      name: '1GB [GIFTING]',
+      size: '1GB',
+      size_mb: 1024,
+      validity: '1 Day',
+      admin_price: 475,
+      api_cost: 500,
+      smeplug_plan_id: '20002',
+      is_active: true,
+    });
+
+    const res = await request(app)
+      .post('/api/transactions/data')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        network: 'mtn',
+        planId: plan.id,
+        phone: '08021234567',
+        amount: 475,
+        reference: 'DATA-WRONG-PREFIX',
+      });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toMatch(/prefix/i);
+  });
+
+  it('POST /api/transactions/data replays duplicate requests idempotently', async () => {
+    const plan = await DataPlan.create({
+      provider: 'mtn',
+      category: 'gifting',
+      name: '1GB [GIFTING]',
+      size: '1GB',
+      size_mb: 1024,
+      validity: '1 Day',
+      admin_price: 475,
+      api_cost: 500,
+      smeplug_plan_id: '20002',
+      is_active: true,
+    });
+
+    const payload = {
+      network: 'mtn',
+      planId: plan.id,
+      phone: '08031234567',
+      amount: 475,
+      reference: 'DATA-IDEMPOTENT-001',
+    };
+
+    const first = await request(app)
+      .post('/api/transactions/data')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', payload.reference)
+      .send(payload);
+
+    const second = await request(app)
+      .post('/api/transactions/data')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', payload.reference)
+      .send(payload);
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(first.body.transaction.reference).toBe(payload.reference);
+    expect(second.body.transaction.reference).toBe(payload.reference);
+    expect(second.body.message).toMatch(/duplicate request/i);
+    expect(smeplugService.purchaseData).toHaveBeenCalledTimes(1);
+  });
+});

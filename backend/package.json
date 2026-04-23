@@ -7,6 +7,7 @@
     "dev": "nodemon server.js",
     "lint": "eslint .",
     "test": "cross-env NODE_ENV=test jest --testTimeout=30000 --runInBand --detectOpenHandles",
+    "plans:import": "node scripts/importDataPlans.js",
     "migrate:legacy-validity": "node scripts/migrateLegacyValidityBundles.js airtel",
     "migrate:legacy-validity:dry-run": "node scripts/migrateLegacyValidityBundles.js airtel --dry-run"
   },

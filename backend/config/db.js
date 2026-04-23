@@ -33,6 +33,7 @@ const CallPlan = require('../models/CallPlan');
 const PricingTier = require('../models/PricingTier');
 const PricingRule = require('../models/PricingRule');
 const PricingAuditLog = require('../models/PricingAuditLog');
+const PlanPriceHistory = require('../models/PlanPriceHistory');
 const WebhookEvent = require('../models/WebhookEvent');
 const TreasuryBalance = require('../models/TreasuryBalance');
 const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
@@ -95,6 +96,9 @@ try {
   // Transaction - DataPlan (Many-to-One)
   DataPlan.hasMany(Transaction, { foreignKey: 'dataPlanId', as: 'transactions' });
   Transaction.belongsTo(DataPlan, { foreignKey: 'dataPlanId', as: 'dataPlan' });
+
+  DataPlan.hasMany(PlanPriceHistory, { foreignKey: 'planIdRef', as: 'priceHistory', onDelete: 'CASCADE' });
+  PlanPriceHistory.belongsTo(DataPlan, { foreignKey: 'planIdRef', as: 'plan' });
 
   // Transaction - Sim (Many-to-One)
   Sim.hasMany(Transaction, { foreignKey: 'simId', as: 'transactions' });
@@ -235,6 +239,8 @@ const connectDB = async () => {
       const dataPlansTable = typeof DataPlan.getTableName === 'function' ? DataPlan.getTableName() : 'data_plans';
       const simsTable = typeof Sim.getTableName === 'function' ? Sim.getTableName() : 'Sims';
       const callPlansTable = typeof CallPlan.getTableName === 'function' ? CallPlan.getTableName() : 'CallPlans';
+      const planPriceHistoryTable =
+        typeof PlanPriceHistory.getTableName === 'function' ? PlanPriceHistory.getTableName() : 'plan_price_history';
       const voiceBundlePurchasesTable =
         typeof VoiceBundlePurchase.getTableName === 'function' ? VoiceBundlePurchase.getTableName() : 'voice_bundle_purchases';
       const ensureVoiceBundlePurchaseColumns = async () =>
@@ -247,6 +253,15 @@ const connectDB = async () => {
       if (process.env.NODE_ENV !== 'test') {
         await Promise.all([
           ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(dataPlansTable, 'source', { type: DataTypes.STRING, allowNull: false, defaultValue: 'smeplug' }),
+          ensureColumn(dataPlansTable, 'plan_id', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(dataPlansTable, 'data_size', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(dataPlansTable, 'original_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+          ensureColumn(dataPlansTable, 'your_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+          ensureColumn(dataPlansTable, 'wallet_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+          ensureColumn(dataPlansTable, 'available_sim', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
+          ensureColumn(dataPlansTable, 'available_wallet', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
+          ensureColumn(dataPlansTable, 'last_updated_by', { type: DataTypes.STRING, allowNull: true }),
           ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
           ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
           ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
@@ -278,11 +293,34 @@ const connectDB = async () => {
 
       await Promise.all([
         ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
+        ensureColumn(dataPlansTable, 'source', { type: DataTypes.STRING, allowNull: false, defaultValue: 'smeplug' }),
+        ensureColumn(dataPlansTable, 'plan_id', { type: DataTypes.STRING, allowNull: true }),
+        ensureColumn(dataPlansTable, 'data_size', { type: DataTypes.STRING, allowNull: true }),
+        ensureColumn(dataPlansTable, 'original_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+        ensureColumn(dataPlansTable, 'your_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+        ensureColumn(dataPlansTable, 'wallet_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+        ensureColumn(dataPlansTable, 'available_sim', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
+        ensureColumn(dataPlansTable, 'available_wallet', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
+        ensureColumn(dataPlansTable, 'last_updated_by', { type: DataTypes.STRING, allowNull: true }),
         ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
         ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
         ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
         ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
       ]);
+
+      try {
+        await PlanPriceHistory.sync();
+        await ensureColumn(planPriceHistoryTable, 'field_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'your_price' });
+        await ensureColumn(planPriceHistoryTable, 'old_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
+        await ensureColumn(planPriceHistoryTable, 'new_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
+        await ensureColumn(planPriceHistoryTable, 'old_value', { type: DataTypes.STRING, allowNull: true });
+        await ensureColumn(planPriceHistoryTable, 'new_value', { type: DataTypes.STRING, allowNull: true });
+        await ensureColumn(planPriceHistoryTable, 'changed_by', { type: DataTypes.STRING, allowNull: false, defaultValue: 'system' });
+        await ensureColumn(planPriceHistoryTable, 'reason', { type: DataTypes.TEXT, allowNull: true });
+        await ensureColumn(planPriceHistoryTable, 'source', { type: DataTypes.STRING, allowNull: true });
+      } catch (e) {
+        console.error('Plan price history table sync failed:', e.message);
+      }
 
       try {
         await AdminWalletDeduction.sync();
@@ -492,6 +530,7 @@ module.exports = {
   PricingTier,
   PricingRule,
   PricingAuditLog,
+  PlanPriceHistory,
   WebhookEvent,
   TreasuryBalance,
   TreasuryLedgerEntry,

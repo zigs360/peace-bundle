@@ -91,7 +91,7 @@ export default function AdminPricing() {
       api.get('/admin/plans'),
       api.get('/admin/subscription-plans'),
     ]);
-    const plansData = (plansRes.data?.data || plansRes.data || []) as DataPlan[];
+    const plansData = (plansRes.data?.items || plansRes.data?.data || plansRes.data || []) as DataPlan[];
     const subsData = (subsRes.data?.data || subsRes.data || []) as SubscriptionPlan[];
     setPlans(plansData);
     setSubPlans(subsData);

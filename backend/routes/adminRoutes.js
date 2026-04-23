@@ -50,6 +50,7 @@ const {
 } = require('../controllers/subscriptionPlanController');
 // const { getAllTransactions } = require('../controllers/transactionController'); // Replaced by admin controller version
 const pricingController = require('../controllers/pricingController');
+const adminPlanController = require('../controllers/adminPlanController');
 const treasuryController = require('../controllers/treasuryController');
 const adminWalletDeductionController = require('../controllers/adminWalletDeductionController');
 const {
@@ -102,10 +103,20 @@ router.get('/settings', protect, admin, getSystemSettings);
 router.put('/settings', protect, admin, updateSystemSettings);
 
 // Data Plan Routes
-router.get('/plans', protect, admin, getDataPlans);
-router.post('/plans', protect, admin, createDataPlan);
-router.put('/plans/:id', protect, admin, updateDataPlan);
+router.get('/plans/export', protect, admin, adminPlanController.exportPlansCsv);
+router.get('/plans/filters', protect, admin, adminPlanController.getPlanFilters);
+router.get('/plans/:id', protect, admin, adminPlanController.getPlanById);
+router.get('/plans', protect, admin, adminPlanController.listPlans);
+router.post('/plans', protect, admin, adminPlanController.createPlan);
+router.post('/plans/bulk-update', protect, admin, adminPlanController.bulkUpdatePlans);
+router.put('/plans/:id/toggle-status', protect, admin, adminPlanController.togglePlanStatus);
+router.put('/plans/:id', protect, admin, adminPlanController.updatePlan);
 router.delete('/plans/:id', protect, admin, deleteDataPlan);
+router.get('/audit/price-history', protect, admin, adminPlanController.getPriceHistory);
+router.get('/audit/plan/:id/history', protect, admin, adminPlanController.getPlanHistory);
+router.get('/stats/summary', protect, admin, adminPlanController.getPlanStatsSummary);
+router.get('/stats/recent-updates', protect, admin, adminPlanController.getRecentPriceUpdates);
+router.get('/stats/cheapest-plans', protect, admin, adminPlanController.getCheapestPlans);
 
 // SIM Oversight Routes
 router.get('/sims', protect, admin, getSims);

@@ -22,6 +22,11 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const logger = require('../utils/logger');
 const Joi = require('joi');
+const {
+    getPhoneValidationError,
+    normalizePhone,
+    toFiniteNumber,
+} = require('../utils/dataPlanUtils');
 
 // Helper for Affiliate Commission
 const processAffiliateCommission = async (user, amount, transaction, t) => {
@@ -172,9 +177,43 @@ const fundWallet = async (req, res) => {
 // @route   POST /api/transactions/data
 // @access  Private
 const buyData = async (req, res) => {
-    const { network, planId, phone, amount, planName } = req.body;
+    const rawReference = req.body?.reference || req.headers['idempotency-key'];
+    const rawNetwork = req.body?.network;
+    const rawPlanId = req.body?.planId;
+    const rawPhone = req.body?.phone;
+    const rawAmount = req.body?.amount;
     const userId = req.user.id;
     let t;
+
+    const schema = Joi.object({
+        network: Joi.string().valid('mtn', 'airtel', 'glo', '9mobile').required(),
+        planId: Joi.number().integer().positive().required(),
+        phone: Joi.string().required(),
+        amount: Joi.number().positive().optional(),
+        reference: Joi.string().pattern(/^[A-Za-z0-9_-]{6,64}$/).optional(),
+    });
+
+    const { value, error } = schema.validate({
+        network: rawNetwork,
+        planId: rawPlanId,
+        phone: rawPhone,
+        amount: rawAmount,
+        reference: rawReference,
+    }, { abortEarly: false });
+
+    if (error) {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid request',
+            details: error.details.map((item) => item.message),
+        });
+    }
+
+    const network = value.network;
+    const planId = value.planId;
+    const phone = normalizePhone(value.phone);
+    const reference = value.reference;
+    const requestedAmount = value.amount !== undefined ? toFiniteNumber(value.amount, NaN) : null;
 
     try {
         const user = await User.findByPk(userId);
@@ -201,17 +240,70 @@ const buyData = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Data plan not found or inactive' });
         }
 
+        if (String(plan.provider).toLowerCase() !== network) {
+            if (t) await t.rollback();
+            return res.status(400).json({ success: false, message: 'Selected plan does not belong to the chosen network' });
+        }
+
+        const phoneError = getPhoneValidationError(network, phone);
+        if (phoneError) {
+            if (t) await t.rollback();
+            return res.status(400).json({ success: false, message: phoneError });
+        }
+
+        const telecoPrice = toFiniteNumber(plan.wallet_price ?? plan.original_price ?? plan.api_cost, NaN);
+        if (!Number.isFinite(telecoPrice) || telecoPrice <= 0) {
+            if (t) await t.rollback();
+            return res.status(400).json({ success: false, message: 'Selected plan is unavailable for purchase' });
+        }
+        if (plan.available_wallet === false && plan.available_sim === false) {
+            if (t) await t.rollback();
+            return res.status(400).json({ success: false, message: 'Selected plan is currently disabled for purchase' });
+        }
+
         const cost = parseFloat(await plan.getPriceForUser(user));
+        if (requestedAmount !== null && Math.abs(cost - requestedAmount) > 0.009) {
+            if (t) await t.rollback();
+            return res.status(400).json({ success: false, message: 'Displayed price is stale. Please refresh plans and try again.' });
+        }
 
         // 1. Debit Wallet
-        const newTransaction = await walletService.debit(
-            user, 
-            cost, 
-            'data_purchase', 
-            `${plan.provider.toUpperCase()} ${plan.name} to ${phone}`, 
-            { network: plan.provider, planId, phone, planName: plan.name }, 
-            t
-        );
+        let newTransaction;
+        try {
+            newTransaction = await walletService.debit(
+                user, 
+                cost, 
+                'data_purchase', 
+                `${plan.provider.toUpperCase()} ${plan.name} to ${phone}`, 
+                {
+                    network: plan.provider,
+                    planId,
+                    phone,
+                    planName: plan.name,
+                    provider_plan_id: plan.smeplug_plan_id || String(plan.id),
+                    charged_price: cost,
+                    teleco_price: telecoPrice,
+                    reference: reference || undefined,
+                    client_reference: reference || undefined,
+                }, 
+                t
+            );
+        } catch (debitError) {
+            if (debitError?.name === 'SequelizeUniqueConstraintError' && reference) {
+                if (t && !t.finished) await t.rollback();
+                const existing = await Transaction.findOne({ where: { reference } });
+                const updatedWallet = await walletService.getBalance(user);
+                return res.status(200).json({
+                    success: true,
+                    message: 'Duplicate request (idempotent replay)',
+                    balance: updatedWallet,
+                    charged_price: existing ? toFiniteNumber(existing.amount) : cost,
+                    transaction_ref: existing?.reference || reference,
+                    transaction: existing,
+                });
+            }
+            throw debitError;
+        }
 
         // 2. Process Purchase (Local SIM or API)
         const networkId = smeplugService.getNetworkId(plan.provider);
@@ -243,8 +335,12 @@ const buyData = async (req, res) => {
             newTransaction.smeplug_response = simResponse;
             await newTransaction.save({ transaction: t });
         } else {
-            // Use plan.smeplug_plan_id if available, otherwise assume mapping exists
-            const smeplugPlanId = plan.smeplug_plan_id || planId;
+            if (plan.available_wallet === false) {
+                throw new Error('Selected plan is not available on wallet routing right now');
+            }
+
+            // Use the canonical vendor plan ID first, then legacy fallbacks.
+            const smeplugPlanId = plan.plan_id || plan.smeplug_plan_id || planId;
 
             const purchaseResult = await smeplugService.purchaseData(
                 plan.provider,
@@ -272,12 +368,20 @@ const buyData = async (req, res) => {
             success: true,
             message: 'Data purchase successful',
             balance: updatedWallet,
+            charged_price: cost,
+            transaction_ref: newTransaction.reference,
             transaction: newTransaction
         });
     } catch (error) {
-        if (t) await t.rollback();
+        if (t && !t.finished) await t.rollback();
         logger.error('Data Purchase Error:', { error: error.message, stack: error.stack, userId, phone });
-        res.status(500).json({ success: false, message: error.message || 'Server Error' });
+        const msg = String(error?.message || 'Server Error');
+        const status =
+            msg.includes('Insufficient wallet balance') ? 400 :
+            msg.includes('Daily transaction limit exceeded') ? 403 :
+            msg.includes('Wallet is') ? 403 :
+            500;
+        res.status(status).json({ success: false, message: msg });
     }
 };
 
