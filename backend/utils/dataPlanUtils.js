@@ -74,6 +74,9 @@ function extractPlanSearchTokens(plan) {
     plan?.size,
     plan?.validity,
     plan?.provider,
+    plan?.service_name,
+    plan?.category_name,
+    plan?.subcategory_name,
   ]
     .filter(Boolean)
     .map((value) => String(value).trim().toLowerCase());

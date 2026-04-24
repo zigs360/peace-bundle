@@ -17,6 +17,7 @@ interface DataPlan {
   id: string;
   network: NetworkName | string;
   provider: string;
+  network_display_name?: string;
   plan: string;
   name: string;
   plan_id: string;
@@ -28,6 +29,35 @@ interface DataPlan {
   admin_price?: number;
   size?: string;
   size_mb?: number;
+  service_name?: string;
+  category_name?: string;
+  subcategory_name?: string;
+}
+
+interface CatalogSubcategory {
+  name: string;
+  slug: string;
+  plans: DataPlan[];
+}
+
+interface CatalogCategory {
+  name: string;
+  slug: string;
+  subcategories: CatalogSubcategory[];
+}
+
+interface CatalogService {
+  name: string;
+  slug: string;
+  categories: CatalogCategory[];
+}
+
+interface CatalogNetwork {
+  code: NetworkName | string;
+  name: string;
+  icon?: string;
+  color?: string;
+  services: CatalogService[];
 }
 
 interface CachedPlanCatalog {
@@ -107,8 +137,120 @@ function writeCachedPlans(plans: DataPlan[], version: number) {
   localStorage.setItem(PLAN_CACHE_KEY, JSON.stringify(payload));
 }
 
+function mapPlan(plan: any): DataPlan {
+  return {
+    ...plan,
+    id: String(plan.id),
+    network: String(plan.network || plan.provider || '').toLowerCase(),
+    provider: String(plan.provider || plan.network || '').toLowerCase(),
+    network_display_name: plan.network_display_name ? String(plan.network_display_name) : undefined,
+    plan: String(plan.plan || plan.name || ''),
+    name: String(plan.name || plan.plan || ''),
+    plan_id: String(plan.plan_id || plan.smeplug_plan_id || plan.id),
+    validity: String(plan.validity || ''),
+    teleco_price: toNumber(plan.teleco_price, NaN),
+    our_price: toNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, 0),
+    effective_price: toNumber(plan.effective_price ?? plan.our_price ?? plan.admin_price, 0),
+    admin_price: toNumber(plan.admin_price, 0),
+    size: plan.size ? String(plan.size) : undefined,
+    size_mb: plan.size_mb ? toNumber(plan.size_mb) : undefined,
+    service_name: plan.service_name ? String(plan.service_name) : undefined,
+    category_name: plan.category_name ? String(plan.category_name) : undefined,
+    subcategory_name: plan.subcategory_name ? String(plan.subcategory_name) : undefined,
+  };
+}
+
+function flattenCatalog(networks: CatalogNetwork[]) {
+  return networks.flatMap((network) =>
+    (network.services || []).flatMap((service) =>
+      (service.categories || []).flatMap((category) =>
+        (category.subcategories || []).flatMap((subcategory) =>
+          (subcategory.plans || []).map((plan) => mapPlan(plan)),
+        ),
+      ),
+    ),
+  );
+}
+
+function buildCatalogFromPlans(plans: DataPlan[]): CatalogNetwork[] {
+  const networksMap = new Map<string, CatalogNetwork & { servicesMap: Map<string, CatalogService & { categoriesMap: Map<string, CatalogCategory & { subcategoriesMap: Map<string, CatalogSubcategory> }> }> }>();
+
+  plans.forEach((plan) => {
+    const networkCode = String(plan.network || plan.provider || '').toLowerCase();
+    if (!networkCode) return;
+
+    if (!networksMap.has(networkCode)) {
+      networksMap.set(networkCode, {
+        code: networkCode,
+        name: plan.network_display_name || NETWORK_LABELS[networkCode] || networkCode.toUpperCase(),
+        icon: '📡',
+        color: undefined,
+        services: [],
+        servicesMap: new Map(),
+      });
+    }
+
+    const network = networksMap.get(networkCode)!;
+    const serviceSlug = String(plan.service_name || 'Data Plans').toLowerCase().replace(/\s+/g, '-');
+    const categorySlug = String(plan.category_name || 'General Plans').toLowerCase().replace(/\s+/g, '-');
+    const subcategorySlug = String(plan.subcategory_name || 'All Plans').toLowerCase().replace(/\s+/g, '-');
+
+    if (!network.servicesMap.has(serviceSlug)) {
+      network.servicesMap.set(serviceSlug, {
+        name: plan.service_name || 'Data Plans',
+        slug: serviceSlug,
+        categories: [],
+        categoriesMap: new Map(),
+      });
+    }
+
+    const service = network.servicesMap.get(serviceSlug)!;
+    if (!service.categoriesMap.has(categorySlug)) {
+      service.categoriesMap.set(categorySlug, {
+        name: plan.category_name || 'General Plans',
+        slug: categorySlug,
+        subcategories: [],
+        subcategoriesMap: new Map(),
+      });
+    }
+
+    const category = service.categoriesMap.get(categorySlug)!;
+    if (!category.subcategoriesMap.has(subcategorySlug)) {
+      category.subcategoriesMap.set(subcategorySlug, {
+        name: plan.subcategory_name || 'All Plans',
+        slug: subcategorySlug,
+        plans: [],
+      });
+    }
+
+    category.subcategoriesMap.get(subcategorySlug)!.plans.push(plan);
+  });
+
+  return NETWORKS
+    .filter((network) => networksMap.has(network))
+    .map((network) => {
+      const networkNode = networksMap.get(network)!;
+      return {
+        code: networkNode.code,
+        name: networkNode.name,
+        icon: networkNode.icon,
+        color: networkNode.color,
+        services: Array.from(networkNode.servicesMap.values()).map((service) => ({
+          name: service.name,
+          slug: service.slug,
+          categories: Array.from(service.categoriesMap.values()).map((category) => ({
+            name: category.name,
+            slug: category.slug,
+            subcategories: Array.from(category.subcategoriesMap.values()),
+          })),
+        })),
+      };
+    });
+}
+
 export default function BuyData() {
   const [plans, setPlans] = useState<DataPlan[]>([]);
+  const [catalogNetworks, setCatalogNetworks] = useState<CatalogNetwork[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [phone, setPhone] = useState('');
   const [search, setSearch] = useState('');
@@ -126,33 +268,22 @@ export default function BuyData() {
         const cached = readCachedPlans(pricingVersion);
         if (cached) {
           setPlans(cached);
+          setCatalogNetworks(buildCatalogFromPlans(cached));
           return;
         }
       }
 
-      const res = await api.get('/plans');
-      const raw = Array.isArray(res.data) ? res.data : [];
-      const mapped = raw.map((plan: any) => ({
-        ...plan,
-        id: String(plan.id),
-        network: String(plan.network || plan.provider || '').toLowerCase(),
-        provider: String(plan.provider || plan.network || '').toLowerCase(),
-        plan: String(plan.plan || plan.name || ''),
-        name: String(plan.name || plan.plan || ''),
-        plan_id: String(plan.plan_id || plan.smeplug_plan_id || plan.id),
-        validity: String(plan.validity || ''),
-        teleco_price: toNumber(plan.teleco_price, NaN),
-        our_price: toNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, 0),
-        effective_price: toNumber(plan.effective_price ?? plan.our_price ?? plan.admin_price, 0),
-        admin_price: toNumber(plan.admin_price, 0),
-        size: plan.size ? String(plan.size) : undefined,
-        size_mb: plan.size_mb ? toNumber(plan.size_mb) : undefined,
-      })) as DataPlan[];
+      const res = await api.get('/plans/catalog');
+      const rawNetworks = Array.isArray(res.data?.networks) ? res.data.networks : [];
+      const mappedNetworks = rawNetworks as CatalogNetwork[];
+      const mappedPlans = flattenCatalog(mappedNetworks);
 
-      setPlans(mapped);
-      writeCachedPlans(mapped, pricingVersion);
+      setCatalogNetworks(mappedNetworks);
+      setPlans(mappedPlans);
+      writeCachedPlans(mappedPlans, pricingVersion);
     } catch (err) {
       console.error('Failed to fetch plans', err);
+      setCatalogNetworks([]);
       setPlans([]);
       setFeedback({ type: 'error', text: 'Failed to load data plans. Please try again.' });
     } finally {
@@ -174,6 +305,33 @@ export default function BuyData() {
       return haystack.includes(query);
     });
   }, [plans, search]);
+
+  const filteredCatalog = useMemo(() => {
+    const filteredIds = new Set(filteredPlans.map((plan) => String(plan.id)));
+    return catalogNetworks
+      .map((network) => ({
+        ...network,
+        services: (network.services || [])
+          .map((service) => ({
+            ...service,
+            categories: (service.categories || [])
+              .map((category) => ({
+                ...category,
+                subcategories: (category.subcategories || [])
+                  .map((subcategory) => ({
+                    ...subcategory,
+                    plans: (subcategory.plans || [])
+                      .map((plan) => mapPlan(plan))
+                      .filter((plan) => filteredIds.has(String(plan.id))),
+                  }))
+                  .filter((subcategory) => subcategory.plans.length > 0),
+              }))
+              .filter((category) => category.subcategories.length > 0),
+          }))
+          .filter((service) => service.categories.length > 0),
+      }))
+      .filter((network) => network.services.length > 0);
+  }, [catalogNetworks, filteredPlans]);
 
   const groupedPlans = useMemo(() => {
     return NETWORKS.reduce((acc, network) => {
@@ -341,46 +499,65 @@ export default function BuyData() {
           ) : (
             <div className="space-y-8">
               {NETWORKS.map((network) => {
-                const networkPlans = groupedPlans[network];
-                if (networkPlans.length === 0) return null;
+                const networkCatalog = filteredCatalog.find((item) => item.code === network);
+                if (!networkCatalog) return null;
                 return (
                   <section key={network} className={activeNetwork === network ? '' : 'opacity-70'}>
                     <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-lg font-bold text-gray-900">{NETWORK_LABELS[network]}</h2>
-                      <span className="text-xs text-gray-500">Sorted by validity, then price</span>
+                      <h2 className="text-lg font-bold text-gray-900">{networkCatalog.name || NETWORK_LABELS[network]}</h2>
+                      <span className="text-xs text-gray-500">Grouped by category and subcategory</span>
                     </div>
-                    <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {networkPlans.map((plan) => {
-                        const selected = String(selectedPlanId) === String(plan.id);
-                        return (
-                          <StaggerItem
-                            key={plan.id}
-                            onClick={() => {
-                              setSelectedPlanId(String(plan.id));
-                              setActiveNetwork(network);
-                            }}
-                            className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                              selected
-                                ? 'border-primary-500 bg-primary-50'
-                                : 'border-gray-200 hover:border-primary-200'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="font-bold text-gray-800">{plan.plan}</div>
-                                <div className="text-sm text-gray-500">{plan.validity}</div>
-                                <div className="text-xs text-gray-400 mt-1">Plan ID: {plan.plan_id}</div>
+                    <div className="space-y-6">
+                      {networkCatalog.services.map((service) => (
+                        <div key={`${network}-${service.slug}`} className="space-y-4">
+                          <div className="text-sm font-semibold text-primary-700">{service.name}</div>
+                          {service.categories.map((category) => (
+                            <div key={`${service.slug}-${category.slug}`} className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <h3 className="text-base font-semibold text-gray-900">{category.name}</h3>
                               </div>
-                              <div className="text-right">
-                                <div className="font-bold text-primary-700">₦{toNumber(plan.our_price).toLocaleString()}</div>
-                                <div className="text-xs text-gray-500">{extractPlanSize(plan)}</div>
-                                {selected && <CheckCircle className="w-4 h-4 text-primary-600 ml-auto mt-2" />}
-                              </div>
+                              {category.subcategories.map((subcategory) => (
+                                <div key={`${category.slug}-${subcategory.slug}`} className="space-y-3">
+                                  <div className="text-sm font-medium text-gray-600">{subcategory.name}</div>
+                                  <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {subcategory.plans.map((plan) => {
+                                      const selected = String(selectedPlanId) === String(plan.id);
+                                      return (
+                                        <StaggerItem
+                                          key={plan.id}
+                                          onClick={() => {
+                                            setSelectedPlanId(String(plan.id));
+                                            setActiveNetwork(network);
+                                          }}
+                                          className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                                            selected
+                                              ? 'border-primary-500 bg-primary-50'
+                                              : 'border-gray-200 hover:border-primary-200'
+                                          }`}
+                                        >
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                              <div className="font-bold text-gray-800">{plan.plan}</div>
+                                              <div className="text-sm text-gray-500">{plan.validity}</div>
+                                              <div className="text-xs text-gray-400 mt-1">Plan ID: {plan.plan_id}</div>
+                                            </div>
+                                            <div className="text-right">
+                                              <div className="font-bold text-primary-700">₦{toNumber(plan.our_price).toLocaleString()}</div>
+                                              <div className="text-xs text-gray-500">{extractPlanSize(plan)}</div>
+                                              {selected && <CheckCircle className="w-4 h-4 text-primary-600 ml-auto mt-2" />}
+                                            </div>
+                                          </div>
+                                        </StaggerItem>
+                                      );
+                                    })}
+                                  </StaggerContainer>
+                                </div>
+                              ))}
                             </div>
-                          </StaggerItem>
-                        );
-                      })}
-                    </StaggerContainer>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
                   </section>
                 );
               })}

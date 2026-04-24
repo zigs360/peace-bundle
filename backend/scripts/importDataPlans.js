@@ -43,6 +43,16 @@ function normalizeKey(value) {
     .replace(/^_+|_+$/g, '');
 }
 
+function titleCase(value, fallback = '') {
+  const source = String(value || '').trim();
+  if (!source) return fallback;
+  return source
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function toNumber(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
   const normalized = String(value).replace(/[,Nn][Aa][Nn]/g, '').replace(/[^\d.-]/g, '');
@@ -95,6 +105,15 @@ function inferSource(value, filePath) {
   return 'smeplug';
 }
 
+function inferNetworkMeta(network) {
+  const key = String(network || '').toLowerCase();
+  if (key === 'mtn') return { displayName: 'MTN', color: '#FFCC00', icon: '📡' };
+  if (key === 'airtel') return { displayName: 'Airtel', color: '#FF0000', icon: '📡' };
+  if (key === 'glo') return { displayName: 'Glo', color: '#008000', icon: '📡' };
+  if (key === '9mobile') return { displayName: '9mobile', color: '#006B3F', icon: '📡' };
+  return { displayName: titleCase(network), color: null, icon: '📡' };
+}
+
 function normalizeRecord(record, filePath, defaults) {
   const row = Object.fromEntries(
     Object.entries(record).map(([key, value]) => [normalizeKey(key), value]),
@@ -117,13 +136,31 @@ function normalizeRecord(record, filePath, defaults) {
     row.wallet_price ?? row.sim_price ?? row.api_cost ?? originalPrice,
     null,
   );
+  const serviceName = String(row.service_name || row.service || defaults.serviceName || 'Data Plans').trim();
+  const categoryName = String(
+    row.category_name || row.group_name || row.plan_group || row.category_label || defaults.categoryName || row.category || 'Gifting Plans',
+  ).trim();
+  const subcategoryName = String(
+    row.subcategory_name || row.subcategory || row.segment || row.plan_segment || defaults.subcategoryName || '',
+  ).trim();
 
   if (!name || !planId || !network) return null;
+
+  const networkMeta = inferNetworkMeta(network);
 
   return {
     source,
     provider: network,
     category: normalizeKey(row.category || defaults.category || 'gifting') || 'gifting',
+    service_name: serviceName,
+    service_slug: normalizeKey(serviceName).replace(/_/g, '-') || 'data-plans',
+    category_name: categoryName || null,
+    category_slug: categoryName ? normalizeKey(categoryName).replace(/_/g, '-') : null,
+    subcategory_name: subcategoryName || null,
+    subcategory_slug: subcategoryName ? normalizeKey(subcategoryName).replace(/_/g, '-') : null,
+    network_display_name: networkMeta.displayName,
+    network_color: networkMeta.color,
+    network_icon: networkMeta.icon,
     name: String(name).trim(),
     size: dataSize || extractDataSize(name, ''),
     data_size: dataSize || extractDataSize(name, ''),
@@ -186,6 +223,8 @@ async function importPlans({ inputPath, source, network, dryRun = false }) {
         source,
         network,
         category: 'gifting',
+        serviceName: 'Data Plans',
+        categoryName: 'Gifting Plans',
         lastUpdatedBy: 'import-script',
       });
 

@@ -6,11 +6,20 @@ const logger = require('../utils/logger');
 const { importPlanFile } = require('../scripts/importDataPlans');
 
 const EDITABLE_FIELDS = new Set([
+  'service_name',
+  'service_slug',
   'your_price',
   'wallet_price',
   'available_sim',
   'available_wallet',
   'is_active',
+  'category_name',
+  'category_slug',
+  'subcategory_name',
+  'subcategory_slug',
+  'network_display_name',
+  'network_color',
+  'network_icon',
   'original_price',
   'sort_order',
   'validity',
@@ -46,6 +55,15 @@ function normalizePlan(plan) {
   return {
     ...json,
     network: json.provider,
+    network_display_name: json.network_display_name || String(json.provider || '').toUpperCase(),
+    network_color: json.network_color || null,
+    network_icon: json.network_icon || '📡',
+    service_name: json.service_name || 'Data Plans',
+    service_slug: json.service_slug || 'data-plans',
+    category_name: json.category_name || null,
+    category_slug: json.category_slug || null,
+    subcategory_name: json.subcategory_name || null,
+    subcategory_slug: json.subcategory_slug || null,
     plan: json.name,
     data_size: json.data_size || json.size || null,
     plan_id: json.plan_id || json.smeplug_plan_id || json.ogdams_sku || null,
@@ -64,11 +82,21 @@ function buildWhere(query) {
   const network = String(query.network || query.provider || '').trim().toLowerCase();
   const status = String(query.status || '').trim().toLowerCase();
   const search = String(query.search || '').trim();
+  const service = String(query.service || query.service_slug || '').trim();
+  const categoryName = String(query.category_name || '').trim();
+  const categorySlug = String(query.category_slug || query.category_group || '').trim();
+  const subcategoryName = String(query.subcategory_name || '').trim();
+  const subcategorySlug = String(query.subcategory_slug || '').trim();
   const dataSize = String(query.data_size || '').trim();
   const validity = String(query.validity || '').trim();
 
   if (source) where.source = source;
   if (network) where.provider = network;
+  if (service) where.service_slug = service;
+  if (categoryName) where.category_name = categoryName;
+  if (categorySlug) where.category_slug = categorySlug;
+  if (subcategoryName) where.subcategory_name = subcategoryName;
+  if (subcategorySlug) where.subcategory_slug = subcategorySlug;
   if (dataSize) where.data_size = dataSize;
   if (validity) where.validity = validity;
   if (status === 'active') where.is_active = true;
@@ -79,6 +107,9 @@ function buildWhere(query) {
       { name: { [TEXT_LIKE]: `%${search}%` } },
       { plan_id: { [TEXT_LIKE]: `%${search}%` } },
       { data_size: { [TEXT_LIKE]: `%${search}%` } },
+      { service_name: { [TEXT_LIKE]: `%${search}%` } },
+      { category_name: { [TEXT_LIKE]: `%${search}%` } },
+      { subcategory_name: { [TEXT_LIKE]: `%${search}%` } },
       { smeplug_plan_id: { [TEXT_LIKE]: `%${search}%` } },
       { ogdams_sku: { [TEXT_LIKE]: `%${search}%` } },
     ];
@@ -175,6 +206,9 @@ const listPlans = async (req, res) => {
       offset,
       order: [
         ['provider', 'ASC'],
+        ['service_slug', 'ASC'],
+        ['category_slug', 'ASC'],
+        ['subcategory_slug', 'ASC'],
         ['source', 'ASC'],
         ['sort_order', 'ASC'],
         ['updatedAt', 'DESC'],
@@ -198,12 +232,29 @@ const listPlans = async (req, res) => {
 const getPlanFilters = async (_req, res) => {
   try {
     const plans = await DataPlan.findAll({
-      attributes: ['source', 'provider', 'validity', 'data_size'],
+      attributes: [
+        'source',
+        'provider',
+        'service_name',
+        'service_slug',
+        'category_name',
+        'category_slug',
+        'subcategory_name',
+        'subcategory_slug',
+        'validity',
+        'data_size',
+      ],
       order: [['provider', 'ASC']],
     });
     const values = {
       sources: [...new Set(plans.map((plan) => String(plan.source || '').trim()).filter(Boolean))],
       networks: [...new Set(plans.map((plan) => String(plan.provider || '').trim()).filter(Boolean))],
+      services: [...new Set(plans.map((plan) => String(plan.service_name || '').trim()).filter(Boolean))],
+      service_slugs: [...new Set(plans.map((plan) => String(plan.service_slug || '').trim()).filter(Boolean))],
+      category_names: [...new Set(plans.map((plan) => String(plan.category_name || '').trim()).filter(Boolean))],
+      category_slugs: [...new Set(plans.map((plan) => String(plan.category_slug || '').trim()).filter(Boolean))],
+      subcategory_names: [...new Set(plans.map((plan) => String(plan.subcategory_name || '').trim()).filter(Boolean))],
+      subcategory_slugs: [...new Set(plans.map((plan) => String(plan.subcategory_slug || '').trim()).filter(Boolean))],
       validities: [...new Set(plans.map((plan) => String(plan.validity || '').trim()).filter(Boolean))],
       data_sizes: [...new Set(plans.map((plan) => String(plan.data_size || plan.size || '').trim()).filter(Boolean))],
       statuses: ['active', 'inactive'],
@@ -388,6 +439,13 @@ const exportPlansCsv = async (req, res) => {
     const headers = [
       'Source',
       'Network',
+      'Network Display Name',
+      'Service Name',
+      'Service Slug',
+      'Category Name',
+      'Category Slug',
+      'Subcategory Name',
+      'Subcategory Slug',
       'Plan ID',
       'Plan Name',
       'Data Size',
@@ -406,6 +464,13 @@ const exportPlansCsv = async (req, res) => {
       ...rows.map((row) => [
         row.source,
         row.network,
+        `"${String(row.network_display_name || '').replace(/"/g, '""')}"`,
+        `"${String(row.service_name || '').replace(/"/g, '""')}"`,
+        row.service_slug || '',
+        `"${String(row.category_name || '').replace(/"/g, '""')}"`,
+        row.category_slug || '',
+        `"${String(row.subcategory_name || '').replace(/"/g, '""')}"`,
+        row.subcategory_slug || '',
         row.plan_id,
         `"${String(row.name).replace(/"/g, '""')}"`,
         row.data_size || '',
@@ -547,6 +612,15 @@ const createPlan = async (req, res) => {
       source: String(req.body?.source || 'smeplug').toLowerCase(),
       provider: String(req.body?.network || req.body?.provider || '').toLowerCase(),
       category: req.body?.category || 'gifting',
+      service_name: req.body?.service_name || 'Data Plans',
+      service_slug: req.body?.service_slug || 'data-plans',
+      category_name: req.body?.category_name || null,
+      category_slug: req.body?.category_slug || null,
+      subcategory_name: req.body?.subcategory_name || null,
+      subcategory_slug: req.body?.subcategory_slug || null,
+      network_display_name: req.body?.network_display_name || null,
+      network_color: req.body?.network_color || null,
+      network_icon: req.body?.network_icon || null,
       name: req.body?.name,
       size: req.body?.data_size || req.body?.size,
       size_mb: Number.parseInt(String(req.body?.size_mb || '0'), 10) || 0,

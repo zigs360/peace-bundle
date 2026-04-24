@@ -10,6 +10,22 @@ const extractDataSize = (name, fallback = null) => {
   return `${match[1]}${match[2].toUpperCase()}`;
 };
 
+const slugify = (value, fallback = '') => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+};
+
+const NETWORK_META = {
+  mtn: { displayName: 'MTN', color: '#FFCC00', icon: '📡' },
+  airtel: { displayName: 'Airtel', color: '#FF0000', icon: '📡' },
+  glo: { displayName: 'Glo', color: '#008000', icon: '📡' },
+  '9mobile': { displayName: '9mobile', color: '#006B3F', icon: '📡' },
+};
+
 const DataPlan = sequelize.define('DataPlan', {
   id: {
     type: DataTypes.INTEGER, // Using Integer as per "table->id()" default in Laravel usually implies BigInt/Integer auto-increment
@@ -26,8 +42,46 @@ const DataPlan = sequelize.define('DataPlan', {
     defaultValue: 'smeplug',
   },
   category: {
-    type: DataTypes.ENUM('sme', 'gifting', 'corporate_gifting', 'coupon'),
+    type: DataTypes.STRING,
     allowNull: false,
+  },
+  service_name: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'Data Plans',
+  },
+  service_slug: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'data-plans',
+  },
+  category_name: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  category_slug: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  subcategory_name: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  subcategory_slug: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  network_display_name: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  network_color: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  network_icon: {
+    type: DataTypes.STRING,
+    allowNull: true,
   },
   name: {
     type: DataTypes.STRING,
@@ -119,6 +173,9 @@ const DataPlan = sequelize.define('DataPlan', {
       fields: ['provider', 'category', 'is_active']
     },
     {
+      fields: ['provider', 'service_slug', 'category_slug', 'subcategory_slug']
+    },
+    {
       fields: ['source', 'provider']
     },
     {
@@ -159,6 +216,40 @@ DataPlan.addHook('beforeValidate', (plan) => {
   }
   if (plan.source) {
     plan.source = String(plan.source).toLowerCase();
+  }
+  if (plan.category) {
+    plan.category = String(plan.category).toLowerCase();
+  }
+
+  const networkMeta = NETWORK_META[plan.provider] || null;
+  if (!plan.network_display_name && networkMeta) {
+    plan.network_display_name = networkMeta.displayName;
+  }
+  if (!plan.network_color && networkMeta) {
+    plan.network_color = networkMeta.color;
+  }
+  if (!plan.network_icon && networkMeta) {
+    plan.network_icon = networkMeta.icon;
+  }
+
+  if (!plan.service_name) {
+    plan.service_name = 'Data Plans';
+  }
+  if (!plan.service_slug) {
+    plan.service_slug = slugify(plan.service_name, 'data-plans');
+  }
+
+  if (!plan.category_name && plan.category) {
+    plan.category_name = String(plan.category)
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+  if (!plan.category_slug && plan.category_name) {
+    plan.category_slug = slugify(plan.category_name, slugify(plan.category, 'general'));
+  }
+  if (plan.subcategory_name && !plan.subcategory_slug) {
+    plan.subcategory_slug = slugify(plan.subcategory_name);
   }
 
   const derivedPlanId = plan.plan_id || plan.smeplug_plan_id || plan.ogdams_sku || null;

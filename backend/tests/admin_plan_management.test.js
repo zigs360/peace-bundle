@@ -155,8 +155,8 @@ describe('Admin plan management', () => {
 
   it('imports plans from an uploaded csv file', async () => {
     const csv = [
-      'Plan Name,Plan ID,Validity,Teleco Price,Our Price,Wallet Price,Network,Source',
-      '2GB [GIFTING],30002,7 Days,900,855,880,Airtel,ogdams',
+      'Plan Name,Plan ID,Validity,Teleco Price,Our Price,Wallet Price,Network,Source,Service Name,Category Name,Subcategory Name',
+      '2GB [GIFTING],30002,7 Days,900,855,880,Airtel,ogdams,Data Plans,Gifting Plans,Weekly Plans',
     ].join('\n');
 
     const res = await request(app)
@@ -178,5 +178,8 @@ describe('Admin plan management', () => {
     expect(imported.source).toBe('ogdams');
     expect(Number(imported.your_price)).toBe(855);
     expect(Number(imported.wallet_price)).toBe(880);
+    expect(imported.service_name).toBe('Data Plans');
+    expect(imported.category_name).toBe('Gifting Plans');
+    expect(imported.subcategory_name).toBe('Weekly Plans');
   });
 });

@@ -8,6 +8,13 @@ type Plan = {
   source: string;
   network: string;
   provider: string;
+  network_display_name?: string;
+  service_name?: string;
+  service_slug?: string;
+  category_name?: string;
+  category_slug?: string;
+  subcategory_name?: string;
+  subcategory_slug?: string;
   name: string;
   plan_id: string;
   validity: string;
@@ -24,6 +31,9 @@ type Plan = {
 type PlanFilters = {
   source: string;
   network: string;
+  service: string;
+  category_slug: string;
+  subcategory_slug: string;
   status: string;
   search: string;
 };
@@ -33,6 +43,9 @@ type BulkOperation = 'set_fixed_price' | 'increase_percentage' | 'decrease_perce
 const EMPTY_FILTERS: PlanFilters = {
   source: '',
   network: '',
+  service: '',
+  category_slug: '',
+  subcategory_slug: '',
   status: '',
   search: '',
 };
@@ -49,7 +62,13 @@ export default function PlansIndex() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Partial<Plan>>>({});
   const [filters, setFilters] = useState<PlanFilters>(EMPTY_FILTERS);
-  const [filterOptions, setFilterOptions] = useState<{ sources: string[]; networks: string[] }>({ sources: [], networks: [] });
+  const [filterOptions, setFilterOptions] = useState<{
+    sources: string[];
+    networks: string[];
+    services: string[];
+    category_slugs: string[];
+    subcategory_slugs: string[];
+  }>({ sources: [], networks: [], services: [], category_slugs: [], subcategory_slugs: [] });
   const [summary, setSummary] = useState<any>(null);
   const [recentUpdates, setRecentUpdates] = useState<any[]>([]);
   const [cheapestPlans, setCheapestPlans] = useState<Record<string, Plan[]>>({});
@@ -106,6 +125,9 @@ export default function PlansIndex() {
       setFilterOptions({
         sources: res.data?.sources || [],
         networks: res.data?.networks || [],
+        services: res.data?.service_slugs || [],
+        category_slugs: res.data?.category_slugs || [],
+        subcategory_slugs: res.data?.subcategory_slugs || [],
       });
     } catch (err) {
       console.error(err);
@@ -284,7 +306,7 @@ export default function PlansIndex() {
       </div>
 
       <div className="bg-white rounded-lg shadow border border-gray-100 p-5 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
           <label className="space-y-1">
             <span className="text-xs font-medium text-gray-500">Source</span>
             <select
@@ -323,6 +345,48 @@ export default function PlansIndex() {
               <option value="">All</option>
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-gray-500">Service</span>
+            <select
+              value={filters.service}
+              onChange={(e) => setFilters((prev) => ({ ...prev, service: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            >
+              <option value="">All</option>
+              {filterOptions.services.map((service) => (
+                <option key={service} value={service}>{service}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-gray-500">Category</span>
+            <select
+              value={filters.category_slug}
+              onChange={(e) => setFilters((prev) => ({ ...prev, category_slug: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            >
+              <option value="">All</option>
+              {filterOptions.category_slugs.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-xs font-medium text-gray-500">Subcategory</span>
+            <select
+              value={filters.subcategory_slug}
+              onChange={(e) => setFilters((prev) => ({ ...prev, subcategory_slug: e.target.value }))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            >
+              <option value="">All</option>
+              {filterOptions.subcategory_slugs.map((subcategory) => (
+                <option key={subcategory} value={subcategory}>{subcategory}</option>
+              ))}
             </select>
           </label>
 
@@ -460,6 +524,8 @@ export default function PlansIndex() {
                     <td className="px-4 py-4 text-sm text-gray-700 uppercase">{plan.network}</td>
                     <td className="px-4 py-4 text-sm text-gray-700">
                       <div className="font-medium text-gray-900">{plan.name}</div>
+                      {plan.category_name && <div className="text-xs text-primary-700">{plan.category_name}</div>}
+                      {plan.subcategory_name && <div className="text-xs text-gray-500">{plan.subcategory_name}</div>}
                       <div className="text-xs text-gray-500">Plan ID: {plan.plan_id}</div>
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-700">{plan.data_size}</td>

@@ -30,6 +30,12 @@ describe('PlansIndex', () => {
                 source: 'ogdams',
                 network: 'mtn',
                 provider: 'mtn',
+                service_name: 'Data Plans',
+                service_slug: 'data-plans',
+                category_name: 'Gifting Plans',
+                category_slug: 'gifting-plans',
+                subcategory_name: 'Daily Plans',
+                subcategory_slug: 'daily-plans',
                 name: '1GB [GIFTING]',
                 plan_id: '20002',
                 validity: '1 Day',
@@ -49,7 +55,15 @@ describe('PlansIndex', () => {
         };
       }
       if (url === '/admin/plans/filters') {
-        return { data: { sources: ['ogdams', 'smeplug'], networks: ['mtn', 'airtel', 'glo'] } };
+        return {
+          data: {
+            sources: ['ogdams', 'smeplug'],
+            networks: ['mtn', 'airtel', 'glo'],
+            service_slugs: ['data-plans'],
+            category_slugs: ['gifting-plans'],
+            subcategory_slugs: ['daily-plans'],
+          },
+        };
       }
       if (url === '/admin/stats/summary') {
         return { data: { totalPlans: 1, activePlans: 1, zeroPricePlans: 0 } };
@@ -91,6 +105,12 @@ describe('PlansIndex', () => {
           source: 'ogdams',
           network: 'mtn',
           provider: 'mtn',
+          service_name: 'Data Plans',
+          service_slug: 'data-plans',
+          category_name: 'Gifting Plans',
+          category_slug: 'gifting-plans',
+          subcategory_name: 'Daily Plans',
+          subcategory_slug: 'daily-plans',
           name: '1GB [GIFTING]',
           plan_id: '20002',
           validity: '1 Day',
@@ -121,6 +141,9 @@ describe('PlansIndex', () => {
     fireEvent.change(comboboxes[0], { target: { value: 'ogdams' } });
     fireEvent.change(comboboxes[1], { target: { value: 'mtn' } });
     fireEvent.change(comboboxes[2], { target: { value: 'active' } });
+    fireEvent.change(comboboxes[3], { target: { value: 'data-plans' } });
+    fireEvent.change(comboboxes[4], { target: { value: 'gifting-plans' } });
+    fireEvent.change(comboboxes[5], { target: { value: 'daily-plans' } });
     fireEvent.change(screen.getByPlaceholderText('Plan name, ID, size'), { target: { value: '1GB' } });
     fireEvent.click(screen.getByText('Apply Filters'));
 
@@ -129,12 +152,18 @@ describe('PlansIndex', () => {
         params: {
           source: 'ogdams',
           network: 'mtn',
+          service: 'data-plans',
+          category_slug: 'gifting-plans',
+          subcategory_slug: 'daily-plans',
           status: 'active',
           search: '1GB',
           limit: 200,
         },
       });
     });
+
+    expect(screen.getByText('Gifting Plans')).toBeInTheDocument();
+    expect(screen.getByText('Daily Plans')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Edit'));
 

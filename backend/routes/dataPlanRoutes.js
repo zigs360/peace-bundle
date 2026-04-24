@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { 
     getDataPlans, 
+    getVtuDataPlanCatalog,
     getAdminDataPlans, 
     createDataPlan, 
     updateDataPlan, 
@@ -12,6 +13,7 @@ const { getVoiceBundles } = require('../controllers/callPlanController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 router.get('/', getDataPlans); // Public
+router.get('/catalog', getVtuDataPlanCatalog); // Public grouped VTU catalog
 router.get('/subscriptions', getSubscriptionPlans); // Public Subscription Plans
 router.get('/voice-bundles', getVoiceBundles); // Public Voice Bundles
 router.get('/admin', protect, admin, getAdminDataPlans);

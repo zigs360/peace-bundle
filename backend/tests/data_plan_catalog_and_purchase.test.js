@@ -139,6 +139,69 @@ describe('Data plan catalog and purchase flow', () => {
     expect(res.body.some((plan) => plan.name === 'NaN Plan')).toBe(false);
   });
 
+  it('GET /api/plans/catalog groups plans by network, category, and subcategory', async () => {
+    await DataPlan.bulkCreate([
+      {
+        source: 'ogdams',
+        provider: 'mtn',
+        category: 'gifting',
+        service_name: 'Data Plans',
+        service_slug: 'data-plans',
+        category_name: 'Gifting Plans',
+        category_slug: 'gifting-plans',
+        subcategory_name: 'Daily Plans (1-2 Days)',
+        subcategory_slug: 'daily-plans',
+        name: '500MB Daily',
+        size: '500MB',
+        size_mb: 500,
+        validity: '1 Day',
+        data_size: '500MB',
+        plan_id: 'MTN-DAILY-500',
+        original_price: 200,
+        your_price: 195,
+        wallet_price: 200,
+        admin_price: 195,
+        api_cost: 200,
+        is_active: true,
+      },
+      {
+        source: 'smeplug',
+        provider: 'airtel',
+        category: 'social',
+        service_name: 'Data Plans',
+        service_slug: 'data-plans',
+        category_name: 'Social Bundles',
+        category_slug: 'social-bundles',
+        subcategory_name: 'Instagram/TikTok Plans',
+        subcategory_slug: 'instagram-tiktok-plans',
+        name: 'Airtel Social 1GB',
+        size: '1GB',
+        size_mb: 1024,
+        validity: '7 Days',
+        data_size: '1GB',
+        plan_id: 'AIRTEL-SOCIAL-1GB',
+        original_price: 500,
+        your_price: 480,
+        wallet_price: 500,
+        admin_price: 480,
+        api_cost: 500,
+        is_active: true,
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/api/plans/catalog')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.body.networks)).toBe(true);
+    expect(res.body.networks[0].code).toBe('mtn');
+    expect(res.body.networks[0].services[0].categories[0].name).toBe('Gifting Plans');
+    expect(res.body.networks[0].services[0].categories[0].subcategories[0].plans[0].plan_id).toBe('MTN-DAILY-500');
+    expect(res.body.networks[1].code).toBe('airtel');
+    expect(res.body.networks[1].services[0].categories[0].subcategories[0].name).toBe('Instagram/TikTok Plans');
+  });
+
   it('POST /api/transactions/data rejects phone numbers with the wrong network prefix', async () => {
     const plan = await DataPlan.create({
       provider: 'mtn',
