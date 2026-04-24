@@ -5,6 +5,7 @@ const path = require('path');
 const { parse } = require('csv-parse/sync');
 const { connectDB } = require('../config/db');
 const DataPlan = require('../models/DataPlan');
+const { classifyPlan, flattenTaxonomy } = require('../utils/vtuTaxonomy');
 
 const NETWORK_ALIASES = {
   mtn: 'mtn',
@@ -114,6 +115,10 @@ function inferNetworkMeta(network) {
   return { displayName: titleCase(network), color: null, icon: '📡' };
 }
 
+function isTaxonomyPayload(value) {
+  return Boolean(value && !Array.isArray(value) && Array.isArray(value.networks));
+}
+
 function normalizeRecord(record, filePath, defaults) {
   const row = Object.fromEntries(
     Object.entries(record).map(([key, value]) => [normalizeKey(key), value]),
@@ -186,9 +191,6 @@ function loadRecordsFromFile(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
   if (ext === '.json') {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      throw new Error(`JSON file must contain an array: ${filePath}`);
-    }
     return parsed;
   }
   if (ext === '.csv') {
@@ -199,6 +201,77 @@ function loadRecordsFromFile(filePath) {
     });
   }
   throw new Error(`Unsupported file format: ${filePath}`);
+}
+
+function isSameAssignment(plan, assignment) {
+  return (
+    String(plan.service_name || '') === String(assignment.service_name || '') &&
+    String(plan.service_slug || '') === String(assignment.service_slug || '') &&
+    String(plan.category_name || '') === String(assignment.category_name || '') &&
+    String(plan.category_slug || '') === String(assignment.category_slug || '') &&
+    String(plan.subcategory_name || '') === String(assignment.subcategory_name || '') &&
+    String(plan.subcategory_slug || '') === String(assignment.subcategory_slug || '') &&
+    String(plan.network_display_name || '') === String(assignment.network_display_name || '') &&
+    String(plan.network_color || '') === String(assignment.network_color || '') &&
+    String(plan.network_icon || '') === String(assignment.network_icon || '') &&
+    String(plan.category || '') === String(assignment.category || '')
+  );
+}
+
+async function applyTaxonomyToExistingPlans({ taxonomy, source, network, dryRun = false }) {
+  const taxonomyEntries = flattenTaxonomy(taxonomy);
+  const where = {};
+  if (source) where.source = String(source).toLowerCase();
+  if (network) where.provider = String(network).toLowerCase();
+
+  const plans = await DataPlan.findAll({
+    where,
+    order: [['provider', 'ASC'], ['plan_id', 'ASC'], ['id', 'ASC']],
+  });
+
+  const summary = {
+    taxonomy_entries: taxonomyEntries.length,
+    examined: plans.length,
+    matched: 0,
+    updated: 0,
+    unchanged: 0,
+    unmatched: 0,
+  };
+  const imported = [];
+
+  for (const plan of plans) {
+    const match = classifyPlan(plan.toJSON(), taxonomyEntries);
+    if (!match) {
+      summary.unmatched += 1;
+      continue;
+    }
+
+    summary.matched += 1;
+    const payload = {
+      ...match.assignment,
+      last_updated_by: 'taxonomy-import-script',
+    };
+
+    imported.push({
+      provider: plan.provider,
+      source: plan.source,
+      plan_id: plan.plan_id || plan.smeplug_plan_id || plan.ogdams_sku || String(plan.id),
+      name: plan.name,
+      ...payload,
+    });
+
+    if (isSameAssignment(plan, payload)) {
+      summary.unchanged += 1;
+      continue;
+    }
+
+    if (!dryRun) {
+      await plan.update(payload);
+    }
+    summary.updated += 1;
+  }
+
+  return { summary, imported };
 }
 
 async function importPlans({ inputPath, source, network, dryRun = false }) {
@@ -214,10 +287,42 @@ async function importPlans({ inputPath, source, network, dryRun = false }) {
   }
 
   const imported = [];
-  const summary = { created: 0, updated: 0, skipped: 0 };
+  const summary = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    taxonomy_files: 0,
+    taxonomy_examined: 0,
+    taxonomy_matched: 0,
+    taxonomy_updated: 0,
+    taxonomy_unchanged: 0,
+    taxonomy_unmatched: 0,
+  };
 
   for (const filePath of filePaths) {
     const records = loadRecordsFromFile(filePath);
+    if (isTaxonomyPayload(records)) {
+      const taxonomyResult = await applyTaxonomyToExistingPlans({
+        taxonomy: records,
+        source,
+        network,
+        dryRun,
+      });
+
+      summary.taxonomy_files += 1;
+      summary.taxonomy_examined += taxonomyResult.summary.examined;
+      summary.taxonomy_matched += taxonomyResult.summary.matched;
+      summary.taxonomy_updated += taxonomyResult.summary.updated;
+      summary.taxonomy_unchanged += taxonomyResult.summary.unchanged;
+      summary.taxonomy_unmatched += taxonomyResult.summary.unmatched;
+      imported.push(...taxonomyResult.imported);
+      continue;
+    }
+
+    if (!Array.isArray(records)) {
+      throw new Error(`JSON file must contain an array or taxonomy object: ${filePath}`);
+    }
+
     for (const record of records) {
       const normalized = normalizeRecord(record, filePath, {
         source,
@@ -312,4 +417,6 @@ module.exports = {
   importPlans,
   importPlanFile,
   loadRecordsFromFile,
+  applyTaxonomyToExistingPlans,
+  isTaxonomyPayload,
 };

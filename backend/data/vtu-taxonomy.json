@@ -1,0 +1,337 @@
+{
+  "networks": [
+    {
+      "name": "MTN",
+      "code": "mtn",
+      "icon": "\ud83d\udce1",
+      "color": "#FFCC00",
+      "services": [
+        {
+          "name": "Airtime & Voice",
+          "icon": "\ud83d\udcb0",
+          "categories": [
+            {
+              "name": "Regular Airtime",
+              "type": "airtime",
+              "min_amount": 50,
+              "max_amount": 50000,
+              "steps": [50, 100, 200, 500, 1000, 2000, 5000, 10000]
+            },
+            {
+              "name": "Talk More Bundles",
+              "type": "voice_bundle",
+              "source": "smeplug",
+              "plans": [
+                { "name": "Talk More N100", "api_code": "500", "price": 100, "value": "10 minutes" },
+                { "name": "Talk More N200", "api_code": "501", "price": 200, "value": "20 minutes" },
+                { "name": "Talk More N300", "api_code": "502", "price": 300, "value": "30 minutes" },
+                { "name": "Talk More N500", "api_code": "503", "price": 500, "value": "50 minutes" },
+                { "name": "Talk More N1000", "api_code": "504", "price": 1000, "value": "100 minutes" },
+                { "name": "Talk More N1500", "api_code": "505", "price": 1500, "value": "150 minutes" }
+              ]
+            },
+            {
+              "name": "6X Voice Bundles",
+              "type": "voice_bundle",
+              "source": "smeplug",
+              "plans": [
+                { "name": "6X N200", "api_code": "50089", "price": 200, "value": "N1200 voice" },
+                { "name": "6X N300", "api_code": "50090", "price": 300, "value": "N1800 voice" },
+                { "name": "6X N500", "api_code": "50091", "price": 500, "value": "N3000 voice" },
+                { "name": "6X N1000", "api_code": "50092", "price": 1000, "value": "N6000 voice" }
+              ]
+            },
+            {
+              "name": "Flexi Combo (Voice + Data + SMS)",
+              "type": "combo",
+              "source": "smeplug",
+              "plans": [
+                { "name": "Flexi 500", "api_code": "401", "price": 500, "value": "10 mins + 400MB + 5 SMS" },
+                { "name": "Flexi 1000", "api_code": "402", "price": 1000, "value": "20 mins + 1.2GB + 5 SMS" },
+                { "name": "Flexi 2000", "api_code": "403", "price": 2000, "value": "40 mins + 2.5GB + 5 SMS" },
+                { "name": "Flexi 5000", "api_code": "404", "price": 5000, "value": "100 mins + 12GB + 5 SMS" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Data Plans",
+          "icon": "\ud83d\udcca",
+          "categories": [
+            {
+              "name": "Gifting Plans",
+              "type": "data",
+              "source": "ogdams",
+              "subcategories": [
+                { "name": "Daily Plans (1-2 Days)", "filter": { "validity": ["1 Day", "2 Days"], "source": "ogdams" } },
+                { "name": "Weekly Plans (3-7 Days)", "filter": { "validity": ["3 Days", "7 Days"], "source": "ogdams" } },
+                { "name": "Monthly Plans (30 Days)", "filter": { "validity": ["30 Days"], "source": "ogdams" } },
+                { "name": "Long-term Plans (60-365 Days)", "filter": { "validity": ["60 Days", "90 Days", "1 Year"], "source": "ogdams" } }
+              ]
+            },
+            {
+              "name": "Awoof Plans",
+              "type": "data",
+              "source": "ogdams",
+              "subcategories": [
+                { "name": "Daily Awoof", "filter": { "validity": ["1 Day"], "source": "ogdams", "name_contains": "AWOOF" } },
+                { "name": "Weekly Awoof", "filter": { "validity": ["7 Days"], "source": "ogdams", "name_contains": "AWOOF" } },
+                { "name": "Monthly Awoof", "filter": { "validity": ["30 Days"], "source": "ogdams", "name_contains": "AWOOF" } }
+              ]
+            },
+            {
+              "name": "Corporate Plans",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "Share Plans (Weekly)", "filter": { "name_contains": "Share - Weekly", "source": "smeplug" } },
+                { "name": "Share Plans (Monthly)", "filter": { "name_contains": "Share - Monthly", "source": "smeplug" } },
+                { "name": "Corporate Data (30 Days)", "filter": { "name_contains": "[Corporate]", "source": "smeplug" } }
+              ]
+            },
+            {
+              "name": "SME Plans",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "ThryveData Bundles", "filter": { "name_contains": "ThryveData", "source": "smeplug" } },
+                { "name": "SME Data Plans", "filter": { "name_contains": ["SME", "Business"], "source": "smeplug" } },
+                { "name": "Broadband/Fibre Plans", "filter": { "name_contains": ["Broadband", "FibreX"], "source": "smeplug" } }
+              ]
+            },
+            {
+              "name": "Social Bundles",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "Facebook Plans", "filter": { "name_contains": "Facebook", "source": "smeplug" } },
+                { "name": "WhatsApp Plans", "filter": { "name_contains": "WhatsApp", "source": "smeplug" } },
+                { "name": "TikTok Plans", "filter": { "name_contains": ["TikTok", "Tiktok"], "source": "smeplug" } },
+                { "name": "Instagram Plans", "filter": { "name_contains": ["Instagram", "IG"], "source": "smeplug" } },
+                { "name": "YouTube Plans", "filter": { "name_contains": ["YouTube", "YT"], "source": "smeplug" } }
+              ]
+            },
+            {
+              "name": "Night Plans",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "Pulse Nightlife", "filter": { "name_contains": "Pulse Nightlife", "source": "smeplug" } },
+                { "name": "Night Data Bundles", "filter": { "name_contains": "Night", "source": "smeplug" } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Airtel",
+      "code": "airtel",
+      "icon": "\ud83d\udce1",
+      "color": "#FF0000",
+      "services": [
+        {
+          "name": "Airtime & Voice",
+          "icon": "\ud83d\udcb0",
+          "categories": [
+            {
+              "name": "Regular Airtime",
+              "type": "airtime",
+              "min_amount": 50,
+              "max_amount": 50000
+            },
+            {
+              "name": "Talk More Bundles",
+              "type": "voice_bundle",
+              "source": "smeplug",
+              "plans": [
+                { "name": "Talk More N100 (10min)", "api_code": "500", "price": 100 },
+                { "name": "Talk More N200 (20min)", "api_code": "501", "price": 200 },
+                { "name": "Talk More N300 (30min)", "api_code": "502", "price": 300 },
+                { "name": "Talk More N500 (50min)", "api_code": "503", "price": 500 },
+                { "name": "Talk More N1000 (100min)", "api_code": "504", "price": 1000 },
+                { "name": "Talk More N1500 (150min)", "api_code": "505", "price": 1500 }
+              ]
+            },
+            {
+              "name": "Talkmore Plus",
+              "type": "combo",
+              "source": "smeplug",
+              "plans": [
+                { "name": "Talkmore Plus N500 (Data + Voice)", "api_code": "50103", "price": 500 },
+                { "name": "Talkmore Plus N1000 (Data + Voice)", "api_code": "50105", "price": 1000 },
+                { "name": "Talkmore Plus N2000 (Data + Voice)", "api_code": "50106", "price": 2000 },
+                { "name": "Talkmore Plus N5000 (Data + Voice)", "api_code": "50108", "price": 5000 }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Data Plans",
+          "icon": "\ud83d\udcca",
+          "categories": [
+            {
+              "name": "Gifting Plans",
+              "type": "data",
+              "source": "ogdams",
+              "subcategories": [
+                { "name": "Daily Plans", "filter": { "validity": ["1 Day"], "source": "ogdams" } },
+                { "name": "Social Daily Plans", "filter": { "validity": ["1 Day"], "name_contains": "Social", "source": "ogdams" } },
+                { "name": "Weekly Plans", "filter": { "validity": ["7 Days"], "source": "ogdams" } },
+                { "name": "Monthly Plans", "filter": { "validity": ["30 Days"], "source": "ogdams" } },
+                { "name": "Binge Plans", "filter": { "name_contains": "Binge", "source": "ogdams" } }
+              ]
+            },
+            {
+              "name": "Awoof Plans",
+              "type": "data",
+              "source": "ogdams",
+              "subcategories": [
+                { "name": "Daily Awoof", "filter": { "validity": ["1 Day"], "name_contains": "AWOOF", "source": "ogdams" } },
+                { "name": "Monthly Awoof", "filter": { "validity": ["30 Days"], "name_contains": "AWOOF", "source": "ogdams" } }
+              ]
+            },
+            {
+              "name": "SME/Router Plans",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "Router Plans", "filter": { "name_contains": "Router", "source": "smeplug" } },
+                { "name": "ODU Router Plans", "filter": { "name_contains": "ODU", "source": "smeplug" } },
+                { "name": "Unlimited Router Plans", "filter": { "name_contains": "Unlimited", "source": "smeplug" } }
+              ]
+            },
+            {
+              "name": "Social Bundles",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "Social Plan 100/300/500", "filter": { "name_contains": "Social Plan", "source": "smeplug" } },
+                { "name": "Binge Plans", "filter": { "name_contains": "Binge", "source": "smeplug" } },
+                { "name": "Instagram/TikTok Plans", "filter": { "name_contains": ["Instagram", "TikTok"], "source": "smeplug" } }
+              ]
+            },
+            {
+              "name": "Night Plans",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "Night Plan 50", "filter": { "name_contains": "Night Plan 50", "source": "smeplug" } },
+                { "name": "Day & Night Bundles", "filter": { "name_contains": "Day and Night", "source": "smeplug" } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Glo",
+      "code": "glo",
+      "icon": "\ud83d\udce1",
+      "color": "#008000",
+      "services": [
+        {
+          "name": "Airtime & Voice",
+          "icon": "\ud83d\udcb0",
+          "categories": [
+            {
+              "name": "Regular Airtime",
+              "type": "airtime",
+              "min_amount": 50,
+              "max_amount": 50000
+            },
+            {
+              "name": "Talk More Bundles",
+              "type": "voice_bundle",
+              "source": "ogdams",
+              "plans": [
+                { "name": "Talk More - 5 MINS", "api_code": "900", "price": 50 },
+                { "name": "Talk More - 10 MINS", "api_code": "901", "price": 100 },
+                { "name": "Talk More - 21 MINS", "api_code": "902", "price": 200 },
+                { "name": "Talk More - 31 MINS", "api_code": "903", "price": 300 },
+                { "name": "Talk More - 52 MINS", "api_code": "904", "price": 500 },
+                { "name": "Talk More - 105 MINS", "api_code": "905", "price": 1000 },
+                { "name": "Talk More - 160 MINS", "api_code": "906", "price": 1500 },
+                { "name": "Talk More - 215 MINS", "api_code": "907", "price": 2000 },
+                { "name": "Talk More - 270 MINS", "api_code": "908", "price": 2500 }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Data Plans",
+          "icon": "\ud83d\udcca",
+          "categories": [
+            {
+              "name": "Gifting Plans",
+              "type": "data",
+              "source": "ogdams",
+              "subcategories": [
+                { "name": "Daily Plans", "filter": { "validity": ["1 Day"], "source": "ogdams" } },
+                { "name": "Night Plans", "filter": { "name_contains": "Night", "source": "ogdams" } },
+                { "name": "Weekend Plans", "filter": { "name_contains": ["Weekend", "Sat-Sun"], "source": "ogdams" } },
+                { "name": "Special Plans", "filter": { "name_contains": "SPECIAL", "source": "ogdams" } },
+                { "name": "GLOMEGA Plans", "filter": { "name_contains": "GLOMEGA", "source": "ogdams" } }
+              ]
+            },
+            {
+              "name": "Awoof Plans",
+              "type": "data",
+              "source": "ogdams",
+              "subcategories": [
+                { "name": "Daily Awoof", "filter": { "validity": ["1 Day"], "name_contains": "AWOOF", "source": "ogdams" } },
+                { "name": "Weekly Awoof", "filter": { "validity": ["7 Days"], "name_contains": "AWOOF", "source": "ogdams" } },
+                { "name": "Night Awoof", "filter": { "name_contains": ["Night", "AWOOF"], "source": "ogdams" } }
+              ]
+            },
+            {
+              "name": "Corporate Plans",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "Corporate Daily", "filter": { "name_contains": "[Corporate]", "validity": ["1 Day", "3 Days"], "source": "smeplug" } },
+                { "name": "Corporate Weekly", "filter": { "name_contains": "[Corporate]", "validity": ["7 Days"], "source": "smeplug" } },
+                { "name": "Corporate Monthly", "filter": { "name_contains": "[Corporate]", "validity": ["30 Days"], "source": "smeplug" } },
+                { "name": "Mega Plans", "filter": { "name_contains": "Mega", "source": "smeplug" } }
+              ]
+            },
+            {
+              "name": "Social Bundles",
+              "type": "data",
+              "source": "smeplug",
+              "subcategories": [
+                { "name": "Social Plans", "filter": { "name_contains": "Social", "source": "smeplug" } },
+                { "name": "My-G Bundles", "filter": { "name_contains": "My-G", "source": "smeplug" } },
+                { "name": "Campus Booster", "filter": { "name_contains": "Campus", "source": "smeplug" } },
+                { "name": "GLO TV Plans", "filter": { "name_contains": "GLO TV", "source": "smeplug" } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "shared_services": {
+    "name": "Other Services",
+    "icon": "\ud83d\udd27",
+    "categories": [
+      {
+        "name": "Data Share Plans",
+        "source": "smeplug",
+        "networks": ["mtn"],
+        "filter": { "name_contains": "Share" }
+      },
+      {
+        "name": "Roaming Plans",
+        "source": "ogdams",
+        "networks": ["airtel"],
+        "filter": { "name_contains": ["Roam", "Roaming"] }
+      },
+      {
+        "name": "Voice Only Plans",
+        "source": "all",
+        "filter": { "type": "voice_bundle" }
+      }
+    ]
+  }
+}
