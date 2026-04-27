@@ -290,6 +290,19 @@ export const resources = {
         importing: 'Importing...',
         previewImport: 'Preview import',
         importPlansAction: 'Import plans',
+        deletePlan: 'Delete plan',
+        deletingPlan: 'Deleting...',
+        planDeleted: 'Plan deleted successfully',
+        deletePlanFailed: 'Failed to delete plan',
+        deletePlanTitle: 'Delete this plan?',
+        deletePlanWarning:
+          'You are about to remove {{name}} (Plan ID: {{planId}}). This action is permanent for plans without billing history and irreversible for administrators.',
+        deletePlanImpactHeading: 'Warning: this affects plan availability immediately.',
+        deletePlanImpactBody:
+          'If the plan has transactions or billing records, it will be archived instead of hard deleted so historical reporting remains intact. Related reseller pricing and price history records are removed only when a hard delete is safe.',
+        deletionReasonLabel: 'Deletion reason (optional)',
+        deletionReasonPlaceholder: 'Document why this plan is being removed',
+        confirmDeletePlan: 'Delete permanently',
       },
       contact: {
         seoTitle: 'Contact Sales - Peace Bundle',
@@ -924,6 +937,19 @@ export const resources = {
         importing: 'Ana shigowa...',
         previewImport: 'Duba shigo da bayanai',
         importPlansAction: 'Shigo da tsare-tsare',
+        deletePlan: 'Goge tsari',
+        deletingPlan: 'Ana gogewa...',
+        planDeleted: 'An goge tsari cikin nasara',
+        deletePlanFailed: 'Goge tsari ya gaza',
+        deletePlanTitle: 'A goge wannan tsari?',
+        deletePlanWarning:
+          'Kuna shirin cire {{name}} (ID na tsari: {{planId}}). Wannan aiki na dindindin ne ga tsare-tsaren da ba su da tarihin biyan kudi kuma ba za a iya maidowa ba.',
+        deletePlanImpactHeading: 'Gargadi: wannan zai shafi samuwar tsari nan take.',
+        deletePlanImpactBody:
+          'Idan tsarin yana da transactions ko bayanan billing, za a adana shi a boye maimakon a goge shi gaba daya domin a kiyaye rahotannin tarihi. Za a cire reseller pricing da price history ne kawai idan hard delete yana da aminci.',
+        deletionReasonLabel: 'Dalilin gogewa (na zaɓi)',
+        deletionReasonPlaceholder: 'Rubuta dalilin cire wannan tsari',
+        confirmDeletePlan: 'Goge har abada',
       },
       contact: {
         seoTitle: 'Tuntuɓi Tallace-tallace - Peace Bundle',
@@ -1558,6 +1584,19 @@ export const resources = {
         importing: 'N gbe wọle...',
         previewImport: 'Wo awotẹlẹ import',
         importPlansAction: 'Gbe plans wọle',
+        deletePlan: 'Pa plan rẹ',
+        deletingPlan: 'N pa a...',
+        planDeleted: 'A ti pa plan naa ni aṣeyọri',
+        deletePlanFailed: 'Pipa plan naa kuna',
+        deletePlanTitle: 'Pa plan yii rẹ?',
+        deletePlanWarning:
+          'O fẹ yọ {{name}} kuro (Plan ID: {{planId}}). Iṣe yii jẹ títí láé fun awọn plan ti ko ni billing history ati pe admin ko le yi pada.',
+        deletePlanImpactHeading: 'Ikilọ: eyi yoo kan availability plan naa lẹsẹkẹsẹ.',
+        deletePlanImpactBody:
+          'Ti plan naa ba ni transactions tabi billing records, a o archive rẹ dipo hard delete ki reporting itan le wa. Reseller pricing ati price history ni a maa yọ kuro nikan nigba ti hard delete ba ni aabo.',
+        deletionReasonLabel: 'Idi piparẹ (aṣayan)',
+        deletionReasonPlaceholder: 'Ṣalaye idi ti a fi n yọ plan yii',
+        confirmDeletePlan: 'Pa a títí láé',
       },
       contact: {
         seoTitle: 'Kan Si Tita - Peace Bundle',
@@ -2192,6 +2231,19 @@ export const resources = {
         importing: 'Na-ebubata...',
         previewImport: 'Nlele mbubata',
         importPlansAction: 'Bubata plans',
+        deletePlan: 'Hichapụ plan',
+        deletingPlan: 'Na-ehichapụ...',
+        planDeleted: 'Ehichapụrụ plan nke ọma',
+        deletePlanFailed: 'Ihichapụ plan dara',
+        deletePlanTitle: 'Hichapụ plan a?',
+        deletePlanWarning:
+          'Ị na-achọ iwepu {{name}} (Plan ID: {{planId}}). Nke a bụ mmegharị na-adịgide adịgide maka plans na-enweghị billing history ma admins enweghị ike iweghachi ya.',
+        deletePlanImpactHeading: 'Ncheta: nke a ga-emetụta availability plan ozugbo.',
+        deletePlanImpactBody:
+          'Ọ bụrụ na plan ahụ nwere transactions ma ọ bụ billing records, a ga-archive ya kama hard delete ka akụkọ ihe mere eme wee dịrị. A na-ewepụ reseller pricing na price history naanị mgbe hard delete dị nchebe.',
+        deletionReasonLabel: 'Ihe kpatara ihichapụ (nhọrọ)',
+        deletionReasonPlaceholder: 'Depụta ihe kpatara iwepu plan a',
+        confirmDeletePlan: 'Hichapụ ruo mgbe ebighị ebi',
       },
       contact: {
         seoTitle: 'Kpọtụrụ Ahịa - Peace Bundle',

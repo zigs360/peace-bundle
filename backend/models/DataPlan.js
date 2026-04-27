@@ -165,9 +165,18 @@ const DataPlan = sequelize.define('DataPlan', {
     type: DataTypes.STRING,
     allowNull: true,
   },
+  deleted_by: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  deletion_reason: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
 }, {
   timestamps: true,
   tableName: 'data_plans',
+  paranoid: true,
   indexes: [
     {
       fields: ['provider', 'category', 'is_active']

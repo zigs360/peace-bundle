@@ -15,7 +15,6 @@ const {
     getDataPlans,
     createDataPlan,
     updateDataPlan,
-    deleteDataPlan,
     getTransactions,
     getWebhookEvents,
     getWebhookMetrics,
@@ -133,7 +132,7 @@ router.post('/plans/import', protect, admin, planImportUpload.single('file'), ad
 router.post('/plans/bulk-update', protect, admin, adminPlanController.bulkUpdatePlans);
 router.put('/plans/:id/toggle-status', protect, admin, adminPlanController.togglePlanStatus);
 router.put('/plans/:id', protect, admin, adminPlanController.updatePlan);
-router.delete('/plans/:id', protect, admin, deleteDataPlan);
+router.delete('/plans/:id', protect, admin, adminPlanController.deletePlan);
 router.get('/audit/price-history', protect, admin, adminPlanController.getPriceHistory);
 router.get('/audit/plan/:id/history', protect, admin, adminPlanController.getPlanHistory);
 router.get('/stats/summary', protect, admin, adminPlanController.getPlanStatsSummary);

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../../services/api';
-import { Download, Eye, Plus, Save, Search, Upload } from 'lucide-react';
+import { Download, Eye, Plus, Save, Search, Trash2, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'react-hot-toast';
 
 type Plan = {
   id: number;
@@ -61,6 +62,7 @@ export default function PlansIndex() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingIds, setSavingIds] = useState<number[]>([]);
+  const [deletingIds, setDeletingIds] = useState<number[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Partial<Plan>>>({});
   const [filters, setFilters] = useState<PlanFilters>(EMPTY_FILTERS);
@@ -82,6 +84,7 @@ export default function PlansIndex() {
   const [bulkPreview, setBulkPreview] = useState<any[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [modalState, setModalState] = useState<Partial<Plan> & { reason?: string }>({});
+  const [deleteDialog, setDeleteDialog] = useState<{ plan: Plan; reason: string } | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -174,7 +177,7 @@ export default function PlansIndex() {
       await fetchSidebarData();
     } catch (err) {
       console.error(err);
-      alert(t('admin.savePlanChangesFailed'));
+      toast.error(t('admin.savePlanChangesFailed'));
     } finally {
       setSavingIds((prev) => prev.filter((id) => id !== plan.id));
     }
@@ -200,13 +203,13 @@ export default function PlansIndex() {
       URL.revokeObjectURL(href);
     } catch (err) {
       console.error(err);
-      alert(t('admin.exportCsvFailed'));
+      toast.error(t('admin.exportCsvFailed'));
     }
   };
 
   const submitImport = async () => {
     if (!importFile) {
-      alert(t('admin.selectImportFile'));
+      toast.error(t('admin.selectImportFile'));
       return;
     }
 
@@ -230,7 +233,7 @@ export default function PlansIndex() {
       }
     } catch (err: any) {
       console.error(err);
-      alert(err.response?.data?.message || t('admin.importPlansFailed'));
+      toast.error(err.response?.data?.message || t('admin.importPlansFailed'));
     } finally {
       setImporting(false);
     }
@@ -257,10 +260,35 @@ export default function PlansIndex() {
       setSelectedIds([]);
       await fetchPlans(filters);
       await fetchSidebarData();
-      alert(res.data?.message || t('admin.bulkUpdateApplied'));
+      toast.success(res.data?.message || t('admin.bulkUpdateApplied'));
     } catch (err) {
       console.error(err);
-      alert(t('admin.bulkUpdateFailed'));
+      toast.error(t('admin.bulkUpdateFailed'));
+    }
+  };
+
+  const confirmDeletePlan = async () => {
+    if (!deleteDialog) return;
+
+    const { plan, reason } = deleteDialog;
+    setDeletingIds((prev) => [...prev, plan.id]);
+    try {
+      const res = await api.delete(`/admin/plans/${plan.id}`, {
+        data: {
+          reason: reason.trim() || undefined,
+        },
+      });
+      toast.success(res.data?.message || t('admin.planDeleted'));
+      setDeleteDialog(null);
+      setSelectedIds((prev) => prev.filter((id) => id !== plan.id));
+      setPlans((prev) => prev.filter((item) => item.id !== plan.id));
+      await fetchPlans(filters);
+      await fetchSidebarData();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.message || t('admin.deletePlanFailed'));
+    } finally {
+      setDeletingIds((prev) => prev.filter((id) => id !== plan.id));
     }
   };
 
@@ -511,6 +539,7 @@ export default function PlansIndex() {
                 <tr><td colSpan={12} className="px-6 py-10 text-center text-sm text-gray-500">{t('admin.noPlansFound')}</td></tr>
               ) : plans.map((plan) => {
                 const isSaving = savingIds.includes(plan.id);
+                const isDeleting = deletingIds.includes(plan.id);
                 return (
                   <tr key={plan.id} className="align-top">
                     <td className="px-3 py-4">
@@ -581,6 +610,14 @@ export default function PlansIndex() {
                         <button onClick={() => openModal(plan)} className="inline-flex items-center px-3 py-1.5 rounded-md border border-gray-300 text-xs text-gray-700 hover:bg-gray-50">
                           <Eye className="w-3 h-3 mr-1" />
                           {t('common.edit')}
+                        </button>
+                        <button
+                          onClick={() => setDeleteDialog({ plan, reason: '' })}
+                          disabled={isDeleting}
+                          className="inline-flex items-center px-3 py-1.5 rounded-md border border-red-200 text-xs text-red-700 hover:bg-red-50 disabled:opacity-60"
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" />
+                          {isDeleting ? t('admin.deletingPlan') : t('admin.deletePlan')}
                         </button>
                       </div>
                     </td>
@@ -665,6 +702,54 @@ export default function PlansIndex() {
                 className="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700"
               >
                 {t('admin.saveChanges')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl p-6 space-y-5">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">{t('admin.deletePlanTitle')}</h2>
+              <p className="mt-2 text-sm text-gray-600">
+                {t('admin.deletePlanWarning', {
+                  name: deleteDialog.plan.name,
+                  planId: deleteDialog.plan.plan_id,
+                })}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 space-y-2">
+              <p>{t('admin.deletePlanImpactHeading')}</p>
+              <p>{t('admin.deletePlanImpactBody')}</p>
+            </div>
+
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">{t('admin.deletionReasonLabel')}</span>
+              <textarea
+                value={deleteDialog.reason}
+                onChange={(e) => setDeleteDialog((prev) => (prev ? { ...prev, reason: e.target.value } : prev))}
+                rows={3}
+                placeholder={t('admin.deletionReasonPlaceholder')}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+              />
+            </label>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteDialog(null)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={() => void confirmDeletePlan()}
+                disabled={deletingIds.includes(deleteDialog.plan.id)}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deletingIds.includes(deleteDialog.plan.id) ? t('admin.deletingPlan') : t('admin.confirmDeletePlan')}
               </button>
             </div>
           </div>

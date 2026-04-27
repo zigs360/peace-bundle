@@ -1,7 +1,15 @@
 const { Op } = require('sequelize');
 const fs = require('fs');
 const sequelize = require('../config/database');
-const { DataPlan, PlanPriceHistory } = require('../config/db');
+const {
+  DataPlan,
+  PlanPriceHistory,
+  PlanDeletionAudit,
+  Transaction,
+  ResellerPlanPricing,
+  AdminOgdamsDataPurchase,
+  PricingRule,
+} = require('../config/db');
 const logger = require('../utils/logger');
 const { importPlanFile } = require('../scripts/importDataPlans');
 
@@ -150,6 +158,24 @@ function applyLegacyPriceMirrors(plan) {
   } else if (originalPrice !== null) {
     plan.api_cost = originalPrice;
   }
+}
+
+async function getPlanDeletionImpact(planId, transaction) {
+  const [transactionCount, adminPurchaseCount, resellerPricingCount, priceHistoryCount, pricingRuleCount] = await Promise.all([
+    Transaction.count({ where: { dataPlanId: planId }, transaction }),
+    AdminOgdamsDataPurchase.count({ where: { dataPlanId: planId }, transaction }),
+    ResellerPlanPricing.count({ where: { dataPlanId: planId }, transaction }),
+    PlanPriceHistory.count({ where: { planIdRef: planId }, transaction }),
+    PricingRule.count({ where: { dataPlanId: planId }, transaction }),
+  ]);
+
+  return {
+    transactionCount,
+    adminPurchaseCount,
+    resellerPricingCount,
+    priceHistoryCount,
+    pricingRuleCount,
+  };
 }
 
 async function updatePlanInstance(plan, payload, meta) {
@@ -695,6 +721,104 @@ const importPlansFromFile = async (req, res) => {
   }
 };
 
+const deletePlan = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const plan = await DataPlan.findByPk(req.params.id, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    if (!plan) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'Plan not found' });
+    }
+
+    const reason = req.body?.reason ? String(req.body.reason).trim() : null;
+    const changedBy = getChangedBy(req);
+    const relatedCounts = await getPlanDeletionImpact(plan.id, transaction);
+    const hasBillingReferences = relatedCounts.transactionCount > 0 || relatedCounts.adminPurchaseCount > 0;
+    const deletionMode = hasBillingReferences ? 'soft' : 'hard';
+
+    await PlanDeletionAudit.create(
+      {
+        planIdRef: plan.id,
+        adminId: req.user?.id || null,
+        deleted_by: changedBy,
+        deletion_mode: deletionMode,
+        reason,
+        related_counts: relatedCounts,
+        plan_snapshot: normalizePlan(plan),
+      },
+      { transaction },
+    );
+
+    if (deletionMode === 'soft') {
+      await PricingRule.update(
+        {
+          is_active: false,
+          ends_at: new Date(),
+          updatedBy: req.user?.id || null,
+        },
+        {
+          where: { dataPlanId: plan.id },
+          transaction,
+        },
+      );
+
+      await updatePlanInstance(
+        plan,
+        {
+          is_active: false,
+          available_sim: false,
+          available_wallet: false,
+        },
+        {
+          changedBy,
+          reason: reason || 'Plan soft deleted due to retained billing records',
+          transaction,
+        },
+      );
+
+      plan.deleted_by = changedBy;
+      plan.deletion_reason = reason;
+      plan.last_updated_by = changedBy;
+      await plan.save({ transaction });
+      await plan.destroy({ transaction });
+    } else {
+      await Promise.all([
+        ResellerPlanPricing.destroy({ where: { dataPlanId: plan.id }, transaction }),
+        PlanPriceHistory.destroy({ where: { planIdRef: plan.id }, transaction }),
+        PricingRule.destroy({ where: { dataPlanId: plan.id }, transaction }),
+      ]);
+      await plan.destroy({ transaction, force: true });
+    }
+
+    await transaction.commit();
+
+    logger.info('[AdminPlans] delete completed', {
+      planId: Number(req.params.id),
+      deletionMode,
+      deletedBy: changedBy,
+      relatedCounts,
+    });
+
+    return res.json({
+      success: true,
+      message:
+        deletionMode === 'hard'
+          ? 'Plan permanently deleted'
+          : 'Plan archived because billing history exists. It is hidden from active catalogs but retained for audit records.',
+      deletionMode,
+      relatedCounts,
+    });
+  } catch (error) {
+    if (!transaction.finished) await transaction.rollback();
+    logger.error('[AdminPlans] delete failed', { error: error.message, id: req.params.id });
+    return res.status(500).json({ success: false, message: 'Failed to delete plan' });
+  }
+};
+
 module.exports = {
   listPlans,
   getPlanFilters,
@@ -710,4 +834,5 @@ module.exports = {
   getCheapestPlans,
   createPlan,
   importPlansFromFile,
+  deletePlan,
 };

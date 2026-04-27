@@ -1,10 +1,16 @@
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');
 
 const app = require('../server');
 const { connectDB, User } = require('../config/db');
 const DataPlan = require('../models/DataPlan');
 const PlanPriceHistory = require('../models/PlanPriceHistory');
+const PlanDeletionAudit = require('../models/PlanDeletionAudit');
+const Transaction = require('../models/Transaction');
+const ResellerPlanPricing = require('../models/ResellerPlanPricing');
+const PricingRule = require('../models/PricingRule');
+const PricingTier = require('../models/PricingTier');
 const Wallet = require('../models/Wallet');
 
 describe('Admin plan management', () => {
@@ -27,10 +33,23 @@ describe('Admin plan management', () => {
   });
 
   afterEach(async () => {
+    await PricingRule.destroy({ where: {}, force: true });
+    await PricingTier.destroy({ where: {}, force: true });
+    await Transaction.destroy({ where: {}, force: true });
+    await ResellerPlanPricing.destroy({ where: {}, force: true });
+    await PlanDeletionAudit.destroy({ where: {}, force: true });
     await PlanPriceHistory.destroy({ where: {}, force: true });
     await DataPlan.destroy({ where: {}, force: true });
     await Wallet.destroy({ where: {}, force: true });
-    await User.destroy({ where: { email: { [require('sequelize').Op.like]: 'plans-admin-%@test.com' } }, force: true });
+    await User.destroy({
+      where: {
+        [Op.or]: [
+          { email: { [Op.like]: 'plans-admin-%@test.com' } },
+          { email: { [Op.like]: 'plans-user-%@test.com' } },
+        ],
+      },
+      force: true,
+    });
   });
 
   it('updates a plan and writes audit history entries', async () => {
@@ -181,5 +200,176 @@ describe('Admin plan management', () => {
     expect(imported.service_name).toBe('Data Plans');
     expect(imported.category_name).toBe('Gifting Plans');
     expect(imported.subcategory_name).toBe('Weekly Plans');
+  });
+
+  it('rejects plan deletion for non-admin users', async () => {
+    const unique = `${Date.now()}-user`;
+    const user = await User.create({
+      name: 'Plans User',
+      email: `plans-user-${unique}@test.com`,
+      password: 'password123',
+      phone: `0804${String(Date.now()).slice(-7)}`,
+      role: 'user',
+    });
+    const userToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    const plan = await DataPlan.create({
+      source: 'smeplug',
+      provider: 'mtn',
+      category: 'gifting',
+      name: 'Restricted delete plan',
+      size: '1GB',
+      size_mb: 1024,
+      validity: '1 Day',
+      data_size: '1GB',
+      plan_id: '40101',
+      original_price: 500,
+      your_price: 480,
+      wallet_price: 490,
+      admin_price: 480,
+      api_cost: 490,
+      is_active: true,
+    });
+
+    const res = await request(app)
+      .delete(`/api/admin/plans/${plan.id}`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ reason: 'Should be blocked' });
+
+    expect(res.statusCode).toBe(403);
+    const existing = await DataPlan.findByPk(plan.id);
+    expect(existing).toBeTruthy();
+    expect(await PlanDeletionAudit.count()).toBe(0);
+  });
+
+  it('hard deletes unreferenced plans and cascades dependent pricing data', async () => {
+    const plan = await DataPlan.create({
+      source: 'smeplug',
+      provider: 'airtel',
+      category: 'gifting',
+      name: 'Disposable plan',
+      size: '2GB',
+      size_mb: 2048,
+      validity: '2 Days',
+      data_size: '2GB',
+      plan_id: '50101',
+      original_price: 900,
+      your_price: 860,
+      wallet_price: 880,
+      admin_price: 860,
+      api_cost: 880,
+      is_active: true,
+    });
+
+    await ResellerPlanPricing.create({ dataPlanId: plan.id, custom_price: 845 });
+    const tier = await PricingTier.create({ name: `Tier ${Date.now()}` });
+    await PricingRule.create({
+      tierId: tier.id,
+      product_type: 'data',
+      provider: 'airtel',
+      dataPlanId: plan.id,
+      markup_percent: 5,
+      is_active: true,
+    });
+    await PlanPriceHistory.create({
+      planIdRef: plan.id,
+      field_name: 'your_price',
+      old_value: '850',
+      new_value: '860',
+      changed_by: 'seed@test.com',
+      reason: 'Seed history',
+    });
+
+    const res = await request(app)
+      .delete(`/api/admin/plans/${plan.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reason: 'Product cleanup' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.deletionMode).toBe('hard');
+
+    const deletedPlan = await DataPlan.findByPk(plan.id, { paranoid: false });
+    expect(deletedPlan).toBeNull();
+    expect(await ResellerPlanPricing.count({ where: { dataPlanId: plan.id } })).toBe(0);
+    expect(await PlanPriceHistory.count({ where: { planIdRef: plan.id } })).toBe(0);
+    expect(await PricingRule.count({ where: { dataPlanId: plan.id } })).toBe(0);
+
+    const audit = await PlanDeletionAudit.findOne({ where: { planIdRef: plan.id } });
+    expect(audit).toBeTruthy();
+    expect(audit.deletion_mode).toBe('hard');
+    expect(audit.reason).toBe('Product cleanup');
+    expect(audit.related_counts.pricingRuleCount).toBe(1);
+  });
+
+  it('soft deletes referenced plans and preserves billing history', async () => {
+    const unique = `${Date.now()}-txn`;
+    const plan = await DataPlan.create({
+      source: 'ogdams',
+      provider: 'glo',
+      category: 'gifting',
+      name: 'Referenced plan',
+      size: '1.5GB',
+      size_mb: 1536,
+      validity: '7 Days',
+      data_size: '1.5GB',
+      plan_id: '60101',
+      original_price: 700,
+      your_price: 670,
+      wallet_price: 690,
+      admin_price: 670,
+      api_cost: 690,
+      is_active: true,
+      available_sim: true,
+      available_wallet: true,
+    });
+
+    await Transaction.create({
+      type: 'debit',
+      amount: 690,
+      balance_before: 2000,
+      balance_after: 1310,
+      source: 'data_purchase',
+      provider: 'glo',
+      reference: `txn-${unique}`,
+      status: 'completed',
+      dataPlanId: plan.id,
+    });
+    const tier = await PricingTier.create({ name: `Tier ${Date.now()} soft` });
+    await PricingRule.create({
+      tierId: tier.id,
+      product_type: 'data',
+      provider: 'glo',
+      dataPlanId: plan.id,
+      markup_percent: 7.5,
+      is_active: true,
+    });
+
+    const res = await request(app)
+      .delete(`/api/admin/plans/${plan.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reason: 'Retire but retain history' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.deletionMode).toBe('soft');
+
+    const softDeletedPlan = await DataPlan.findByPk(plan.id, { paranoid: false });
+    expect(softDeletedPlan).toBeTruthy();
+    expect(softDeletedPlan.deletedAt).toBeTruthy();
+    expect(softDeletedPlan.is_active).toBe(false);
+    expect(softDeletedPlan.available_sim).toBe(false);
+    expect(softDeletedPlan.available_wallet).toBe(false);
+    expect(softDeletedPlan.deletion_reason).toBe('Retire but retain history');
+
+    expect(await Transaction.count({ where: { dataPlanId: plan.id } })).toBe(1);
+    const retainedRule = await PricingRule.findOne({ where: { dataPlanId: plan.id } });
+    expect(retainedRule).toBeTruthy();
+    expect(retainedRule.is_active).toBe(false);
+    expect(retainedRule.ends_at).toBeTruthy();
+
+    const audit = await PlanDeletionAudit.findOne({ where: { planIdRef: plan.id } });
+    expect(audit).toBeTruthy();
+    expect(audit.deletion_mode).toBe('soft');
+    expect(audit.related_counts.transactionCount).toBe(1);
+    expect(audit.related_counts.pricingRuleCount).toBe(1);
   });
 });

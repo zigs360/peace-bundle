@@ -34,6 +34,7 @@ const PricingTier = require('../models/PricingTier');
 const PricingRule = require('../models/PricingRule');
 const PricingAuditLog = require('../models/PricingAuditLog');
 const PlanPriceHistory = require('../models/PlanPriceHistory');
+const PlanDeletionAudit = require('../models/PlanDeletionAudit');
 const WebhookEvent = require('../models/WebhookEvent');
 const TreasuryBalance = require('../models/TreasuryBalance');
 const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
@@ -99,6 +100,9 @@ try {
 
   DataPlan.hasMany(PlanPriceHistory, { foreignKey: 'planIdRef', as: 'priceHistory', onDelete: 'CASCADE' });
   PlanPriceHistory.belongsTo(DataPlan, { foreignKey: 'planIdRef', as: 'plan' });
+
+  User.hasMany(PlanDeletionAudit, { foreignKey: 'adminId', as: 'planDeletionAudits' });
+  PlanDeletionAudit.belongsTo(User, { foreignKey: 'adminId', as: 'admin' });
 
   // Transaction - Sim (Many-to-One)
   Sim.hasMany(Transaction, { foreignKey: 'simId', as: 'transactions' });
@@ -241,6 +245,8 @@ const connectDB = async () => {
       const callPlansTable = typeof CallPlan.getTableName === 'function' ? CallPlan.getTableName() : 'CallPlans';
       const planPriceHistoryTable =
         typeof PlanPriceHistory.getTableName === 'function' ? PlanPriceHistory.getTableName() : 'plan_price_history';
+      const planDeletionAuditTable =
+        typeof PlanDeletionAudit.getTableName === 'function' ? PlanDeletionAudit.getTableName() : 'plan_deletion_audits';
       const voiceBundlePurchasesTable =
         typeof VoiceBundlePurchase.getTableName === 'function' ? VoiceBundlePurchase.getTableName() : 'voice_bundle_purchases';
       const ensureVoiceBundlePurchaseColumns = async () =>
@@ -271,6 +277,9 @@ const connectDB = async () => {
           ensureColumn(dataPlansTable, 'available_sim', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
           ensureColumn(dataPlansTable, 'available_wallet', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
           ensureColumn(dataPlansTable, 'last_updated_by', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(dataPlansTable, 'deletedAt', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(dataPlansTable, 'deleted_by', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(dataPlansTable, 'deletion_reason', { type: DataTypes.TEXT, allowNull: true }),
           ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
           ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
           ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
@@ -320,6 +329,9 @@ const connectDB = async () => {
         ensureColumn(dataPlansTable, 'available_sim', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
         ensureColumn(dataPlansTable, 'available_wallet', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
         ensureColumn(dataPlansTable, 'last_updated_by', { type: DataTypes.STRING, allowNull: true }),
+        ensureColumn(dataPlansTable, 'deletedAt', { type: DataTypes.DATE, allowNull: true }),
+        ensureColumn(dataPlansTable, 'deleted_by', { type: DataTypes.STRING, allowNull: true }),
+        ensureColumn(dataPlansTable, 'deletion_reason', { type: DataTypes.TEXT, allowNull: true }),
         ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
         ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
         ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
@@ -338,6 +350,19 @@ const connectDB = async () => {
         await ensureColumn(planPriceHistoryTable, 'source', { type: DataTypes.STRING, allowNull: true });
       } catch (e) {
         console.error('Plan price history table sync failed:', e.message);
+      }
+
+      try {
+        await PlanDeletionAudit.sync();
+        await ensureColumn(planDeletionAuditTable, 'plan_id_ref', { type: DataTypes.INTEGER, allowNull: false });
+        await ensureColumn(planDeletionAuditTable, 'admin_id', { type: DataTypes.UUID, allowNull: true });
+        await ensureColumn(planDeletionAuditTable, 'deleted_by', { type: DataTypes.STRING, allowNull: false, defaultValue: 'system' });
+        await ensureColumn(planDeletionAuditTable, 'deletion_mode', { type: DataTypes.STRING, allowNull: false, defaultValue: 'soft' });
+        await ensureColumn(planDeletionAuditTable, 'reason', { type: DataTypes.TEXT, allowNull: true });
+        await ensureColumn(planDeletionAuditTable, 'related_counts', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
+        await ensureColumn(planDeletionAuditTable, 'plan_snapshot', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
+      } catch (e) {
+        console.error('Plan deletion audit table sync failed:', e.message);
       }
 
       try {
@@ -549,6 +574,7 @@ module.exports = {
   PricingRule,
   PricingAuditLog,
   PlanPriceHistory,
+  PlanDeletionAudit,
   WebhookEvent,
   TreasuryBalance,
   TreasuryLedgerEntry,
