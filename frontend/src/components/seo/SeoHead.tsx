@@ -17,7 +17,7 @@ export default function SeoHead({
 }: SeoHeadProps) {
   useEffect(() => {
     // Update Title
-    document.title = `${title} | Peace Bundlle`;
+    document.title = `${title} | Peace Bundle`;
 
     // Helper to update meta tags
     const updateMeta = (name: string, content: string, attribute: 'name' | 'property' = 'name') => {

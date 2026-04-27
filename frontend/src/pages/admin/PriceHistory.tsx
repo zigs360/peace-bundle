@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import api from '../../services/api';
 
 type HistoryRow = {
@@ -29,6 +30,7 @@ function money(value: number | null, fallback?: string | null) {
 }
 
 export default function PriceHistory() {
+  const { t } = useTranslation();
   const [items, setItems] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [adminUser, setAdminUser] = useState('');
@@ -63,19 +65,19 @@ export default function PriceHistory() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Price History</h1>
-        <p className="text-sm text-gray-600">Audit who changed plan pricing and availability, with reason and timestamp.</p>
+        <h1 className="text-2xl font-bold text-gray-900">{t('admin.priceHistory')}</h1>
+        <p className="text-sm text-gray-600">{t('priceHistoryPage.description')}</p>
       </div>
 
       <div className="bg-white rounded-lg shadow border border-gray-100 p-5">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <input value={adminUser} onChange={(e) => setAdminUser(e.target.value)} placeholder="Admin user" className="rounded-lg border border-gray-300 px-3 py-2" />
-          <input value={planId} onChange={(e) => setPlanId(e.target.value)} placeholder="Plan ID" className="rounded-lg border border-gray-300 px-3 py-2" />
+          <input value={adminUser} onChange={(e) => setAdminUser(e.target.value)} placeholder={t('priceHistoryPage.adminUserPlaceholder')} className="rounded-lg border border-gray-300 px-3 py-2" />
+          <input value={planId} onChange={(e) => setPlanId(e.target.value)} placeholder={t('priceHistoryPage.planIdPlaceholder')} className="rounded-lg border border-gray-300 px-3 py-2" />
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2" />
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2" />
         </div>
         <div className="flex gap-3 mt-4">
-          <button onClick={() => void fetchHistory()} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Apply Filters</button>
+          <button onClick={() => void fetchHistory()} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">{t('priceHistoryPage.applyFilters')}</button>
           <button
             onClick={() => {
               setAdminUser('');
@@ -96,20 +98,28 @@ export default function PriceHistory() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                {['Plan', 'Field', 'Old', 'New', 'Changed By', 'Changed At', 'Reason'].map((header) => (
+                {[
+                  t('admin.plans'),
+                  t('priceHistoryPage.fieldColumn'),
+                  t('priceHistoryPage.oldValueColumn'),
+                  t('priceHistoryPage.newValueColumn'),
+                  t('priceHistoryPage.changedByColumn'),
+                  t('priceHistoryPage.changedAtColumn'),
+                  t('priceHistoryPage.reasonColumn'),
+                ].map((header) => (
                   <th key={header} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{header}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {loading ? (
-                <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">Loading...</td></tr>
+                <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">{t('supportPage.loading')}</td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">No audit records found</td></tr>
+                <tr><td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500">{t('priceHistoryPage.noRecords')}</td></tr>
               ) : items.map((item) => (
                 <tr key={item.id}>
                   <td className="px-4 py-4 text-sm text-gray-700">
-                    <div className="font-medium text-gray-900">{item.plan?.name || 'Plan removed'}</div>
+                    <div className="font-medium text-gray-900">{item.plan?.name || t('priceHistoryPage.planRemoved')}</div>
                     <div className="text-xs text-gray-500">
                       {String(item.plan?.provider || '').toUpperCase()} • {String(item.plan?.source || '').toUpperCase()} • {item.plan?.plan_id || ''}
                     </div>

@@ -1,15 +1,20 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { Wallet, Wifi, Phone, Activity } from 'lucide-react';
+import { Wallet, Wifi, Phone, Activity, ArrowRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
 import { User, DashboardStats } from '../../types';
 import { useVirtualAccount } from '../../hooks/useVirtualAccount';
 import VirtualAccountWidget from '../../components/VirtualAccountWidget';
 import { useNotifications } from '../../context/NotificationContext';
 import { getStoredUser } from '../../utils/storage';
+import PageHeader from '../../components/ui/PageHeader';
+import StatCard from '../../components/ui/StatCard';
+import SurfaceCard from '../../components/ui/SurfaceCard';
 
 export default function UserDashboard() {
+  const { t } = useTranslation();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -74,82 +79,83 @@ export default function UserDashboard() {
     return () => clearInterval(timer);
   }, [isConnected, user?.id, fetchStats]);
 
-  if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
+  if (loading) return <div className="flex items-center justify-center h-full">{t('common.loading')}</div>;
   const balanceFromStats = Number((stats as any)?.balance ?? 0);
   const hasRealtime = walletBalance !== null && walletBalanceUpdatedAt > statsFetchedAt;
   const displayBalance = hasRealtime ? walletBalance : balanceFromStats;
+  const userName = user?.fullName || user?.name || 'User';
 
   return (
-    <FadeIn className="p-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-800">Welcome back, {user?.fullName || user?.name || 'User'}!</h1>
-        <p className="text-gray-600">Here's what's happening with your account today.</p>
-      </div>
+    <FadeIn className="p-1">
+      <PageHeader
+        eyebrow={t('nav.userDashboard')}
+        title={t('dashboard.welcome', { name: userName })}
+        description={t('dashboard.overview')}
+      />
 
-      {/* Virtual Account Section */}
       <VirtualAccountWidget state={va} onReveal={revealVa} onCopy={auditCopy} onRetry={refreshVa} onRequest={requestVa} variant="dashboard" />
 
-      <StaggerContainer className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-2 mb-8">
+      <StaggerContainer className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-2">
         <StaggerItem>
           <StatCard 
-            title="Wallet Balance" 
+            title={t('dashboard.walletBalance')} 
             value={`₦${Number(displayBalance).toLocaleString() || 0}`} 
-            icon={<Wallet className="w-6 h-6 text-primary-600" />} 
-            borderClass="border-primary-500"
+            icon={<Wallet className="h-6 w-6" />} 
+            tone="primary"
           />
         </StaggerItem>
         <StaggerItem>
           <StatCard 
-            title="Recent Transactions" 
+            title={t('dashboard.recentTransactions')} 
             value={stats?.transactionsCount || 0} 
-            icon={<Activity className="w-6 h-6 text-secondary" />} 
-            borderClass="border-secondary"
+            icon={<Activity className="h-6 w-6" />} 
+            tone="accent"
           />
         </StaggerItem>
       </StaggerContainer>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Quick Actions */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">Quick Actions</h2>
+        <SurfaceCard className="p-6">
+          <h2 className="mb-4 text-lg font-semibold text-slate-950">{t('common.quickActions')}</h2>
           <div className="grid grid-cols-2 gap-4">
             <HoverCard>
-              <Link to="/dashboard/data" className="flex flex-col items-center justify-center p-4 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors h-full w-full">
-                <Wifi className="w-8 h-8 text-primary-600 mb-2" />
-                <span className="text-sm font-medium text-primary-700">Buy Data</span>
+              <Link to="/dashboard/data" className="flex h-full w-full flex-col items-center justify-center rounded-3xl bg-primary-50 p-5 text-center hover:bg-primary-100">
+                <Wifi className="mb-3 h-8 w-8 text-primary-700" />
+                <span className="text-sm font-semibold text-primary-800">{t('dashboard.buyData')}</span>
               </Link>
             </HoverCard>
             <HoverCard>
-              <Link to="/dashboard/airtime" className="flex flex-col items-center justify-center p-4 bg-secondary-50 rounded-lg hover:bg-secondary-100 transition-colors h-full w-full">
-                <Phone className="w-8 h-8 text-secondary mb-2" />
-                <span className="text-sm font-medium text-secondary-700">Buy Airtime</span>
+              <Link to="/dashboard/airtime" className="flex h-full w-full flex-col items-center justify-center rounded-3xl bg-accent-50 p-5 text-center hover:bg-accent-100">
+                <Phone className="mb-3 h-8 w-8 text-accent-700" />
+                <span className="text-sm font-semibold text-accent-800">{t('dashboard.buyAirtime')}</span>
               </Link>
             </HoverCard>
             <HoverCard>
-              <Link to="/dashboard/fund" className="flex flex-col items-center justify-center p-4 bg-secondary-50 rounded-lg hover:bg-secondary-100 transition-colors h-full w-full">
-                <Wallet className="w-8 h-8 text-secondary mb-2" />
-                <span className="text-sm font-medium text-secondary-700">Fund Wallet</span>
+              <Link to="/dashboard/fund" className="flex h-full w-full flex-col items-center justify-center rounded-3xl bg-emerald-50 p-5 text-center hover:bg-emerald-100">
+                <Wallet className="mb-3 h-8 w-8 text-emerald-700" />
+                <span className="text-sm font-semibold text-emerald-800">{t('dashboard.fundWallet')}</span>
               </Link>
             </HoverCard>
             <HoverCard>
-               <Link to="/dashboard/bills" className="flex flex-col items-center justify-center p-4 bg-primary-50 rounded-lg hover:bg-primary-100 transition-colors h-full w-full">
-                <Activity className="w-8 h-8 text-primary-600 mb-2" />
-                <span className="text-sm font-medium text-primary-700">Pay Bills</span>
+               <Link to="/dashboard/bills" className="flex h-full w-full flex-col items-center justify-center rounded-3xl bg-sky-50 p-5 text-center hover:bg-sky-100">
+                <Activity className="mb-3 h-8 w-8 text-sky-700" />
+                <span className="text-sm font-semibold text-sky-800">{t('dashboard.payBills')}</span>
               </Link>
             </HoverCard>
           </div>
-        </div>
+        </SurfaceCard>
 
-        {/* Recent Transactions */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-bold text-gray-800">Recent Transactions</h2>
-            <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">View All</button>
+        <SurfaceCard className="lg:col-span-2 overflow-hidden p-0">
+          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+            <h2 className="text-lg font-semibold text-slate-950">{t('dashboard.recentTransactions')}</h2>
+            <Link to="/dashboard/transactions" className="inline-flex items-center gap-1 text-sm font-semibold text-primary-700 hover:text-primary-800">
+              {t('common.viewAll')} <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
-          <div className="divide-y divide-gray-200">
+          <div className="divide-y divide-slate-100">
             {stats?.recentTransactions && stats.recentTransactions.length > 0 ? (
               stats.recentTransactions.map((tx) => (
-                <div key={tx.id} className="px-6 py-4 flex items-center justify-between">
+                <div key={tx.id} className="flex items-center justify-between px-6 py-4">
                   <div className="flex items-center">
                     <div className={`p-2 rounded-full ${
                       tx.type === 'credit' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
@@ -157,8 +163,8 @@ export default function UserDashboard() {
                       {tx.type === 'credit' ? <Wallet className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
                     </div>
                     <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-900">{tx.description}</p>
-                      <p className="text-xs text-gray-500">{new Date(tx.createdAt || Date.now()).toLocaleDateString()}</p>
+                      <p className="text-sm font-medium text-slate-900">{tx.description}</p>
+                      <p className="text-xs text-slate-500">{new Date(tx.createdAt || Date.now()).toLocaleDateString()}</p>
                     </div>
                   </div>
                   <span className={`text-sm font-bold ${
@@ -169,40 +175,13 @@ export default function UserDashboard() {
                 </div>
               ))
             ) : (
-              <div className="px-6 py-8 text-center text-gray-500">
-                No recent transactions found.
+              <div className="px-6 py-8 text-center text-slate-500">
+                {t('dashboard.emptyTransactions')}
               </div>
             )}
           </div>
-        </div>
+        </SurfaceCard>
       </div>
     </FadeIn>
-  );
-}
-
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  icon: React.ReactNode;
-  borderClass?: string;
-}
-
-function StatCard({ title, value, icon, borderClass = "border-gray-200" }: StatCardProps) {
-  return (
-    <div className={`overflow-hidden bg-white rounded-lg shadow border-t-4 ${borderClass}`}>
-      <div className="p-5">
-        <div className="flex items-center">
-          <div className="flex-shrink-0 p-3 rounded-full bg-gray-50">{icon}</div>
-          <div className="flex-1 w-0 ml-5">
-            <dl>
-              <dt className="text-sm font-medium text-gray-500 truncate">{title}</dt>
-              <dd>
-                <div className="text-lg font-medium text-gray-900">{value}</div>
-              </dd>
-            </dl>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }

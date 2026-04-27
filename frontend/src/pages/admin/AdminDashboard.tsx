@@ -2,8 +2,11 @@ import { useEffect, useState } from 'react';
 import api from '../../services/api';
 import { BarChart, DollarSign, Users, Activity, Wallet, ArrowUpRight, ArrowDownLeft, ShieldCheck, Smartphone, Settings, Landmark, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNotifications } from '../../context/NotificationContext';
+import PageHeader from '../../components/ui/PageHeader';
+import StatCard from '../../components/ui/StatCard';
+import SurfaceCard from '../../components/ui/SurfaceCard';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type StatData = any;
@@ -11,6 +14,7 @@ type StatData = any;
 type Transaction = any;
 
 export default function AdminDashboard() {
+  const { t } = useTranslation();
   const [stats, setStats] = useState<StatData>(null);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +24,7 @@ export default function AdminDashboard() {
   const [treasurySyncing, setTreasurySyncing] = useState(false);
   const [treasuryWithdrawing, setTreasuryWithdrawing] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [withdrawDescription, setWithdrawDescription] = useState('Settlement payout');
+  const [withdrawDescription, setWithdrawDescription] = useState(t('admin.settlementPayout'));
   const [buildInfo, setBuildInfo] = useState<any>({ frontend: null, backend: null, error: null });
   const [planSummary, setPlanSummary] = useState<any>(null);
   const [recentPriceUpdates, setRecentPriceUpdates] = useState<any[]>([]);
@@ -135,7 +139,7 @@ export default function AdminDashboard() {
   };
 
   const handleGenerateAccounts = async () => {
-    if (!window.confirm('Are you sure you want to generate virtual accounts for all users missing one? This will call the payment provider API for each user.')) {
+    if (!window.confirm(t('admin.generateAccountsConfirm'))) {
       return;
     }
 
@@ -145,7 +149,7 @@ export default function AdminDashboard() {
       alert(res.data.message);
     } catch (err: any) {
       console.error('Failed to generate virtual accounts', err);
-      alert(err.response?.data?.message || 'Failed to generate virtual accounts');
+      alert(err.response?.data?.message || t('admin.generateAccountsFailed'));
     } finally {
       setIsGenerating(false);
     }
@@ -156,10 +160,10 @@ export default function AdminDashboard() {
     try {
       const res = await api.post('/admin/treasury/sync', {});
       await refreshTreasury();
-      alert(`Treasury sync completed. Credited: ₦${Number(res.data?.credited || 0).toLocaleString()}`);
+      alert(t('admin.treasurySyncCompleted', { amount: Number(res.data?.credited || 0).toLocaleString() }));
     } catch (err: any) {
       console.error('Treasury sync failed', err);
-      alert(err.response?.data?.message || 'Treasury sync failed');
+      alert(err.response?.data?.message || t('admin.treasurySyncFailed'));
     } finally {
       setTreasurySyncing(false);
     }
@@ -168,25 +172,29 @@ export default function AdminDashboard() {
   const handleTreasuryWithdraw = async () => {
     const amt = Number(withdrawAmount);
     if (!Number.isFinite(amt) || amt <= 0) {
-      alert('Enter a valid amount');
+      alert(t('admin.enterValidAmount'));
       return;
     }
-    if (!window.confirm(`Withdraw ₦${amt.toLocaleString()} from treasury to settlement account?`)) return;
+    if (!window.confirm(t('admin.withdrawConfirm', { amount: amt.toLocaleString() }))) return;
     setTreasuryWithdrawing(true);
     try {
       const res = await api.post('/admin/treasury/withdraw', { amount: amt, description: withdrawDescription || null });
       await refreshTreasury();
-      alert(`Withdrawal initiated. Ref: ${res.data?.data?.reference || 'N/A'}${res.data?.data?.providerReference ? ` | Provider Ref: ${res.data.data.providerReference}` : ''}`);
+      const reference = res.data?.data?.reference || t('admin.notAvailable');
+      const providerReference = res.data?.data?.providerReference
+        ? t('admin.providerReferenceSuffix', { reference: res.data.data.providerReference })
+        : '';
+      alert(t('admin.withdrawalInitiated', { reference, providerReference }));
       setWithdrawAmount('');
     } catch (err: any) {
       console.error('Treasury withdrawal failed', err);
-      alert(err.response?.data?.message || 'Treasury withdrawal failed');
+      alert(err.response?.data?.message || t('admin.treasuryWithdrawalFailed'));
     } finally {
       setTreasuryWithdrawing(false);
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
+  if (loading) return <div className="flex items-center justify-center h-full">{t('common.loading')}</div>;
 
   const treasuryBalanceDisplay =
     treasuryBalance !== null && Number.isFinite(treasuryBalance) ? `₦${Number(treasuryBalance).toLocaleString()}` : '—';
@@ -205,86 +213,100 @@ export default function AdminDashboard() {
   const isCreditTransaction = (tx: any) => String(tx?.type || '').toLowerCase() === 'credit';
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Dashboard Overview</h1>
+    <div className="p-1">
+      <PageHeader
+        eyebrow={t('nav.adminConsole')}
+        title={t('admin.overview')}
+        description={t('admin.subtitle')}
+        actions={
+          <div className="flex gap-3">
+            <Link to="/admin/plans" className="enterprise-button-secondary">
+              {t('admin.openPlans')}
+            </Link>
+            <Link to="/admin/reports" className="enterprise-button-primary">
+              {t('admin.viewReports')}
+            </Link>
+          </div>
+        }
+      />
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+      <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
-          title="Recognized Revenue" 
+          title={t('admin.recognizedRevenue')} 
           value={recognizedRevenueDisplay} 
-          icon={<DollarSign className="w-6 h-6 text-secondary" />} 
-          borderClass="border-secondary"
+          icon={<DollarSign className="h-6 w-6" />} 
+          tone="accent"
         />
         <StatCard 
-          title="Active SIMs" 
+          title={t('admin.activeSims')} 
           value={stats?.stats?.active_sims || 0} 
-          icon={<Activity className="w-6 h-6 text-primary-600" />} 
-          borderClass="border-primary-500"
+          icon={<Activity className="h-6 w-6" />} 
+          tone="primary"
         />
         <StatCard 
-          title="Total Users" 
+          title={t('admin.totalUsers')} 
           value={stats?.stats?.total_users || 0} 
-          icon={<Users className="w-6 h-6 text-primary-600" />} 
-          borderClass="border-primary-500"
+          icon={<Users className="h-6 w-6" />} 
+          tone="success"
         />
         <StatCard 
-          title="Total Transactions" 
+          title={t('admin.totalTransactions')} 
           value={stats?.stats?.total_transactions || 0} 
-          icon={<BarChart className="w-6 h-6 text-primary-600" />} 
-          borderClass="border-primary-500"
+          icon={<BarChart className="h-6 w-6" />} 
+          tone="neutral"
         />
       </div>
 
-      <div className="bg-white rounded-lg shadow border border-gray-100 p-6 mb-8">
-        <div className="flex items-center justify-between mb-4">
+      <SurfaceCard className="mb-8 p-6">
+        <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-gray-800">Plan Pricing Snapshot</h2>
-            <p className="text-sm text-gray-600">Active plan counts, recent edits, and lowest prices by network.</p>
+            <h2 className="text-lg font-semibold text-slate-950">{t('admin.planSnapshot')}</h2>
+            <p className="text-sm text-slate-600">{t('admin.planSnapshotDescription')}</p>
           </div>
-          <Link to="/admin/plans" className="text-sm text-primary-600 hover:text-primary-700 font-medium">Open Plans</Link>
+          <Link to="/admin/plans" className="text-sm font-semibold text-primary-700 hover:text-primary-800">{t('admin.openPlans')}</Link>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
-          <div className="rounded-lg bg-gray-50 p-4">
-            <div className="text-xs uppercase text-gray-500">Total Plans</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">{planSummary?.totalPlans || 0}</div>
+        <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="rounded-3xl bg-slate-50 p-4">
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{t('admin.totalPlans')}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-950">{planSummary?.totalPlans || 0}</div>
           </div>
-          <div className="rounded-lg bg-gray-50 p-4">
-            <div className="text-xs uppercase text-gray-500">Active Plans</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">{planSummary?.activePlans || 0}</div>
+          <div className="rounded-3xl bg-slate-50 p-4">
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{t('admin.activePlansLabel')}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-950">{planSummary?.activePlans || 0}</div>
           </div>
-          <div className="rounded-lg bg-gray-50 p-4">
-            <div className="text-xs uppercase text-gray-500">Zero Price / Inactive</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">{planSummary?.zeroPricePlans || 0}</div>
+          <div className="rounded-3xl bg-slate-50 p-4">
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{t('admin.zeroPriceInactive')}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-950">{planSummary?.zeroPricePlans || 0}</div>
           </div>
-          <div className="rounded-lg bg-gray-50 p-4">
-            <div className="text-xs uppercase text-gray-500">Recent Price Changes</div>
-            <div className="text-2xl font-bold text-gray-900 mt-1">{recentPriceUpdates.length}</div>
+          <div className="rounded-3xl bg-slate-50 p-4">
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{t('admin.recentPriceChanges')}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-950">{recentPriceUpdates.length}</div>
           </div>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Latest Updates</h3>
+            <h3 className="mb-3 text-sm font-semibold text-slate-900">{t('admin.latestUpdates')}</h3>
             <div className="space-y-3">
               {recentPriceUpdates.slice(0, 5).map((item) => (
-                <div key={item.id} className="text-sm border-b border-gray-100 pb-3">
-                  <div className="font-medium text-gray-900">{item.plan?.name || 'Plan'} ({String(item.plan?.provider || '').toUpperCase()})</div>
-                  <div className="text-gray-600">{item.field_name}: {item.new_price ?? item.new_value ?? '—'}</div>
-                  <div className="text-xs text-gray-500">{item.changed_by}</div>
+                <div key={item.id} className="rounded-3xl border border-slate-100 bg-white/80 p-4 text-sm">
+                  <div className="font-medium text-slate-900">{item.plan?.name || t('admin.planFallback')} ({String(item.plan?.provider || '').toUpperCase()})</div>
+                  <div className="text-slate-600">{item.field_name}: {item.new_price ?? item.new_value ?? '—'}</div>
+                  <div className="text-xs text-slate-500">{item.changed_by}</div>
                 </div>
               ))}
-              {!recentPriceUpdates.length && <div className="text-sm text-gray-500">No recent plan changes.</div>}
+              {!recentPriceUpdates.length && <div className="text-sm text-slate-500">{t('admin.noRecentPlanChanges')}</div>}
             </div>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Cheapest Plans</h3>
+            <h3 className="mb-3 text-sm font-semibold text-slate-900">{t('admin.cheapestPlans')}</h3>
             <div className="space-y-3">
               {Object.entries(cheapestPlanSnapshot || {}).map(([network, items]: any) => (
-                <div key={network}>
-                  <div className="text-xs uppercase text-gray-500 mb-1">{network}</div>
+                <div key={network} className="rounded-3xl border border-slate-100 bg-white/80 p-4">
+                  <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">{network}</div>
                   <div className="space-y-2">
                     {(items || []).slice(0, 2).map((plan: any) => (
                       <div key={plan.id} className="flex items-center justify-between text-sm">
-                        <span className="text-gray-700">{plan.name}</span>
+                        <span className="text-slate-700">{plan.name}</span>
                         <span className="font-semibold text-primary-700">₦{Number(plan.your_price || 0).toLocaleString()}</span>
                       </div>
                     ))}
@@ -294,19 +316,18 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
-      </div>
+      </SurfaceCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Transactions */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="text-lg font-bold text-gray-800">Recent Transactions</h2>
-            <a href="/admin/transactions" className="text-sm text-primary-600 hover:text-primary-700 font-medium">View All</a>
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <SurfaceCard className="lg:col-span-2 overflow-hidden p-0">
+          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+            <h2 className="text-lg font-semibold text-slate-950">{t('dashboard.recentTransactions')}</h2>
+            <Link to="/admin/transactions" className="text-sm font-semibold text-primary-700 hover:text-primary-800">{t('common.viewAll')}</Link>
           </div>
-          <div className="divide-y divide-gray-200">
+          <div className="divide-y divide-slate-100">
             {recentTransactions.length > 0 ? (
               recentTransactions.map((tx) => (
-                <div key={tx.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition">
+                <div key={tx.id} className="flex items-center justify-between px-6 py-4 transition hover:bg-slate-50/80">
                   <div className="flex items-center">
                     <div className={`p-2 rounded-full mr-4 ${
                       isCreditTransaction(tx) ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
@@ -314,9 +335,9 @@ export default function AdminDashboard() {
                       {isCreditTransaction(tx) ? <Wallet className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{tx.description}</p>
-                      <div className="flex items-center mt-1">
-                        <span className="text-xs text-gray-500 mr-2">{new Date(tx.createdAt).toLocaleDateString()}</span>
+                      <p className="text-sm font-medium text-slate-900">{tx.description}</p>
+                      <div className="mt-1 flex items-center">
+                        <span className="mr-2 text-xs text-slate-500">{new Date(tx.createdAt).toLocaleDateString()}</span>
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                           tx.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                         }`}>
@@ -334,205 +355,177 @@ export default function AdminDashboard() {
                 </div>
               ))
             ) : (
-              <div className="px-6 py-8 text-center text-gray-500">
-                No recent transactions found.
+              <div className="px-6 py-8 text-center text-slate-500">
+                {t('dashboard.emptyTransactions')}
               </div>
             )}
           </div>
-        </div>
+        </SurfaceCard>
 
-        {/* Quick Actions or System Status */}
         <div className="lg:col-span-1 space-y-6">
-           <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-bold text-gray-800 mb-4">Quick Actions</h3>
+           <SurfaceCard className="p-6">
+              <h3 className="mb-4 text-lg font-semibold text-slate-950">{t('common.quickActions')}</h3>
               <div className="grid grid-cols-2 gap-4">
                   <QuickActionLink 
                     to="/admin/kyc" 
                     icon={<ShieldCheck className="w-5 h-5" />} 
-                    label="KYC Requests" 
+                    label={t('admin.kycRequests')} 
                     color="bg-blue-50 text-blue-600"
                   />
                   <QuickActionLink 
                     to="/admin/sims" 
                     icon={<Smartphone className="w-5 h-5" />} 
-                    label="Manage SIMs" 
+                    label={t('admin.manageSims')} 
                     color="bg-purple-50 text-purple-600"
                   />
                   <QuickActionLink 
                     to="/admin/users" 
                     icon={<Users className="w-5 h-5" />} 
-                    label="User List" 
+                    label={t('admin.userList')} 
                     color="bg-green-50 text-green-600"
                   />
                   <QuickActionLink 
                     to="/admin/settings" 
                     icon={<Settings className="w-5 h-5" />} 
-                    label="Settings" 
+                    label={t('common.settings')} 
                     color="bg-gray-50 text-gray-600"
                   />
               </div>
-           </div>
+           </SurfaceCard>
 
-           <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-bold text-gray-800">Treasury</h3>
+           <SurfaceCard className="p-6">
+              <div className="mb-4 flex justify-between items-center">
+                  <h3 className="text-lg font-semibold text-slate-950">{t('admin.treasury')}</h3>
                   <button
                     onClick={handleTreasurySync}
                     disabled={treasurySyncing}
-                    className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all ${
-                      treasurySyncing ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-secondary/10 text-secondary hover:bg-secondary/20'
+                    className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all ${
+                      treasurySyncing ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-accent-100 text-accent-800 hover:bg-accent-200'
                     }`}
                   >
                     <span className="inline-flex items-center">
                       <RefreshCw className="w-3 h-3 mr-1" />
-                      {treasurySyncing ? 'Syncing...' : 'Sync Revenue'}
+                      {treasurySyncing ? t('admin.syncing') : t('admin.syncRevenue')}
                     </span>
                   </button>
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 inline-flex items-center">
-                    <Landmark className="w-4 h-4 mr-2 text-gray-500" />
-                    Available Balance
+                  <span className="inline-flex items-center text-sm text-slate-600">
+                    <Landmark className="mr-2 h-4 w-4 text-slate-500" />
+                    {t('admin.availableBalance')}
                   </span>
-                  <span className="text-sm font-bold text-gray-900">{treasuryBalanceDisplay}</span>
+                  <span className="text-sm font-bold text-slate-900">{treasuryBalanceDisplay}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Recognized Revenue</span>
-                  <span className="text-sm font-bold text-gray-900">{recognizedRevenueDisplay}</span>
+                  <span className="text-sm text-slate-600">{t('admin.recognizedRevenue')}</span>
+                  <span className="text-sm font-bold text-slate-900">{recognizedRevenueDisplay}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Withdrawn / Settled</span>
-                  <span className="text-sm font-bold text-gray-900">{withdrawnRevenueDisplay}</span>
+                  <span className="text-sm text-slate-600">{t('admin.withdrawnSettled')}</span>
+                  <span className="text-sm font-bold text-slate-900">{withdrawnRevenueDisplay}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Pending Withdrawals</span>
-                  <span className="text-sm font-bold text-gray-900">{pendingWithdrawalDisplay}</span>
+                  <span className="text-sm text-slate-600">{t('admin.pendingWithdrawals')}</span>
+                  <span className="text-sm font-bold text-slate-900">{pendingWithdrawalDisplay}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Last Sync</span>
-                  <span className="text-xs text-gray-500">{treasuryLastSyncAt ? new Date(treasuryLastSyncAt).toLocaleString() : '—'}</span>
+                  <span className="text-sm text-slate-600">{t('admin.lastSync')}</span>
+                  <span className="text-xs text-slate-500">{treasuryLastSyncAt ? new Date(treasuryLastSyncAt).toLocaleString() : '—'}</span>
                 </div>
                 {Math.abs(reconciliationDifference) > 0.009 ? (
                   <p className="text-xs text-amber-600">
-                    Treasury reconciliation drift detected: ₦{reconciliationDifference.toLocaleString()}
+                    {t('admin.reconciliationDrift', { amount: reconciliationDifference.toLocaleString() })}
                   </p>
                 ) : (
                   <p className="text-xs text-gray-500">
-                    Available balance equals recognized revenue minus settled and pending withdrawals.
+                    {t('admin.reconciliationHealthy')}
                   </p>
                 )}
-                <div className="pt-3 border-t border-gray-100 space-y-2">
+                <div className="space-y-2 border-t border-slate-100 pt-3">
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       value={withdrawAmount}
                       onChange={(e) => setWithdrawAmount(e.target.value)}
-                      placeholder="Amount"
-                      className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/30"
+                      placeholder={t('admin.amount')}
+                      className="enterprise-input"
                     />
                     <button
                       onClick={handleTreasuryWithdraw}
                       disabled={treasuryWithdrawing}
-                      className={`w-full px-3 py-2 rounded-md text-sm font-bold transition-all ${
-                        treasuryWithdrawing ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-secondary text-white hover:opacity-90'
+                      className={`w-full rounded-2xl px-3 py-2 text-sm font-bold transition-all ${
+                        treasuryWithdrawing ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-accent-600 text-white hover:bg-accent-700'
                       }`}
                     >
-                      {treasuryWithdrawing ? 'Withdrawing...' : 'Withdraw'}
+                      {treasuryWithdrawing ? t('admin.withdrawing') : t('admin.withdraw')}
                     </button>
                   </div>
                   <input
                     value={withdrawDescription}
                     onChange={(e) => setWithdrawDescription(e.target.value)}
-                    placeholder="Description"
-                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-secondary/30"
+                    placeholder={t('admin.settlementPayout')}
+                    className="enterprise-input"
                   />
-                  <p className="text-xs text-gray-500">
-                    Withdraw sends funds to the configured settlement account and deducts the transfer fee from treasury.
+                  <p className="text-xs text-slate-500">
+                    {t('admin.withdrawHelper')}
                   </p>
                 </div>
               </div>
-           </div>
+           </SurfaceCard>
 
-           <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-bold text-gray-800">System Status</h3>
+           <SurfaceCard className="p-6">
+              <div className="mb-4 flex justify-between items-center">
+                  <h3 className="text-lg font-semibold text-slate-950">{t('admin.systemStatus')}</h3>
                   <button 
                     onClick={handleGenerateAccounts}
                     disabled={isGenerating}
-                    className={`text-[10px] font-bold px-3 py-1 rounded-full transition-all ${
-                        isGenerating ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                    className={`rounded-full px-3 py-1 text-[10px] font-bold transition-all ${
+                        isGenerating ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-primary-100 text-primary-700 hover:bg-primary-200'
                     }`}
                   >
-                      {isGenerating ? 'Processing...' : 'Bulk Generate Virtual Accounts'}
+                      {isGenerating ? t('admin.processing') : t('admin.bulkGenerateVirtualAccounts')}
                   </button>
               </div>
               <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Server Status</span>
-                      <span className="px-2 py-1 text-xs font-bold text-green-700 bg-green-100 rounded-full">Online</span>
+                      <span className="text-sm text-slate-600">{t('admin.serverStatus')}</span>
+                      <span className="px-2 py-1 text-xs font-bold text-green-700 bg-green-100 rounded-full">{t('admin.online')}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Database Connection</span>
-                      <span className="px-2 py-1 text-xs font-bold text-green-700 bg-green-100 rounded-full">Connected</span>
+                      <span className="text-sm text-slate-600">{t('admin.databaseConnection')}</span>
+                      <span className="px-2 py-1 text-xs font-bold text-green-700 bg-green-100 rounded-full">{t('admin.connected')}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">API Gateway</span>
-                      <span className="px-2 py-1 text-xs font-bold text-green-700 bg-green-100 rounded-full">Active</span>
+                      <span className="text-sm text-slate-600">{t('admin.apiGateway')}</span>
+                      <span className="px-2 py-1 text-xs font-bold text-green-700 bg-green-100 rounded-full">{t('admin.active')}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Frontend Build</span>
-                      <span className="px-2 py-1 text-xs font-mono text-gray-700 bg-gray-100 rounded-full">{frontendCommitShort}</span>
+                      <span className="text-sm text-slate-600">{t('admin.frontendBuild')}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{frontendCommitShort}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Backend Build</span>
-                      <span className="px-2 py-1 text-xs font-mono text-gray-700 bg-gray-100 rounded-full">{backendCommitShort}</span>
+                      <span className="text-sm text-slate-600">{t('admin.backendBuild')}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{backendCommitShort}</span>
                   </div>
                   {deploymentMismatch ? (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                      Frontend and backend are running different commits. Deploy both layers for changes to appear consistently.
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      {t('admin.deploymentMismatch')}
                     </div>
                   ) : buildInfo.error ? (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                       {buildInfo.error}
                     </div>
                   ) : null}
-                  <div className="pt-4 border-t border-gray-100">
-                      <p className="text-xs text-gray-400">
-                        Frontend built: {buildInfo.frontend?.time ? new Date(buildInfo.frontend.time).toLocaleString() : 'unknown'}
+                  <div className="border-t border-slate-100 pt-4">
+                      <p className="text-xs text-slate-400">
+                        {t('admin.frontendBuilt', { time: buildInfo.frontend?.time ? new Date(buildInfo.frontend.time).toLocaleString() : 'unknown' })}
                       </p>
-                      <p className="text-xs text-gray-400">
-                        Backend reported: {buildInfo.backend?.time ? new Date(buildInfo.backend.time).toLocaleString() : 'unknown'}
+                      <p className="text-xs text-slate-400">
+                        {t('admin.backendReported', { time: buildInfo.backend?.time ? new Date(buildInfo.backend.time).toLocaleString() : 'unknown' })}
                       </p>
                   </div>
               </div>
-           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  icon: React.ReactNode;
-  borderClass?: string;
-}
-
-function StatCard({ title, value, icon, borderClass = "border-gray-200" }: StatCardProps) {
-  return (
-    <div className={`overflow-hidden bg-white rounded-lg shadow border-t-4 ${borderClass}`}>
-      <div className="p-5">
-        <div className="flex items-center">
-          <div className="flex-shrink-0 p-3 rounded-full bg-gray-50">{icon}</div>
-          <div className="flex-1 w-0 ml-5">
-            <dl>
-              <dt className="text-sm font-medium text-gray-500 truncate">{title}</dt>
-              <dd>
-                <div className="text-lg font-medium text-gray-900">{value}</div>
-              </dd>
-            </dl>
-          </div>
+           </SurfaceCard>
         </div>
       </div>
     </div>
@@ -550,12 +543,12 @@ function QuickActionLink({ to, icon, label, color }: QuickActionLinkProps) {
   return (
     <Link 
       to={to} 
-      className="flex flex-col items-center p-3 rounded-lg border border-gray-100 hover:border-primary-200 hover:shadow-sm transition-all group"
+      className="group flex flex-col items-center rounded-3xl border border-slate-100 bg-white/80 p-4 transition-all hover:-translate-y-0.5 hover:border-primary-200 hover:shadow-soft"
     >
-      <div className={`p-2 rounded-lg mb-2 ${color} group-hover:scale-110 transition-transform`}>
+      <div className={`mb-3 rounded-2xl p-3 transition-transform group-hover:scale-110 ${color}`}>
         {icon}
       </div>
-      <span className="text-xs font-medium text-gray-600 group-hover:text-primary-600">{label}</span>
+      <span className="text-center text-xs font-medium text-slate-600 group-hover:text-primary-700">{label}</span>
     </Link>
   );
 }

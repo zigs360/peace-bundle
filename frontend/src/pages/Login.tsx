@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
-import { Lock, User, ArrowLeft, Loader2, Eye, EyeOff } from 'lucide-react';
-import { SlideUp } from '../components/animations/MotionComponents';
+import { Lock, User, Loader2, Eye, EyeOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import AuthShell from '../components/ui/AuthShell';
 
 interface AuthResponse {
   token: string;
@@ -18,6 +19,7 @@ interface AuthResponse {
 }
 
 export default function Login() {
+  const { t } = useTranslation();
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -53,43 +55,31 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <SlideUp className="max-w-md w-full bg-white p-10 rounded-2xl shadow-xl border border-gray-100">
-        <div>
-          <Link to="/" className="inline-flex items-center text-gray-500 hover:text-primary-600 mb-8 transition-colors text-sm font-medium">
-             <ArrowLeft className="w-4 h-4 mr-1" /> Back to Home
-          </Link>
-          <div className="flex justify-center mb-6">
-             <img src="/logo.png" alt="Peace Bundlle" className="h-20 w-auto object-contain" />
-          </div>
-          <h2 className="text-center text-3xl font-bold text-gray-900 mb-2">
-            Welcome Back
-          </h2>
-          <p className="text-center text-gray-500 mb-8">
-            Enter your details to access your account
-          </p>
-        </div>
-        
+    <AuthShell
+      title={t('auth.welcomeBack')}
+      subtitle={t('auth.loginSubtitle')}
+      backLabel={t('auth.backHome')}
+    >
         {error && (
-            <div className="p-4 mb-6 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl flex items-start">
-                <span className="font-medium mr-1">Error:</span> {error}
-            </div>
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
         )}
 
         <form className="space-y-6" onSubmit={handleSubmit}>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address or Phone
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              {t('auth.emailOrPhone')}
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <User className="h-5 w-5 text-gray-400" />
+                <User className="h-5 w-5 text-slate-400" />
               </div>
               <input
                 type="text"
                 required
-                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-                placeholder="Enter your email or phone"
+                className="enterprise-input pl-10"
+                placeholder={t('auth.emailOrPhone')}
                 value={emailOrPhone}
                 onChange={(e) => setEmailOrPhone(e.target.value)}
               />
@@ -98,28 +88,28 @@ export default function Login() {
 
           <div>
             <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700">
-                    Password
-                </label>
-                <a href="#" className="text-sm font-medium text-primary-600 hover:text-primary-500">
-                    Forgot password?
-                </a>
+              <label className="block text-sm font-medium text-slate-700">
+                {t('auth.password')}
+              </label>
+              <a href="#" className="text-sm font-medium text-primary-600 hover:text-primary-500">
+                {t('auth.forgotPassword')}
+              </a>
             </div>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Lock className="h-5 w-5 text-gray-400" />
+                <Lock className="h-5 w-5 text-slate-400" />
               </div>
               <input
                 type={showPassword ? "text" : "password"}
                 required
-                className="block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="enterprise-input pl-10 pr-10"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
               <button
                 type="button"
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
@@ -130,25 +120,24 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex justify-center py-3.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+            className="enterprise-button-primary w-full"
           >
             {loading ? (
-                <span className="flex items-center">
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Signing in...
-                </span>
-            ) : 'Sign In'}
+              <span className="flex items-center">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> {t('auth.signingIn')}
+              </span>
+            ) : t('auth.signIn')}
           </button>
         </form>
 
         <div className="mt-8 text-center">
-            <p className="text-sm text-gray-600">
-                Don't have an account?{' '}
-                <Link to="/register" className="font-bold text-primary-600 hover:text-primary-500 transition-colors">
-                    Create free account
-                </Link>
-            </p>
+          <p className="text-sm text-slate-600">
+            {t('auth.noAccount')}{' '}
+            <Link to="/register" className="font-semibold text-primary-700 hover:text-primary-800">
+              {t('auth.createFree')}
+            </Link>
+          </p>
         </div>
-      </SlideUp>
-    </div>
+    </AuthShell>
   );
 }

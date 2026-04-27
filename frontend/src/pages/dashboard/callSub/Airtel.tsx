@@ -3,6 +3,7 @@ import api from '../../../services/api';
 import { useNotifications } from '../../../context/NotificationContext';
 import { getStoredUser } from '../../../utils/storage';
 import { PhoneCall, Wallet, RefreshCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 type Bundle = {
   id: string;
@@ -38,6 +39,7 @@ const isValidNgPhone = (value: string) => {
 };
 
 export default function Airtel() {
+  const { t } = useTranslation();
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [history, setHistory] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,15 +95,21 @@ export default function Airtel() {
   const submit = async () => {
     if (!selected) return;
     if (!isValidNgPhone(phone)) {
-      alert('Enter a valid Nigerian phone number');
+      alert(t('airtelCallPage.invalidPhoneAlert'));
       return;
     }
     const amount = priceFor(selected);
     if (amount > displayBalance) {
-      alert('Insufficient wallet balance. Please fund your wallet.');
+      alert(t('airtelCallPage.insufficientBalanceAlert'));
       return;
     }
-    const confirmText = `Confirm Airtel call bundle purchase\n\nBundle: ${selected.name}\nAmount: ₦${amount.toLocaleString()}\nPhone: ${phone}`;
+    const confirmText = [
+      t('airtelCallPage.confirmTitle'),
+      '',
+      `${t('airtelCallPage.bundleLabel')}: ${selected.name}`,
+      `${t('airtelCallPage.amountLabel')}: ₦${amount.toLocaleString()}`,
+      `${t('airtelCallPage.phoneLabel')}: ${phone}`,
+    ].join('\n');
     if (!window.confirm(confirmText)) return;
 
     setPurchasing(true);
@@ -112,14 +120,14 @@ export default function Airtel() {
       setPhone('');
       if (userId) await refresh(userId);
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Purchase failed');
+      alert(error.response?.data?.message || t('airtelCallPage.purchaseFailed'));
       if (userId) await refresh(userId);
     } finally {
       setPurchasing(false);
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-full">Loading...</div>;
+  if (loading) return <div className="flex items-center justify-center h-full">{t('airtelCallPage.loading')}</div>;
 
   return (
     <div className="space-y-6">
@@ -129,19 +137,19 @@ export default function Airtel() {
             <PhoneCall className="w-6 h-6 mr-2 text-primary-600" />
             Airtel
           </h2>
-          <p className="text-sm text-gray-500 mt-1">Buy Airtel call bundles directly from your wallet balance.</p>
+          <p className="text-sm text-gray-500 mt-1">{t('airtelCallPage.subtitle')}</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm">
           <Wallet className="w-5 h-5 text-primary-600" />
           <div>
-            <div className="text-[10px] uppercase tracking-widest text-gray-400 font-black">Wallet Balance</div>
+            <div className="text-[10px] uppercase tracking-widest text-gray-400 font-black">{t('airtelCallPage.walletBalance')}</div>
             <div className="text-lg font-black text-gray-900">₦{Number(displayBalance || 0).toLocaleString()}</div>
           </div>
           {userId && (
             <button
               onClick={() => void refresh(userId)}
               className="ml-2 p-2 rounded-lg hover:bg-gray-50 border border-gray-100"
-              title="Refresh"
+              title={t('airtelCallPage.refresh')}
             >
               <RefreshCw className="w-4 h-4 text-gray-500" />
             </button>
@@ -151,13 +159,13 @@ export default function Airtel() {
 
       {confirmation && (
         <div className="bg-green-50 border border-green-200 rounded-2xl p-5">
-          <div className="text-sm font-black text-green-800">Activation confirmed</div>
+          <div className="text-sm font-black text-green-800">{t('airtelCallPage.activationConfirmed')}</div>
           <div className="text-xs text-green-700 mt-1">
-            Reference: <span className="font-mono">{confirmation.reference}</span>
+            {t('airtelCallPage.reference')}: <span className="font-mono">{confirmation.reference}</span>
             {confirmation.providerReference ? (
               <>
                 {' '}
-                | Provider Ref: <span className="font-mono">{confirmation.providerReference}</span>
+                | {t('airtelCallPage.providerRef')}: <span className="font-mono">{confirmation.providerReference}</span>
               </>
             ) : null}
           </div>
@@ -165,18 +173,18 @@ export default function Airtel() {
       )}
 
       <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-        <div className="text-sm font-black text-gray-800 mb-3">Target Phone Number</div>
+        <div className="text-sm font-black text-gray-800 mb-3">{t('airtelCallPage.targetPhoneNumber')}</div>
         <input
           value={phone}
           onChange={(event) => setPhone(event.target.value)}
-          placeholder="e.g. 08081234567"
+          placeholder={t('airtelCallPage.phonePlaceholder')}
           className="w-full md:max-w-md border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary-200"
         />
-        {!phone || isValidNgPhone(phone) ? null : <div className="text-xs text-red-600 mt-2 font-bold">Invalid phone number</div>}
+        {!phone || isValidNgPhone(phone) ? null : <div className="text-xs text-red-600 mt-2 font-bold">{t('airtelCallPage.invalidPhone')}</div>}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-        <div className="text-sm font-black text-gray-800 mb-4">Available Bundles</div>
+        <div className="text-sm font-black text-gray-800 mb-4">{t('airtelCallPage.availableBundles')}</div>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
           {bundles.map((bundle) => {
             const amount = priceFor(bundle);
@@ -190,7 +198,7 @@ export default function Airtel() {
                 }`}
               >
                 <div className="text-sm font-black text-gray-900">{bundle.minutes} mins</div>
-                <div className="text-xs text-gray-500 mt-1">{bundle.validityDays} days validity</div>
+                <div className="text-xs text-gray-500 mt-1">{t('airtelCallPage.daysValidity', { count: bundle.validityDays })}</div>
                 <div className="text-lg font-black text-primary-700 mt-2">₦{amount.toLocaleString()}</div>
               </button>
             );
@@ -200,8 +208,8 @@ export default function Airtel() {
 
       <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <div className="text-sm font-black text-gray-800">Selected Bundle</div>
-          <div className="text-sm text-gray-600 mt-1">{selected ? selected.name : 'None selected'}</div>
+          <div className="text-sm font-black text-gray-800">{t('airtelCallPage.selectedBundle')}</div>
+          <div className="text-sm text-gray-600 mt-1">{selected ? selected.name : t('airtelCallPage.noneSelected')}</div>
         </div>
         <button
           onClick={() => void submit()}
@@ -210,23 +218,23 @@ export default function Airtel() {
             !selected || purchasing ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-primary-600 text-white hover:bg-primary-700'
           }`}
         >
-          {purchasing ? 'Processing...' : 'Buy Bundle'}
+          {purchasing ? t('airtelCallPage.processing') : t('airtelCallPage.buyBundle')}
         </button>
       </div>
 
       <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-        <div className="text-sm font-black text-gray-800 mb-3">Purchase History</div>
+        <div className="text-sm font-black text-gray-800 mb-3">{t('airtelCallPage.purchaseHistory')}</div>
         <div className="overflow-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500">
-                <th className="py-2 pr-4">Date</th>
-                <th className="py-2 pr-4">Phone</th>
-                <th className="py-2 pr-4">Bundle</th>
-                <th className="py-2 pr-4">Amount</th>
-                <th className="py-2 pr-4">Expires</th>
-                <th className="py-2 pr-4">Status</th>
-                <th className="py-2 pr-4">Ref</th>
+                <th className="py-2 pr-4">{t('airtelCallPage.date')}</th>
+                <th className="py-2 pr-4">{t('airtelCallPage.phone')}</th>
+                <th className="py-2 pr-4">{t('airtelCallPage.bundleLabel')}</th>
+                <th className="py-2 pr-4">{t('airtelCallPage.amount')}</th>
+                <th className="py-2 pr-4">{t('airtelCallPage.expires')}</th>
+                <th className="py-2 pr-4">{t('airtelCallPage.status')}</th>
+                <th className="py-2 pr-4">{t('airtelCallPage.ref')}</th>
               </tr>
             </thead>
             <tbody>
@@ -248,7 +256,7 @@ export default function Airtel() {
               {history.length === 0 && (
                 <tr>
                   <td className="py-6 text-gray-400" colSpan={7}>
-                    No purchases yet.
+                    {t('airtelCallPage.noPurchases')}
                   </td>
                 </tr>
               )}

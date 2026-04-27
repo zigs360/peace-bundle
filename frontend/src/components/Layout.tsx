@@ -5,11 +5,16 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import PageTransition from './animations/PageTransition';
 import { useSidebar } from '../hooks/useSidebar';
 import { useNotifications } from '../context/NotificationContext';
+import BrandMark from './ui/BrandMark';
+import LanguageSwitcher from './ui/LanguageSwitcher';
+import ShellFrame from './ui/ShellFrame';
 
 export default function Layout() {
+  const { t } = useTranslation();
   const location = useLocation();
   const isActive = (path: string) => location.pathname === path;
   const { isCollapsed, isMobileOpen, toggleCollapse, toggleMobile, closeMobile } = useSidebar();
@@ -41,19 +46,19 @@ export default function Layout() {
   `;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+    <ShellFrame>
+    <div className="min-h-screen flex flex-col md:flex-row">
        {/* Mobile Header */}
-      <div className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between sticky top-0 z-20">
+      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/50 bg-white/85 p-4 backdrop-blur-xl md:hidden">
         <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
-            <h1 className="text-xl font-bold text-primary-600">Peace Bundlle</h1>
+            <BrandMark compact />
         </div>
         <div className="flex items-center gap-2">
             {/* Notification Bell for Mobile */}
             <div className="relative" ref={notificationRef}>
               <button 
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 relative"
+                className="relative rounded-2xl p-2 text-slate-600 hover:bg-slate-100"
               >
                 <Bell size={24} />
                 {unreadCount > 0 && (
@@ -69,16 +74,16 @@ export default function Layout() {
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 z-50 overflow-hidden"
+                    className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-3xl border border-white/60 bg-white shadow-soft-lg"
                   >
-                    <div className="p-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
-                      <h3 className="font-bold text-gray-800">Notifications</h3>
+                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 p-4">
+                      <h3 className="font-bold text-slate-800">{t('common.notifications')}</h3>
                       {unreadCount > 0 && (
                         <button 
                           onClick={markAllAsRead}
                           className="text-xs text-primary-600 hover:text-primary-700 font-medium"
                         >
-                          Mark all as read
+                          {t('common.markAllAsRead')}
                         </button>
                       )}
                     </div>
@@ -86,14 +91,14 @@ export default function Layout() {
                       {notifications.length === 0 ? (
                         <div className="p-8 text-center">
                           <Bell className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-                          <p className="text-gray-400 text-sm">No notifications yet</p>
+                          <p className="text-sm text-slate-400">{t('common.noNotifications')}</p>
                         </div>
                       ) : (
                         notifications.map((n) => (
                           <div 
                             key={n.id} 
                             onClick={() => !n.isRead && markAsRead(n.id)}
-                            className={`p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer ${!n.isRead ? 'bg-primary-50/30' : ''}`}
+                            className={`cursor-pointer border-b border-slate-50 p-4 transition-colors hover:bg-slate-50 ${!n.isRead ? 'bg-primary-50/30' : ''}`}
                           >
                             <div className="flex justify-between items-start mb-1">
                               <span className={`text-xs font-bold uppercase tracking-wider ${
@@ -103,15 +108,15 @@ export default function Layout() {
                               }`}>
                                 {n.type}
                               </span>
-                              <span className="text-[10px] text-gray-400 italic">
+                              <span className="text-[10px] italic text-slate-400">
                                 {new Date(n.createdAt).toLocaleDateString()}
                               </span>
                             </div>
-                            <h4 className={`text-sm font-semibold text-gray-800 ${!n.isRead ? 'pr-3 relative' : ''}`}>
+                            <h4 className={`text-sm font-semibold text-slate-800 ${!n.isRead ? 'relative pr-3' : ''}`}>
                               {n.title}
                               {!n.isRead && <span className="absolute right-0 top-1.5 w-2 h-2 bg-primary-500 rounded-full" />}
                             </h4>
-                            <p className="text-xs text-gray-600 mt-1 line-clamp-2">{n.message}</p>
+                            <p className="mt-1 line-clamp-2 text-xs text-slate-600">{n.message}</p>
                           </div>
                         ))
                       )}
@@ -123,7 +128,7 @@ export default function Layout() {
             
             <button 
                 onClick={toggleMobile} 
-                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                className="rounded-2xl p-2 text-slate-600 hover:bg-slate-100"
                 aria-label="Toggle menu"
             >
                 {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
@@ -134,7 +139,7 @@ export default function Layout() {
       {/* Overlay for mobile */}
       {isMobileOpen && (
         <div 
-            className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
+            className="fixed inset-0 z-30 bg-slate-950/40 backdrop-blur-sm md:hidden"
             onClick={closeMobile}
             aria-hidden="true"
         />
@@ -143,7 +148,7 @@ export default function Layout() {
       {/* Sidebar */}
       <aside 
         className={`
-            bg-white shadow-md flex flex-col border-r border-gray-200 
+            flex flex-col border-r border-white/60 bg-white/90 shadow-soft-lg backdrop-blur-xl
             fixed top-0 h-full z-40 transition-all duration-300 ease-in-out
             ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
             ${isCollapsed ? 'md:w-20' : 'md:w-64'}
@@ -152,140 +157,137 @@ export default function Layout() {
         aria-label="Sidebar"
         aria-expanded={!isCollapsed}
       >
-        <div className={`p-6 relative ${isCollapsed ? 'flex justify-center px-2' : ''}`}>
+        <div className={`relative p-6 ${isCollapsed ? 'flex justify-center px-2' : ''}`}>
            {/* Desktop Toggle Button */}
            <button 
             onClick={toggleCollapse} 
-            className="absolute -right-3 top-8 bg-white border border-gray-200 rounded-full p-1.5 shadow-sm hover:bg-gray-50 text-gray-500 hidden md:flex items-center justify-center z-50"
+            className="absolute -right-3 top-8 z-50 hidden items-center justify-center rounded-full border border-white/60 bg-white p-1.5 text-slate-500 shadow-soft hover:bg-slate-50 md:flex"
             aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {isCollapsed ? <ChevronRight size={14}/> : <ChevronLeft size={14}/>}
           </button>
 
           {!isCollapsed ? (
-             <div className="flex items-center gap-3 mb-1">
-                <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
-                <div className="overflow-hidden">
-                    <h1 className="text-2xl font-bold text-primary-600 truncate">Peace Bundlle</h1>
-                    <p className="text-xs text-gray-500 font-medium truncate">Admin Console</p>
-                </div>
+             <div className="space-y-4">
+                <BrandMark subtitle={t('nav.adminConsole')} />
+                <LanguageSwitcher />
              </div>
           ) : (
-             <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
+             <BrandMark compact />
           )}
         </div>
         
         <nav className="flex-1 px-2 space-y-2 mt-4 overflow-y-auto pb-20 custom-scrollbar">
-          <Link to="/admin" className={getLinkClasses('/admin')} title={isCollapsed ? "Dashboard" : ""}>
+          <Link to="/admin" className={getLinkClasses('/admin')} title={isCollapsed ? t('common.dashboard') : ''}>
             <LayoutDashboard className={getIconClasses('/admin')} />
-            {!isCollapsed && <span>Dashboard</span>}
+            {!isCollapsed && <span>{t('common.dashboard')}</span>}
           </Link>
           
-          <Link to="/admin/users" className={getLinkClasses('/admin/users')} title={isCollapsed ? "Manage Users" : ""}>
+          <Link to="/admin/users" className={getLinkClasses('/admin/users')} title={isCollapsed ? t('admin.users') : ''}>
             <Users className={getIconClasses('/admin/users')} />
-            {!isCollapsed && <span>Manage Users</span>}
+            {!isCollapsed && <span>{t('admin.users')}</span>}
           </Link>
           
-          <Link to="/admin/kyc" className={getLinkClasses('/admin/kyc')} title={isCollapsed ? "KYC Management" : ""}>
+          <Link to="/admin/kyc" className={getLinkClasses('/admin/kyc')} title={isCollapsed ? t('admin.kycManagement') : ''}>
             <ShieldCheck className={getIconClasses('/admin/kyc')} />
-            {!isCollapsed && <span>KYC Management</span>}
+            {!isCollapsed && <span>{t('admin.kycManagement')}</span>}
           </Link>
           
-          <Link to="/admin/transactions" className={getLinkClasses('/admin/transactions')} title={isCollapsed ? "Transactions" : ""}>
+          <Link to="/admin/transactions" className={getLinkClasses('/admin/transactions')} title={isCollapsed ? t('dashboard.transactionsMenu') : ''}>
             <Receipt className={getIconClasses('/admin/transactions')} />
-            {!isCollapsed && <span>Transactions</span>}
+            {!isCollapsed && <span>{t('dashboard.transactionsMenu')}</span>}
           </Link>
 
-          <Link to="/admin/funding-review" className={getLinkClasses('/admin/funding-review')} title={isCollapsed ? "Funding Review" : ""}>
+          <Link to="/admin/funding-review" className={getLinkClasses('/admin/funding-review')} title={isCollapsed ? t('admin.fundingReview') : ''}>
             <Bell className={getIconClasses('/admin/funding-review')} />
-            {!isCollapsed && <span>Funding Review</span>}
+            {!isCollapsed && <span>{t('admin.fundingReview')}</span>}
           </Link>
           
-          <Link to="/admin/pricing" className={getLinkClasses('/admin/pricing')} title={isCollapsed ? "Pricing" : ""}>
+          <Link to="/admin/pricing" className={getLinkClasses('/admin/pricing')} title={isCollapsed ? t('admin.pricing') : ''}>
             <Tag className={getIconClasses('/admin/pricing')} />
-            {!isCollapsed && <span>Pricing</span>}
+            {!isCollapsed && <span>{t('admin.pricing')}</span>}
           </Link>
 
-          <Link to="/admin/plans" className={getLinkClasses('/admin/plans')} title={isCollapsed ? "Data Plans" : ""}>
+          <Link to="/admin/plans" className={getLinkClasses('/admin/plans')} title={isCollapsed ? t('admin.plans') : ''}>
             <Database className={getIconClasses('/admin/plans')} />
-            {!isCollapsed && <span>Data Plans</span>}
+            {!isCollapsed && <span>{t('admin.plans')}</span>}
           </Link>
 
-          <Link to="/admin/audit/price-history" className={getLinkClasses('/admin/audit/price-history')} title={isCollapsed ? "Price History" : ""}>
+          <Link to="/admin/audit/price-history" className={getLinkClasses('/admin/audit/price-history')} title={isCollapsed ? t('admin.priceHistory') : ''}>
             <History className={getIconClasses('/admin/audit/price-history')} />
-            {!isCollapsed && <span>Price History</span>}
+            {!isCollapsed && <span>{t('admin.priceHistory')}</span>}
           </Link>
 
-          <Link to="/admin/subscriptions" className={getLinkClasses('/admin/subscriptions')} title={isCollapsed ? "Subscription Plans" : ""}>
+          <Link to="/admin/subscriptions" className={getLinkClasses('/admin/subscriptions')} title={isCollapsed ? t('admin.subscriptions') : ''}>
             <Tag className={getIconClasses('/admin/subscriptions')} />
-            {!isCollapsed && <span>Subscription Plans</span>}
+            {!isCollapsed && <span>{t('admin.subscriptions')}</span>}
           </Link>
           
-          <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? "Manage SIMs" : ""}>
+          <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? t('admin.manageSims') : ''}>
             <Smartphone className={getIconClasses('/admin/sims')} />
-            {!isCollapsed && <span>SIM Management</span>}
+            {!isCollapsed && <span>{t('admin.simManagement')}</span>}
           </Link>
 
-          <Link to="/admin/ogdams-data" className={getLinkClasses('/admin/ogdams-data')} title={isCollapsed ? "Admin Data" : ""}>
+          <Link to="/admin/ogdams-data" className={getLinkClasses('/admin/ogdams-data')} title={isCollapsed ? t('admin.adminData') : ''}>
             <Wifi className={getIconClasses('/admin/ogdams-data')} />
-            {!isCollapsed && <span>Admin Data</span>}
+            {!isCollapsed && <span>{t('admin.adminData')}</span>}
           </Link>
 
-          <Link to="/admin/wallet-deductions" className={getLinkClasses('/admin/wallet-deductions')} title={isCollapsed ? "Wallet Deduct" : ""}>
+          <Link to="/admin/wallet-deductions" className={getLinkClasses('/admin/wallet-deductions')} title={isCollapsed ? t('admin.walletDeduct') : ''}>
             <MinusCircle className={getIconClasses('/admin/wallet-deductions')} />
-            {!isCollapsed && <span>Wallet Deduct</span>}
+            {!isCollapsed && <span>{t('admin.walletDeduct')}</span>}
           </Link>
 
-          <Link to="/admin/call-sub" className={getLinkClasses('/admin/call-sub')} title={isCollapsed ? "Call Sub" : ""}>
+          <Link to="/admin/call-sub" className={getLinkClasses('/admin/call-sub')} title={isCollapsed ? t('admin.callSub') : ''}>
             <PhoneCall className={getIconClasses('/admin/call-sub')} />
-            {!isCollapsed && <span>Call Sub</span>}
+            {!isCollapsed && <span>{t('admin.callSub')}</span>}
           </Link>
 
-          <Link to="/admin/bulk-sms" className={getLinkClasses('/admin/bulk-sms')} title={isCollapsed ? "Bulk SMS" : ""}>
+          <Link to="/admin/bulk-sms" className={getLinkClasses('/admin/bulk-sms')} title={isCollapsed ? t('admin.bulkSms') : ''}>
             <MessageSquare className={getIconClasses('/admin/bulk-sms')} />
-            {!isCollapsed && <span>Bulk SMS</span>}
+            {!isCollapsed && <span>{t('admin.bulkSms')}</span>}
           </Link>
 
-          <Link to="/admin/reports" className={getLinkClasses('/admin/reports')} title={isCollapsed ? "Reports" : ""}>
+          <Link to="/admin/reports" className={getLinkClasses('/admin/reports')} title={isCollapsed ? t('admin.reports') : ''}>
             <BarChart3 className={getIconClasses('/admin/reports')} />
-            {!isCollapsed && <span>Reports</span>}
+            {!isCollapsed && <span>{t('admin.reports')}</span>}
           </Link>
 
-          <Link to="/admin/treasury" className={getLinkClasses('/admin/treasury')} title={isCollapsed ? "Treasury" : ""}>
+          <Link to="/admin/treasury" className={getLinkClasses('/admin/treasury')} title={isCollapsed ? t('admin.treasury') : ''}>
             <Landmark className={getIconClasses('/admin/treasury')} />
-            {!isCollapsed && <span>Treasury</span>}
+            {!isCollapsed && <span>{t('admin.treasury')}</span>}
           </Link>
 
-          <Link to="/admin/reviews" className={getLinkClasses('/admin/reviews')} title={isCollapsed ? "Reviews" : ""}>
+          <Link to="/admin/reviews" className={getLinkClasses('/admin/reviews')} title={isCollapsed ? t('admin.reviews') : ''}>
             <Star className={getIconClasses('/admin/reviews')} />
-            {!isCollapsed && <span>Reviews</span>}
+            {!isCollapsed && <span>{t('admin.reviews')}</span>}
           </Link>
 
-          <Link to="/admin/support" className={getLinkClasses('/admin/support')} title={isCollapsed ? "Support" : ""}>
+          <Link to="/admin/support" className={getLinkClasses('/admin/support')} title={isCollapsed ? t('common.support') : ''}>
             <MessageSquare className={getIconClasses('/admin/support')} />
-            {!isCollapsed && <span>Support</span>}
+            {!isCollapsed && <span>{t('common.support')}</span>}
           </Link>
 
-          <Link to="/admin/settings" className={getLinkClasses('/admin/settings')} title={isCollapsed ? "Settings" : ""}>
+          <Link to="/admin/settings" className={getLinkClasses('/admin/settings')} title={isCollapsed ? t('common.settings') : ''}>
             <Settings className={getIconClasses('/admin/settings')} />
-            {!isCollapsed && <span>Settings</span>}
+            {!isCollapsed && <span>{t('common.settings')}</span>}
           </Link>
         </nav>
 
-        <div className={`p-4 border-t border-gray-200 bg-white absolute bottom-0 transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
+        <div className={`absolute bottom-0 border-t border-white/60 bg-white/90 p-4 transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
           <Link 
             to="/login" 
-            className={`flex items-center px-4 py-3 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50 transition-colors duration-200 ${isCollapsed ? 'justify-center' : ''}`}
-            title={isCollapsed ? "Logout" : ""}
+            className={`flex items-center rounded-2xl px-4 py-3 text-sm font-medium text-red-600 transition-colors duration-200 hover:bg-red-50 ${isCollapsed ? 'justify-center' : ''}`}
+            title={isCollapsed ? t('common.logout') : ''}
           >
             <LogOut className={`w-5 h-5 ${isCollapsed ? '' : 'mr-3'}`} />
-            {!isCollapsed && <span>Logout</span>}
+            {!isCollapsed && <span>{t('common.logout')}</span>}
           </Link>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className={`flex-1 p-4 md:p-8 overflow-y-auto w-full transition-all duration-300 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'} ml-0`}>
+      <main className={`ml-0 w-full flex-1 overflow-y-auto p-4 transition-all duration-300 md:p-8 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
         <AnimatePresence mode="wait">
           <PageTransition key={location.pathname}>
             <Outlet />
@@ -293,5 +295,6 @@ export default function Layout() {
         </AnimatePresence>
       </main>
     </div>
+    </ShellFrame>
   );
 }

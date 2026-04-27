@@ -8,8 +8,10 @@ import toast from 'react-hot-toast';
 import { useVirtualAccount } from '../../hooks/useVirtualAccount';
 import VirtualAccountWidget from '../../components/VirtualAccountWidget';
 import { useNotifications } from '../../context/NotificationContext';
+import { useTranslation } from 'react-i18next';
 
 export default function FundWallet() {
+  const { t } = useTranslation();
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<'card' | 'transfer' | 'virtual'>('card');
   const [loading, setLoading] = useState(false);
@@ -42,7 +44,7 @@ export default function FundWallet() {
         const bn = typeof b === 'number' ? b : Number(b);
         if (Number.isFinite(bn)) {
           if (lastKnownBalance !== null && bn > lastKnownBalance) {
-            toast.success('Wallet balance updated');
+            toast.success(t('fundWalletPage.balanceUpdated'));
             setPendingReference(null);
             return;
           }
@@ -62,7 +64,7 @@ export default function FundWallet() {
     return () => {
       alive = false;
     };
-  }, [pendingReference, user?.id, lastKnownBalance]);
+  }, [pendingReference, user?.id, lastKnownBalance, t]);
 
   useEffect(() => {
     if (hasVirtualAccount) {
@@ -94,7 +96,7 @@ export default function FundWallet() {
       localStorage.setItem('user', JSON.stringify(userForStorage));
     } catch (err) {
       console.error('Failed to fetch user profile', err);
-      toast.error('Failed to load account details');
+      toast.error(t('fundWalletPage.loadAccountFailed'));
     } finally {
       setFetchingUser(false);
     }
@@ -104,14 +106,14 @@ export default function FundWallet() {
     if (!text) return;
     navigator.clipboard.writeText(text);
     setCopiedField(field);
-    toast.success(`${field} copied!`);
+    toast.success(t('fundWalletPage.copied', { field }));
     setTimeout(() => setCopiedField(null), 2000);
   };
 
   const handleFund = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount || parseFloat(amount) < 100) {
-        toast.error('Minimum funding amount is ₦100');
+        toast.error(t('fundWalletPage.minimumAmount'));
         return;
     }
 
@@ -126,7 +128,7 @@ export default function FundWallet() {
         reference
       });
 
-      toast.success('Wallet funding initiated successfully!');
+      toast.success(t('fundWalletPage.initiatedSuccess'));
       if (user?.id) {
         await refreshBalance(user.id);
       }
@@ -134,7 +136,7 @@ export default function FundWallet() {
       setAmount('');
       // Optionally redirect or refresh balance
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Funding failed. Please try again.');
+      toast.error(err.response?.data?.message || t('fundWalletPage.fundingFailed'));
     } finally {
       setLoading(false);
     }
@@ -144,7 +146,7 @@ export default function FundWallet() {
     return (
       <div className="flex flex-col items-center justify-center h-[400px]">
         <RefreshCw className="w-10 h-10 text-primary-600 animate-spin mb-4" />
-        <p className="text-gray-500 font-medium animate-pulse">Setting up your secure funding options...</p>
+        <p className="text-gray-500 font-medium animate-pulse">{t('fundWalletPage.loadingState')}</p>
       </div>
     );
   }
@@ -156,8 +158,8 @@ export default function FundWallet() {
           <Wallet className="w-10 h-10 text-primary-600" />
         </div>
         <div>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Fund Wallet</h1>
-            <p className="text-gray-500 text-lg">Instant and secure ways to top up your balance</p>
+            <h1 className="text-3xl font-black text-gray-900 tracking-tight">{t('fundWalletPage.heroTitle')}</h1>
+            <p className="text-gray-500 text-lg">{t('fundWalletPage.heroSubtitle')}</p>
         </div>
       </FadeIn>
 
@@ -178,11 +180,11 @@ export default function FundWallet() {
                         <Building2 className="w-6 h-6" />
                     </div>
                     <div className="ml-3">
-                        <h3 className="font-bold text-gray-900">Virtual Account</h3>
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-primary-600">Recommended</span>
+                        <h3 className="font-bold text-gray-900">{t('fundWalletPage.virtualAccount')}</h3>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-primary-600">{t('fundWalletPage.recommended')}</span>
                     </div>
                 </div>
-                <p className="text-sm text-gray-600 flex-grow leading-relaxed">Instant automated funding. Your dedicated bank account for 24/7 wallet top-ups.</p>
+                <p className="text-sm text-gray-600 flex-grow leading-relaxed">{t('fundWalletPage.virtualAccountDescription')}</p>
                 {method === 'virtual' && <CheckCircle2 className="w-5 h-5 text-primary-600 absolute top-4 right-4" />}
             </div>
         </StaggerItem>
@@ -203,11 +205,11 @@ export default function FundWallet() {
                         <CreditCard className="w-6 h-6" />
                     </div>
                     <div className="ml-3">
-                        <h3 className="font-bold text-gray-900">Pay Online</h3>
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-primary-600">Instant</span>
+                        <h3 className="font-bold text-gray-900">{t('fundWalletPage.payOnline')}</h3>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-primary-600">{t('fundWalletPage.instant')}</span>
                     </div>
                 </div>
-                <p className="text-sm text-gray-600 flex-grow leading-relaxed">Fund with Cards, USSD or Bank App via Monnify. No processing fees.</p>
+                <p className="text-sm text-gray-600 flex-grow leading-relaxed">{t('fundWalletPage.payOnlineDescription')}</p>
                 {method === 'card' && <CheckCircle2 className="w-5 h-5 text-primary-600 absolute top-4 right-4" />}
             </div>
         </StaggerItem>
@@ -228,11 +230,11 @@ export default function FundWallet() {
                         <Building2 className="w-6 h-6" />
                     </div>
                     <div className="ml-3">
-                        <h3 className="font-bold text-gray-900">Direct Transfer</h3>
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500">Manual</span>
+                        <h3 className="font-bold text-gray-900">{t('fundWalletPage.directTransfer')}</h3>
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500">{t('fundWalletPage.manual')}</span>
                     </div>
                 </div>
-                <p className="text-sm text-gray-600 flex-grow leading-relaxed">Transfer to our business account and upload receipt for manual confirmation.</p>
+                <p className="text-sm text-gray-600 flex-grow leading-relaxed">{t('fundWalletPage.directTransferDescription')}</p>
                 {method === 'transfer' && <CheckCircle2 className="w-5 h-5 text-gray-800 absolute top-4 right-4" />}
             </div>
         </StaggerItem>
@@ -250,8 +252,8 @@ export default function FundWallet() {
           >
             <div className="flex justify-between items-start mb-8">
                 <div>
-                    <h3 className="text-2xl font-black text-gray-900 mb-1">Dedicated Virtual Account</h3>
-                    <p className="text-gray-500">Payments sent here reflect in your wallet automatically.</p>
+                    <h3 className="text-2xl font-black text-gray-900 mb-1">{t('fundWalletPage.dedicatedVirtualAccount')}</h3>
+                    <p className="text-gray-500">{t('fundWalletPage.dedicatedVirtualAccountSubtitle')}</p>
                 </div>
                 <button 
                     onClick={async () => {
@@ -259,7 +261,7 @@ export default function FundWallet() {
                         await refreshVa();
                     }}
                     className="p-3 bg-gray-50 hover:bg-gray-100 rounded-2xl transition-all text-gray-500 hover:text-primary-600 active:scale-95"
-                    title="Refresh Account"
+                    title={t('fundWalletPage.refreshAccount')}
                 >
                     <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
@@ -271,9 +273,9 @@ export default function FundWallet() {
               <div className="mt-6 p-6 bg-amber-50 rounded-3xl border border-amber-100 flex items-start">
                 <AlertCircle className="w-6 h-6 text-amber-600 mt-0.5 mr-4 shrink-0" />
                 <div>
-                  <p className="text-sm text-amber-900 font-bold mb-1">Important Note</p>
+                  <p className="text-sm text-amber-900 font-bold mb-1">{t('fundWalletPage.importantNoteTitle')}</p>
                   <p className="text-xs text-amber-800 leading-relaxed opacity-80">
-                    No processing fees apply. Your deposit is credited in full.
+                    {t('fundWalletPage.importantNoteBody')}
                   </p>
                 </div>
               </div>
@@ -288,40 +290,40 @@ export default function FundWallet() {
             transition={{ duration: 0.3 }}
             className="bg-white p-8 rounded-[2rem] shadow-2xl border border-gray-100 overflow-hidden relative"
           >
-              <h3 className="text-2xl font-black text-gray-900 mb-2">Our Business Account</h3>
-              <p className="text-gray-500 mb-10">Use these details for manual funding via bank transfer.</p>
+              <h3 className="text-2xl font-black text-gray-900 mb-2">{t('fundWalletPage.businessAccountTitle')}</h3>
+              <p className="text-gray-500 mb-10">{t('fundWalletPage.businessAccountSubtitle')}</p>
               
               <div className="space-y-4 mb-10">
                   <div className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100">
-                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Bank Name</span>
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{t('fundWalletPage.bankName')}</span>
                       <span className="font-black text-gray-900">Moniepoint</span>
                   </div>
                   <div className="flex justify-between items-center p-5 bg-gray-50 rounded-2xl border border-gray-100">
-                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Account Name</span>
-                      <span className="font-black text-gray-900">Peace Bundlle Ltd</span>
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">{t('fundWalletPage.accountName')}</span>
+                      <span className="font-black text-gray-900">Peace Bundle Ltd</span>
                   </div>
                   <div className="flex justify-between items-center p-8 bg-primary-50 rounded-[2rem] border border-primary-100 relative group">
-                      <span className="text-[10px] font-black text-primary-400 uppercase tracking-[0.2em]">Account Number</span>
+                      <span className="text-[10px] font-black text-primary-400 uppercase tracking-[0.2em]">{t('fundWalletPage.accountNumber')}</span>
                       <div className="flex items-center gap-4">
                           <span className="font-mono text-3xl font-black text-primary-700">1234567890</span>
                           <button onClick={() => handleCopy('1234567890', 'Manual Account')} className="p-3 bg-primary-600 text-white rounded-2xl hover:bg-primary-700 transition-all shadow-lg active:scale-95">
                               <Copy className="w-5 h-5" />
                           </button>
-                          {copiedField === 'Manual Account' && <span className="absolute -top-4 right-10 text-[10px] font-black text-green-600 bg-white px-2 py-1 rounded-lg border border-green-100 shadow-sm animate-bounce">COPIED!</span>}
+                          {copiedField === 'Manual Account' && <span className="absolute -top-4 right-10 text-[10px] font-black text-green-600 bg-white px-2 py-1 rounded-lg border border-green-100 shadow-sm animate-bounce">{t('fundWalletPage.copiedBadge')}</span>}
                       </div>
                   </div>
               </div>
 
               <div className="text-center p-10 bg-gray-900 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden">
                   <div className="absolute right-0 top-0 w-32 h-32 bg-primary-600/20 rounded-full blur-3xl" />
-                  <p className="text-lg font-bold mb-8 relative z-10 leading-relaxed">After transfer, please send your proof of payment to our support team for instant confirmation.</p>
+                  <p className="text-lg font-bold mb-8 relative z-10 leading-relaxed">{t('fundWalletPage.transferInstruction')}</p>
                   <a 
-                    href={`https://wa.me/2348035446865?text=${encodeURIComponent('I just made a manual transfer for wallet funding. Here is my receipt.')}`}
+                    href={`https://wa.me/2348035446865?text=${encodeURIComponent(t('fundWalletPage.manualTransferReceipt'))}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center px-10 py-5 bg-primary-600 text-white font-black rounded-[1.5rem] hover:bg-primary-700 transition-all shadow-xl shadow-primary-900/20 active:scale-95 relative z-10"
                   >
-                    Send Receipt to WhatsApp
+                    {t('fundWalletPage.sendReceiptWhatsapp')}
                     <ExternalLink className="w-5 h-5 ml-3" />
                   </a>
               </div>
@@ -335,12 +337,12 @@ export default function FundWallet() {
             transition={{ duration: 0.3 }}
             className="bg-white p-8 rounded-[2rem] shadow-2xl border border-gray-100 overflow-hidden relative"
           >
-            <h3 className="text-2xl font-black text-gray-900 mb-2">Secure Online Payment</h3>
-            <p className="text-gray-500 mb-10">Pay securely using your debit card or bank app via Monnify gateway.</p>
+            <h3 className="text-2xl font-black text-gray-900 mb-2">{t('fundWalletPage.securePaymentTitle')}</h3>
+            <p className="text-gray-500 mb-10">{t('fundWalletPage.securePaymentSubtitle')}</p>
 
             <form onSubmit={handleFund}>
                 <div className="mb-10">
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Amount to Fund (₦)</label>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">{t('fundWalletPage.amountToFund')}</label>
                     <div className="relative">
                         <span className="absolute left-6 top-1/2 -translate-y-1/2 text-3xl font-black text-gray-400">₦</span>
                         <input
@@ -348,14 +350,14 @@ export default function FundWallet() {
                             value={amount}
                             onChange={(e) => setAmount(e.target.value)}
                             className="w-full pl-16 pr-8 py-6 rounded-3xl bg-gray-50 border-2 border-gray-100 focus:border-primary-500 focus:bg-white focus:outline-none transition-all text-3xl font-black text-gray-900 shadow-inner"
-                            placeholder="0.00"
+                            placeholder={t('fundWalletPage.amountPlaceholder')}
                             required
                             min="100"
                         />
                     </div>
                     {amount && parseFloat(amount) > 0 && (
                         <div className="mt-5 p-4 bg-primary-50 rounded-2xl border border-primary-100 flex justify-between items-center">
-                            <span className="text-sm font-bold text-primary-600">Processing Fee:</span>
+                            <span className="text-sm font-bold text-primary-600">{t('fundWalletPage.processingFee')}</span>
                             <span className="text-lg font-black text-primary-700">₦0.00</span>
                         </div>
                     )}
@@ -371,11 +373,11 @@ export default function FundWallet() {
                     {loading ? (
                         <>
                             <RefreshCw className="w-7 h-7 mr-3 animate-spin" />
-                            Connecting to Secure Gateway...
+                            {t('fundWalletPage.payOnline')}
                         </>
                     ) : (
                         <>
-                            Pay Securely Now
+                            {t('fundWalletPage.securePaymentTitle')}
                             <CheckCircle2 className="w-6 h-6 ml-3 opacity-50 group-hover:opacity-100 transition-opacity" />
                         </>
                     )}
@@ -396,7 +398,7 @@ export default function FundWallet() {
 
       <div className="mt-12 text-center">
           <p className="text-gray-400 text-xs font-bold uppercase tracking-widest">
-              Need help? <a href="/dashboard/support" className="text-primary-600 hover:underline">Contact our support team</a>
+              Need help? <a href="/dashboard/support" className="text-primary-600 hover:underline">{t('fundWalletPage.contactSupport')}</a>
           </p>
       </div>
     </div>

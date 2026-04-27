@@ -1,317 +1,295 @@
 import { Link } from 'react-router-dom';
-import { Wifi, Smartphone, Zap, GraduationCap, ShieldCheck, Clock, ArrowRight, CheckCircle, Globe } from 'lucide-react';
-import { FadeIn, SlideUp, StaggerContainer, StaggerItem, HoverCard, ScaleIn } from '../components/animations/MotionComponents';
+import { ArrowRight, CheckCircle2, Clock3, Globe2, GraduationCap, ShieldCheck, Smartphone, Wifi, Zap } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { FadeIn, HoverCard, ScaleIn, SlideUp, StaggerContainer, StaggerItem } from '../components/animations/MotionComponents';
 import SeoHead from '../components/seo/SeoHead';
 import ReviewSection from '../components/ReviewSection';
+import BrandMark from '../components/ui/BrandMark';
+import LanguageSwitcher from '../components/ui/LanguageSwitcher';
+import ShellFrame from '../components/ui/ShellFrame';
+import SurfaceCard from '../components/ui/SurfaceCard';
+
+const services = [
+  {
+    icon: Wifi,
+    titleKey: 'home.serviceDataTitle',
+    descriptionKey: 'home.serviceDataDescription',
+    tint: 'bg-sky-100 text-sky-700',
+  },
+  {
+    icon: Smartphone,
+    titleKey: 'home.serviceAirtimeTitle',
+    descriptionKey: 'home.serviceAirtimeDescription',
+    tint: 'bg-emerald-100 text-emerald-700',
+  },
+  {
+    icon: Zap,
+    titleKey: 'home.serviceBillsTitle',
+    descriptionKey: 'home.serviceBillsDescription',
+    tint: 'bg-amber-100 text-amber-700',
+  },
+  {
+    icon: GraduationCap,
+    titleKey: 'home.serviceEducationTitle',
+    descriptionKey: 'home.serviceEducationDescription',
+    tint: 'bg-violet-100 text-violet-700',
+  },
+];
+
+const trustStats = [
+  { value: '500+', labelKey: 'home.statsUsers' },
+  { value: '99.9%', labelKey: 'home.statsUptime' },
+  { value: '<3s', labelKey: 'home.statsDelivery' },
+  { value: '24/7', labelKey: 'home.statsSupport' },
+];
+
+const featureList = [
+  {
+    icon: ShieldCheck,
+    titleKey: 'home.featureTrustTitle',
+    descriptionKey: 'home.featureTrustDescription',
+    tint: 'bg-primary-100 text-primary-700',
+  },
+  {
+    icon: Clock3,
+    titleKey: 'home.featureSpeedTitle',
+    descriptionKey: 'home.featureSpeedDescription',
+    tint: 'bg-accent-100 text-accent-700',
+  },
+  {
+    icon: Globe2,
+    titleKey: 'home.featureLocalizationTitle',
+    descriptionKey: 'home.featureLocalizationDescription',
+    tint: 'bg-sky-100 text-sky-700',
+  },
+];
 
 export default function Home() {
+  const { t } = useTranslation();
+
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 font-sans text-gray-900 overflow-x-hidden">
+    <ShellFrame>
       <SeoHead 
-        title="Cheap Data, Airtime & Bill Payment" 
-        description="The smartest way to buy Cheap Data, Airtime, Pay Electricity Bills, and Cable TV subscriptions in Nigeria. Instant delivery, 24/7 support."
+        title="Enterprise Airtime, Data & Utility Payments" 
+        description="A premium digital payments experience for Nigeria with trusted fulfilment, accessible workflows, and multilingual support."
       />
-      
-      {/* Navbar */}
-      <nav className="bg-white/90 backdrop-blur-md shadow-sm sticky top-0 z-50 border-b border-gray-100 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-20">
-            {/* Logo */}
-            <div className="flex items-center">
-               <Link to="/" className="text-2xl font-bold text-primary-600 flex items-center gap-3 hover:opacity-90 transition-opacity" aria-label="Peace Bundlle Home">
-                 <img src="/logo.png" alt="Peace Bundlle Logo" className="h-10 w-auto" width="40" height="40" />
-                 <span className="tracking-tight text-gray-900">Peace<span className="text-primary-600">Bundlle</span></span>
-               </Link>
-            </div>
-            
 
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-xl focus:bg-white focus:px-4 focus:py-3">
+        {t('common.skipToContent')}
+      </a>
 
-            {/* Auth Links */}
-            <div className="flex items-center space-x-4">
-              <Link to="/login" className="text-gray-700 hover:text-primary-600 font-medium transition text-sm px-4 py-2 rounded-lg hover:bg-gray-50">Log in</Link>
-              <Link to="/register" className="px-5 py-2.5 bg-primary-600 text-white rounded-full hover:bg-primary-700 transition font-medium shadow-lg hover:shadow-primary-500/30 text-sm flex items-center gap-2 transform active:scale-95">
-                Get Started <ArrowRight className="w-4 h-4" />
-              </Link>
+      <div className="sticky top-0 z-50 border-b border-white/60 bg-white/80 backdrop-blur-xl">
+        <div className="container flex min-h-20 items-center justify-between gap-4 py-4">
+          <BrandMark />
+          <div className="flex items-center gap-3">
+            <div className="hidden md:block">
+              <LanguageSwitcher />
             </div>
+            <Link to="/login" className="enterprise-button-secondary">
+              {t('nav.login')}
+            </Link>
+            <Link to="/register" className="enterprise-button-primary">
+              {t('nav.register')} <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
-      </nav>
+      </div>
 
-      {/* Hero Section */}
-      <section className="relative bg-white pt-20 pb-32 overflow-hidden">
-        {/* Abstract Background Shapes */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
-           <div className="absolute -top-[20%] -right-[10%] w-[50%] h-[50%] bg-primary-100 rounded-full blur-3xl opacity-30 animate-pulse"></div>
-           <div className="absolute top-[20%] -left-[10%] w-[40%] h-[40%] bg-secondary-100 rounded-full blur-3xl opacity-30"></div>
-        </div>
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="text-center max-w-4xl mx-auto">
-             <SlideUp delay={0.2} className="text-5xl md:text-7xl font-extrabold text-gray-900 mb-8 tracking-tight leading-[1.1]">
-               <h1>
-                 Digital Services, <br className="hidden md:block" />
-                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-600 to-primary-400">Simplified.</span>
-               </h1>
-             </SlideUp>
-             
-             <SlideUp delay={0.3} className="text-xl md:text-2xl mb-12 text-gray-500 max-w-2xl mx-auto font-normal leading-relaxed">
-               <p>
-                 Experience lightning-fast data delivery, instant airtime top-ups, and seamless bill payments. Built for individuals and businesses who demand reliability.
-               </p>
-             </SlideUp>
-             
-             <SlideUp delay={0.4} className="flex flex-col sm:flex-row justify-center gap-5 mb-16">
-               <HoverCard>
-                 <Link to="/register" className="w-full sm:w-auto px-8 py-4 bg-primary-600 text-white rounded-xl font-bold text-lg hover:bg-primary-700 transition shadow-xl shadow-primary-500/20 flex items-center justify-center gap-2">
-                   Create Free Account
-                 </Link>
-               </HoverCard>
-               <HoverCard>
-                 <a href="#services" className="w-full sm:w-auto px-8 py-4 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold text-lg hover:bg-gray-50 hover:border-gray-300 transition flex items-center justify-center">
-                   View Services
-                 </a>
-               </HoverCard>
-             </SlideUp>
-
-             {/* Trust Signals */}
-             <FadeIn delay={0.6} className="border-t border-gray-100 pt-10 grid grid-cols-2 md:grid-cols-4 gap-8">
-                <div className="flex flex-col items-center">
-                   <span className="text-3xl font-bold text-gray-900">500+</span>
-                   <span className="text-sm text-gray-500">Active Users</span>
-                </div>
-                <div className="flex flex-col items-center">
-                   <span className="text-3xl font-bold text-gray-900">99.9%</span>
-                   <span className="text-sm text-gray-500">Uptime</span>
-                </div>
-                <div className="flex flex-col items-center">
-                   <span className="text-3xl font-bold text-gray-900">2s</span>
-                   <span className="text-sm text-gray-500">Delivery Speed</span>
-                </div>
-                <div className="flex flex-col items-center">
-                   <span className="text-3xl font-bold text-gray-900">24/7</span>
-                   <span className="text-sm text-gray-500">Support</span>
-                </div>
-             </FadeIn>
-          </div>
-        </div>
-      </section>
-
-      {/* Services Grid */}
-      <section id="services" className="py-24 bg-gray-50 relative">
-         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <FadeIn className="text-center mb-16">
-               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Everything You Need</h2>
-               <p className="text-xl text-gray-500 max-w-2xl mx-auto">One platform for all your digital utility needs.</p>
+      <section className="container py-16 md:py-24">
+        <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="max-w-3xl">
+            <SlideUp>
+              <div className="mb-5 inline-flex rounded-full border border-primary-200 bg-primary-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-primary-700">
+                {t('home.eyebrow')}
+              </div>
+            </SlideUp>
+            <SlideUp delay={0.1}>
+              <h1 className="text-balance text-5xl font-semibold tracking-tight text-slate-950 md:text-7xl">
+                {t('home.title')}
+              </h1>
+            </SlideUp>
+            <SlideUp delay={0.2}>
+              <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600 md:text-xl">{t('home.subtitle')}</p>
+            </SlideUp>
+            <SlideUp delay={0.3} className="mt-8 flex flex-col gap-4 sm:flex-row">
+              <HoverCard>
+                <Link to="/register" className="enterprise-button-primary min-w-52">
+                  {t('home.primaryCta')} <ArrowRight className="h-4 w-4" />
+                </Link>
+              </HoverCard>
+              <HoverCard>
+                <a href="#services" className="enterprise-button-secondary min-w-52">
+                  {t('home.secondaryCta')}
+                </a>
+              </HoverCard>
+            </SlideUp>
+            <FadeIn delay={0.4} className="mt-10 flex items-center gap-3 text-sm font-medium text-slate-500">
+              <CheckCircle2 className="h-5 w-5 text-primary-600" />
+              <span>{t('common.trustedBy')}</span>
             </FadeIn>
-            
-            <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-               {/* Service 1 */}
-               <StaggerItem className="bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 group cursor-pointer hover:-translate-y-1">
-                 <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center mb-6 group-hover:bg-blue-600 transition-colors">
-                   <Wifi className="w-6 h-6 text-blue-600 group-hover:text-white transition-colors" />
-                 </div>
-                 <h3 className="text-lg font-bold text-gray-900 mb-2">Buy Data Bundles</h3>
-                 <p className="text-gray-500 text-sm leading-relaxed">Cheap data plans for MTN, Airtel, Glo, and 9mobile. Valid for 30 days.</p>
-               </StaggerItem>
+            <FadeIn delay={0.5} className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
+              {trustStats.map((stat) => (
+                <SurfaceCard key={stat.labelKey} className="p-5">
+                  <div className="text-3xl font-semibold tracking-tight text-slate-950">{stat.value}</div>
+                  <div className="mt-2 text-sm text-slate-500">{t(stat.labelKey)}</div>
+                </SurfaceCard>
+              ))}
+            </FadeIn>
+          </div>
 
-               {/* Service 2 */}
-               <StaggerItem className="bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 group cursor-pointer hover:-translate-y-1">
-                 <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center mb-6 group-hover:bg-green-600 transition-colors">
-                   <Smartphone className="w-6 h-6 text-green-600 group-hover:text-white transition-colors" />
-                 </div>
-                 <h3 className="text-lg font-bold text-gray-900 mb-2">Airtime Top-up</h3>
-                 <p className="text-gray-500 text-sm leading-relaxed">Instant recharge for all networks. Get up to 5% discount on every purchase.</p>
-               </StaggerItem>
-
-               {/* Service 3 */}
-               <StaggerItem className="bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 group cursor-pointer hover:-translate-y-1">
-                 <div className="w-12 h-12 bg-yellow-50 rounded-xl flex items-center justify-center mb-6 group-hover:bg-yellow-600 transition-colors">
-                   <Zap className="w-6 h-6 text-yellow-600 group-hover:text-white transition-colors" />
-                 </div>
-                 <h3 className="text-lg font-bold text-gray-900 mb-2">Utility Bills</h3>
-                 <p className="text-gray-500 text-sm leading-relaxed">Pay Electricity bills (Prepaid/Postpaid) and Cable TV subscriptions instantly.</p>
-               </StaggerItem>
-
-               {/* Service 4 */}
-               <StaggerItem className="bg-white p-8 rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 group cursor-pointer hover:-translate-y-1">
-                 <div className="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center mb-6 group-hover:bg-purple-600 transition-colors">
-                   <GraduationCap className="w-6 h-6 text-purple-600 group-hover:text-white transition-colors" />
-                 </div>
-                 <h3 className="text-lg font-bold text-gray-900 mb-2">Exam Pins</h3>
-                 <p className="text-gray-500 text-sm leading-relaxed">Instant generation of WAEC, NECO, and NABTEB result checker tokens.</p>
-               </StaggerItem>
-            </StaggerContainer>
-         </div>
+          <ScaleIn>
+            <SurfaceCard elevated className="relative overflow-hidden p-8 md:p-10">
+              <div className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-primary-100 blur-3xl" />
+              <div className="absolute -bottom-20 left-0 h-52 w-52 rounded-full bg-accent-100 blur-3xl" />
+              <div className="relative space-y-5">
+                <div className="rounded-3xl border border-white/60 bg-slate-950 p-6 text-white shadow-soft-lg">
+                  <div className="mb-5 flex items-center justify-between">
+                    <p className="text-sm font-medium text-slate-300">{t('home.serviceFulfilment')}</p>
+                    <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-300">
+                      {t('home.live')}
+                    </span>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                      <span className="text-sm text-slate-300">{t('home.corporateMtnData')}</span>
+                      <span className="text-sm font-semibold">{t('home.completed')}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                      <span className="text-sm text-slate-300">{t('home.treasuryStatus')}</span>
+                      <span className="text-sm font-semibold">{t('home.balanced')}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                      <span className="text-sm text-slate-300">{t('home.supportQueue')}</span>
+                      <span className="text-sm font-semibold">{t('home.openCount', { count: 2 })}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="enterprise-panel p-5">
+                    <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t('home.accessibilityTitle')}</div>
+                    <div className="mt-3 text-2xl font-semibold text-slate-950">{t('home.accessibilityValue')}</div>
+                    <p className="mt-2 text-sm text-slate-600">{t('home.accessibilityDescription')}</p>
+                  </div>
+                  <div className="enterprise-panel p-5">
+                    <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{t('home.localisationTitle')}</div>
+                    <div className="mt-3 text-2xl font-semibold text-slate-950">{t('home.localisationValue')}</div>
+                    <p className="mt-2 text-sm text-slate-600">{t('home.localisationDescription')}</p>
+                  </div>
+                </div>
+              </div>
+            </SurfaceCard>
+          </ScaleIn>
+        </div>
       </section>
 
-      {/* Feature/Value Prop Section */}
-      <section id="features" className="py-24 bg-white overflow-hidden">
-         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-              <div className="order-2 lg:order-1">
-                <SlideUp>
-                  <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-6">Why Industry Leaders Choose Peace Bundlle</h2>
-                  <p className="text-gray-500 text-lg mb-8 leading-relaxed">
-                    We've re-engineered the VTU experience to be faster, more secure, and incredibly reliable. Our infrastructure scales with your needs.
-                  </p>
-                  
-                  <div className="space-y-8">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-primary-100 text-primary-600">
-                          <ShieldCheck className="w-6 h-6" />
-                        </div>
-                      </div>
-                      <div className="ml-6">
-                        <h3 className="text-lg leading-6 font-bold text-gray-900">Bank-Grade Security</h3>
-                        <p className="mt-2 text-base text-gray-500">
-                          End-to-end encryption for all transactions. Your wallet and personal data are protected by industry-standard security protocols.
-                        </p>
-                      </div>
-                    </div>
+      <section id="services" className="container py-20">
+        <FadeIn className="mx-auto mb-14 max-w-3xl text-center">
+          <h2 className="text-balance text-3xl font-semibold tracking-tight text-slate-950 md:text-5xl">
+            {t('home.servicesTitle')}
+          </h2>
+          <p className="mt-4 text-lg leading-8 text-slate-600">{t('home.servicesSubtitle')}</p>
+        </FadeIn>
 
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-secondary-100 text-secondary-600">
-                          <Clock className="w-6 h-6" />
-                        </div>
-                      </div>
-                      <div className="ml-6">
-                        <h3 className="text-lg leading-6 font-bold text-gray-900">Automated Delivery</h3>
-                        <p className="mt-2 text-base text-gray-500">
-                          No waiting time. Our systems process your request immediately, ensuring you get value within seconds of payment.
-                        </p>
-                      </div>
-                    </div>
+        <StaggerContainer className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+          {services.map((service) => {
+            const Icon = service.icon;
+            return (
+              <StaggerItem key={service.titleKey}>
+                <SurfaceCard className="group h-full p-7 transition-transform duration-200 hover:-translate-y-1">
+                  <div className={`mb-6 inline-flex rounded-2xl p-3 ${service.tint}`}>
+                    <Icon className="h-6 w-6" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-slate-950">{t(service.titleKey)}</h3>
+                  <p className="mt-3 text-sm leading-7 text-slate-600">{t(service.descriptionKey)}</p>
+                </SurfaceCard>
+              </StaggerItem>
+            );
+          })}
+        </StaggerContainer>
+      </section>
 
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-blue-100 text-blue-600">
-                          <Globe className="w-6 h-6" />
-                        </div>
-                      </div>
-                      <div className="ml-6">
-                        <h3 className="text-lg leading-6 font-bold text-gray-900">Developer API</h3>
-                        <p className="mt-2 text-base text-gray-500">
-                          Building your own platform? Integrate our robust API to resell our services with ease.
-                        </p>
-                      </div>
+      <section className="container py-20">
+        <div className="grid items-center gap-10 lg:grid-cols-[1fr_0.95fr]">
+          <div>
+            <SlideUp>
+              <h2 className="text-balance text-3xl font-semibold tracking-tight text-slate-950 md:text-5xl">
+                {t('home.featureTitle')}
+              </h2>
+              <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">{t('home.featureSubtitle')}</p>
+            </SlideUp>
+            <div className="mt-10 space-y-5">
+              {featureList.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <SurfaceCard key={item.titleKey} className="flex gap-4 p-5">
+                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${item.tint}`}>
+                      <Icon className="h-6 w-6" />
                     </div>
-                  </div>
-                </SlideUp>
-              </div>
-              
-              <div className="order-1 lg:order-2 relative">
-                <ScaleIn>
-                  <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-gray-100 bg-gray-900 aspect-[4/3] group">
-                    <div className="absolute inset-0 bg-gradient-to-br from-primary-600/20 to-secondary-600/20 mix-blend-overlay"></div>
-                    {/* Abstract UI representation */}
-                    <div className="p-8 h-full flex flex-col justify-center items-center">
-                        <div className="w-full max-w-sm bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/10 mb-4 transform group-hover:scale-105 transition-transform duration-500">
-                           <div className="flex items-center justify-between mb-4">
-                              <div className="h-3 w-20 bg-white/20 rounded"></div>
-                              <div className="h-8 w-8 bg-green-500/20 rounded-full flex items-center justify-center">
-                                 <CheckCircle className="w-4 h-4 text-green-400" />
-                              </div>
-                           </div>
-                           <div className="h-2 w-full bg-white/10 rounded mb-2"></div>
-                           <div className="h-2 w-2/3 bg-white/10 rounded"></div>
-                        </div>
-                        <div className="w-full max-w-sm bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/5 transform scale-95 opacity-70 group-hover:scale-100 group-hover:opacity-100 transition-all duration-500 delay-100">
-                           <div className="flex items-center gap-3">
-                              <div className="h-8 w-8 bg-blue-500/20 rounded-full"></div>
-                              <div className="flex-1">
-                                <div className="h-2 w-20 bg-white/20 rounded mb-1"></div>
-                                <div className="h-2 w-10 bg-white/10 rounded"></div>
-                              </div>
-                           </div>
-                        </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-950">{t(item.titleKey)}</h3>
+                      <p className="mt-2 text-sm leading-7 text-slate-600">{t(item.descriptionKey)}</p>
                     </div>
-                  </div>
-                  {/* Decorative blobs */}
-                  <div className="absolute -z-10 -top-10 -right-10 w-64 h-64 bg-primary-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
-                  <div className="absolute -z-10 -bottom-10 -left-10 w-64 h-64 bg-secondary-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
-                </ScaleIn>
+                  </SurfaceCard>
+                );
+              })}
+            </div>
+          </div>
+          <ScaleIn>
+            <div className="rounded-[2rem] border border-white/60 bg-slate-950 p-8 text-white shadow-soft-lg">
+              <div className="grid gap-4">
+                <div className="rounded-3xl bg-white/5 p-5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{t('home.navigationTitle')}</div>
+                  <div className="text-lg font-semibold">{t('home.navigationDescription')}</div>
+                </div>
+                <div className="rounded-3xl bg-white/5 p-5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{t('home.performanceTitle')}</div>
+                  <div className="text-lg font-semibold">{t('home.performanceDescription')}</div>
+                </div>
+                <div className="rounded-3xl bg-white/5 p-5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{t('home.motionTitle')}</div>
+                  <div className="text-lg font-semibold">{t('home.motionDescription')}</div>
+                </div>
               </div>
             </div>
-         </div>
+          </ScaleIn>
+        </div>
       </section>
 
-      {/* CTA Section */}
       <ReviewSection />
 
-      <section className="py-24 bg-gray-900 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-20">
-            <svg className="h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <path d="M0 100 C 20 0 50 0 100 100 Z" fill="white" />
-            </svg>
-        </div>
-        <div className="max-w-4xl mx-auto px-4 text-center relative z-10">
+      <section className="container py-20">
+        <SurfaceCard elevated className="overflow-hidden bg-slate-950 p-10 text-center text-white md:p-14">
           <SlideUp>
-            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6 tracking-tight">Ready to streamline your payments?</h2>
-            <p className="text-xl text-gray-400 mb-10 max-w-2xl mx-auto">
-              Join thousands of satisfied users who trust Peace Bundlle for their daily connectivity needs.
-            </p>
-            <div className="flex flex-col sm:flex-row justify-center gap-4">
-              <Link to="/register" className="px-8 py-4 bg-primary-600 text-white rounded-xl font-bold text-lg hover:bg-primary-500 transition shadow-lg hover:shadow-primary-500/40">
-                Get Started Now
+            <h2 className="text-balance text-4xl font-semibold tracking-tight text-white md:text-5xl">
+              {t('home.ctaTitle')}
+            </h2>
+            <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">{t('home.ctaSubtitle')}</p>
+            <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row">
+              <Link to="/register" className="enterprise-button bg-primary-600 text-white hover:bg-primary-500">
+                {t('home.primaryCta')}
               </Link>
-              <Link to="/contact" className="px-8 py-4 bg-transparent border border-gray-700 text-white rounded-xl font-bold text-lg hover:bg-gray-800 transition">
-                Contact Sales
+              <Link to="/contact" className="enterprise-button border border-white/15 bg-white/5 text-white hover:bg-white/10">
+                {t('home.contactSales')}
               </Link>
             </div>
           </SlideUp>
-        </div>
+        </SurfaceCard>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-100 py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
-              <div className="col-span-1 md:col-span-1">
-                 <div className="flex items-center gap-2 mb-4">
-                   <img src="/logo.png" alt="Logo" className="h-8 w-auto" />
-                   <span className="text-xl font-bold text-gray-900">Peace Bundlle</span>
-                 </div>
-                 <p className="text-gray-500 text-sm">
-                   Your one-stop shop for affordable data, airtime, and utility bills. Fast, secure, and reliable.
-                 </p>
-              </div>
-              <div>
-                 <h4 className="font-bold text-gray-900 mb-4">Company</h4>
-                 <ul className="space-y-2 text-sm text-gray-500">
-                    <li><Link to="/about" className="hover:text-primary-600">About Us</Link></li>
-                    <li><Link to="/careers" className="hover:text-primary-600">Careers</Link></li>
-                    <li><Link to="/blog" className="hover:text-primary-600">Blog</Link></li>
-                 </ul>
-              </div>
-              <div>
-                 <h4 className="font-bold text-gray-900 mb-4">Legal</h4>
-                 <ul className="space-y-2 text-sm text-gray-500">
-                    <li><Link to="/privacy" className="hover:text-primary-600">Privacy Policy</Link></li>
-                    <li><Link to="/terms" className="hover:text-primary-600">Terms of Service</Link></li>
-                 </ul>
-              </div>
-              <div>
-                 <h4 className="font-bold text-gray-900 mb-4">Connect</h4>
-                 <ul className="space-y-2 text-sm text-gray-500">
-                    <li><a href="#" className="hover:text-primary-600">Twitter</a></li>
-                    <li><a href="#" className="hover:text-primary-600">Facebook</a></li>
-                    <li><a href="#" className="hover:text-primary-600">Instagram</a></li>
-                 </ul>
-              </div>
-           </div>
-           <div className="border-t border-gray-100 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-              <p className="text-sm text-gray-400">© {new Date().getFullYear()} Peace Bundlle. All rights reserved.</p>
-              <div className="flex gap-4">
-                 {/* Payment Icons Placeholder */}
-                 <div className="h-6 w-10 bg-gray-100 rounded"></div>
-                 <div className="h-6 w-10 bg-gray-100 rounded"></div>
-                 <div className="h-6 w-10 bg-gray-100 rounded"></div>
-              </div>
-           </div>
+      <footer className="border-t border-white/60 bg-white/70 py-10 backdrop-blur-xl">
+        <div className="container flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <div>
+            <BrandMark subtitle={t('home.footerSubtitle')} />
+          </div>
+          <div className="flex flex-wrap items-center gap-5 text-sm font-medium text-slate-500">
+            <Link to="/about">{t('nav.about')}</Link>
+            <Link to="/contact">{t('nav.contact')}</Link>
+            <Link to="/privacy">{t('nav.privacy')}</Link>
+            <Link to="/terms">{t('nav.terms')}</Link>
+          </div>
+          <div className="text-sm text-slate-400">© {new Date().getFullYear()} {t('common.brand')}</div>
         </div>
       </footer>
-    </div>
+    </ShellFrame>
   );
 }

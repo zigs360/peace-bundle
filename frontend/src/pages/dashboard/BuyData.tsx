@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { Wifi, Smartphone, CheckCircle, Search, Wallet, RefreshCw } from 'lucide-react';
 import { FadeIn, HoverCard, SlideUp, StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 import { useNotifications } from '../../context/NotificationContext';
+import { useTranslation } from 'react-i18next';
 
 const NETWORKS = ['mtn', 'airtel', 'glo'] as const;
 const PLAN_CACHE_KEY = 'buy_data_plan_catalog_v1';
@@ -90,12 +91,12 @@ function normalizePhone(phone: string) {
   return digits;
 }
 
-function getPhoneError(network: string, phone: string) {
+function getPhoneError(network: string, phone: string, t: (key: string, options?: Record<string, unknown>) => string) {
   const normalized = normalizePhone(phone);
-  if (!/^\d{11}$/.test(normalized)) return 'Phone number must be 11 digits';
+  if (!/^\d{11}$/.test(normalized)) return t('buyDataPage.phoneDigitsError');
   const prefixes = PHONE_PREFIXES[network] || [];
   if (!prefixes.includes(normalized.slice(0, 4))) {
-    return `Phone number prefix does not match ${NETWORK_LABELS[network] || network}`;
+    return t('buyDataPage.phonePrefixError', { network: NETWORK_LABELS[network] || network });
   }
   return null;
 }
@@ -249,6 +250,7 @@ function buildCatalogFromPlans(plans: DataPlan[]): CatalogNetwork[] {
 }
 
 export default function BuyData() {
+  const { t } = useTranslation();
   const [plans, setPlans] = useState<DataPlan[]>([]);
   const [catalogNetworks, setCatalogNetworks] = useState<CatalogNetwork[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
@@ -285,11 +287,11 @@ export default function BuyData() {
       console.error('Failed to fetch plans', err);
       setCatalogNetworks([]);
       setPlans([]);
-      setFeedback({ type: 'error', text: 'Failed to load data plans. Please try again.' });
+      setFeedback({ type: 'error', text: t('buyDataPage.loadFailed') });
     } finally {
       setPlansLoading(false);
     }
-  }, [pricingVersion]);
+  }, [pricingVersion, t]);
 
   useEffect(() => {
     void fetchPlans(false);
@@ -366,12 +368,12 @@ export default function BuyData() {
   const handleBuy = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPlan) {
-      setFeedback({ type: 'error', text: 'Please select a data plan.' });
+      setFeedback({ type: 'error', text: t('buyDataPage.selectPlanError') });
       return;
     }
 
     const normalizedPhone = normalizePhone(phone);
-    const phoneError = getPhoneError(selectedPlan.network, normalizedPhone);
+    const phoneError = getPhoneError(selectedPlan.network, normalizedPhone, t);
     if (phoneError) {
       setFeedback({ type: 'error', text: phoneError });
       return;
@@ -380,19 +382,19 @@ export default function BuyData() {
     const duplicateKey = getDuplicateGuardKey(selectedPlan, normalizedPhone);
     const previousAttemptAt = Number(sessionStorage.getItem(duplicateKey) || '0');
     if (Date.now() - previousAttemptAt < DUPLICATE_GUARD_MS) {
-      setFeedback({ type: 'error', text: 'This plan was already requested recently for this number. Please wait a moment before retrying.' });
+      setFeedback({ type: 'error', text: t('buyDataPage.duplicateRecentError') });
       return;
     }
 
     const confirmText = [
-      `Confirm data purchase`,
+      t('buyDataPage.confirmTitle'),
       ``,
-      `Network: ${NETWORK_LABELS[selectedPlan.network] || selectedPlan.network}`,
-      `Plan: ${selectedPlan.plan}`,
-      `Validity: ${selectedPlan.validity}`,
-      `Phone: ${normalizedPhone}`,
-      `Charge: ₦${toNumber(selectedPlan.our_price).toLocaleString()}`,
-      `Provider Plan ID: ${selectedPlan.plan_id}`,
+      `${t('buyDataPage.networkLabel')}: ${NETWORK_LABELS[selectedPlan.network] || selectedPlan.network}`,
+      `${t('buyDataPage.planLabel')}: ${selectedPlan.plan}`,
+      `${t('buyDataPage.validityLabel')}: ${selectedPlan.validity}`,
+      `${t('buyDataPage.phoneLabel')}: ${normalizedPhone}`,
+      `${t('buyDataPage.chargeLabel')}: ₦${toNumber(selectedPlan.our_price).toLocaleString()}`,
+      `${t('buyDataPage.providerPlanIdLabel')}: ${selectedPlan.plan_id}`,
     ].join('\n');
 
     if (!window.confirm(confirmText)) return;
@@ -419,14 +421,17 @@ export default function BuyData() {
       const chargedPrice = toNumber(res.data?.charged_price, toNumber(selectedPlan.our_price));
       setFeedback({
         type: 'success',
-        text: `Purchase successful. Charged ₦${chargedPrice.toLocaleString()} with reference ${transactionRef}.`,
+        text: t('buyDataPage.purchaseSuccess', {
+          amount: chargedPrice.toLocaleString(),
+          reference: transactionRef,
+        }),
       });
       setPhone('');
     } catch (err: any) {
       sessionStorage.removeItem(duplicateKey);
       setFeedback({
         type: 'error',
-        text: err.response?.data?.message || 'Purchase failed. Please try again.',
+        text: err.response?.data?.message || t('buyDataPage.purchaseFailed'),
       });
     } finally {
       setLoading(false);
@@ -440,8 +445,8 @@ export default function BuyData() {
           <Wifi className="w-8 h-8 text-primary-600" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Buy Data Bundle</h1>
-          <p className="text-gray-600">Browse live plans grouped by network, then confirm your purchase.</p>
+          <h1 className="text-2xl font-bold text-gray-800">{t('buyDataPage.heroTitle')}</h1>
+          <p className="text-gray-600">{t('buyDataPage.heroSubtitle')}</p>
         </div>
       </FadeIn>
 
@@ -463,7 +468,7 @@ export default function BuyData() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder='Search by size, e.g. "1GB" or "10GB"'
+                placeholder={t('buyDataPage.searchPlaceholder')}
               />
             </div>
             <button
@@ -473,7 +478,7 @@ export default function BuyData() {
               className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
             >
               <RefreshCw className={`w-4 h-4 ${plansLoading ? 'animate-spin' : ''}`} />
-              Refresh Plans
+              {t('buyDataPage.refreshPlans')}
             </button>
           </div>
 
@@ -495,7 +500,7 @@ export default function BuyData() {
           </div>
 
           {plansLoading ? (
-            <div className="text-center py-8 text-gray-500">Loading plans...</div>
+            <div className="text-center py-8 text-gray-500">{t('buyDataPage.loadingPlans')}</div>
           ) : (
             <div className="space-y-8">
               {NETWORKS.map((network) => {
@@ -505,7 +510,7 @@ export default function BuyData() {
                   <section key={network} className={activeNetwork === network ? '' : 'opacity-70'}>
                     <div className="flex items-center justify-between mb-3">
                       <h2 className="text-lg font-bold text-gray-900">{networkCatalog.name || NETWORK_LABELS[network]}</h2>
-                      <span className="text-xs text-gray-500">Grouped by category and subcategory</span>
+                      <span className="text-xs text-gray-500">{t('buyDataPage.groupedHint')}</span>
                     </div>
                     <div className="space-y-6">
                       {networkCatalog.services.map((service) => (
@@ -539,7 +544,7 @@ export default function BuyData() {
                                             <div>
                                               <div className="font-bold text-gray-800">{plan.plan}</div>
                                               <div className="text-sm text-gray-500">{plan.validity}</div>
-                                              <div className="text-xs text-gray-400 mt-1">Plan ID: {plan.plan_id}</div>
+                                              <div className="text-xs text-gray-400 mt-1">{t('buyDataPage.providerPlanIdLabel')}: {plan.plan_id}</div>
                                             </div>
                                             <div className="text-right">
                                               <div className="font-bold text-primary-700">₦{toNumber(plan.our_price).toLocaleString()}</div>
@@ -562,33 +567,33 @@ export default function BuyData() {
                 );
               })}
               {filteredPlans.length === 0 && (
-                <div className="text-center py-8 text-gray-500">No plans match your search.</div>
+                <div className="text-center py-8 text-gray-500">{t('buyDataPage.noSearchResults')}</div>
               )}
             </div>
           )}
         </SlideUp>
 
         <SlideUp className="bg-white p-6 rounded-lg shadow-md border border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Purchase Details</h2>
+          <h2 className="text-lg font-bold text-gray-900 mb-4">{t('buyDataPage.purchaseDetails')}</h2>
 
           <div className="space-y-3 mb-6">
             <div className="flex items-center text-sm text-gray-600">
               <Wallet className="w-4 h-4 mr-2 text-primary-600" />
-              Wallet Balance:{' '}
+              {t('buyDataPage.walletBalance')}:{' '}
               <span className="ml-1 font-semibold text-gray-900">
-                {liveWalletBalance === null ? 'Unavailable' : `₦${liveWalletBalance.toLocaleString()}`}
+                {liveWalletBalance === null ? t('buyDataPage.unavailable') : `₦${liveWalletBalance.toLocaleString()}`}
               </span>
             </div>
             {selectedPlan && estimatedRemainingBalance !== null && (
               <div className="text-sm text-gray-600">
-                Remaining after purchase: <span className="font-semibold text-gray-900">₦{estimatedRemainingBalance.toLocaleString()}</span>
+                {t('buyDataPage.remainingAfterPurchase')}: <span className="font-semibold text-gray-900">₦{estimatedRemainingBalance.toLocaleString()}</span>
               </div>
             )}
           </div>
 
           <form onSubmit={handleBuy}>
             <div className="mb-5">
-              <label className="block text-gray-700 font-bold mb-2">Selected Plan</label>
+              <label className="block text-gray-700 font-bold mb-2">{t('buyDataPage.selectedPlan')}</label>
               <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 min-h-[110px]">
                 {selectedPlan ? (
                   <>
@@ -598,13 +603,13 @@ export default function BuyData() {
                     <div className="text-lg font-bold text-primary-700 mt-2">₦{toNumber(selectedPlan.our_price).toLocaleString()}</div>
                   </>
                 ) : (
-                  <div className="text-sm text-gray-500">Select a plan from the catalog.</div>
+                  <div className="text-sm text-gray-500">{t('buyDataPage.selectPlanPrompt')}</div>
                 )}
               </div>
             </div>
 
             <div className="mb-6">
-              <label className="block text-gray-700 font-bold mb-2">Phone Number</label>
+              <label className="block text-gray-700 font-bold mb-2">{t('buyDataPage.phoneNumber')}</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Smartphone className="h-5 w-5 text-gray-400" />
@@ -614,13 +619,13 @@ export default function BuyData() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="08012345678"
+                  placeholder={t('buyDataPage.phonePlaceholder')}
                   required
                 />
               </div>
               {selectedPlan && phone && (
-                <p className={`text-xs mt-2 ${getPhoneError(selectedPlan.network, phone) ? 'text-red-600' : 'text-green-600'}`}>
-                  {getPhoneError(selectedPlan.network, phone) || 'Phone number matches selected network'}
+                <p className={`text-xs mt-2 ${getPhoneError(selectedPlan.network, phone, t) ? 'text-red-600' : 'text-green-600'}`}>
+                  {getPhoneError(selectedPlan.network, phone, t) || t('buyDataPage.phoneMatchesNetwork')}
                 </p>
               )}
             </div>
@@ -633,7 +638,7 @@ export default function BuyData() {
                   loading || plansLoading || !selectedPlan ? 'opacity-70 cursor-not-allowed' : ''
                 }`}
               >
-                {loading ? 'Processing...' : 'Buy Selected Plan'}
+                {loading ? t('buyDataPage.processing') : t('buyDataPage.buySelectedPlan')}
               </button>
             </HoverCard>
           </form>

@@ -92,7 +92,7 @@ export default function AdminSettings() {
                   className="mt-1 block w-full border rounded-md px-3 py-2"
                   value={settings['site_name'] || ''}
                   onChange={(e) => handleChange('site_name', e.target.value)}
-                  placeholder="Peace Bundlle"
+                  placeholder="Peace Bundle"
                 />
               </div>
               <div>

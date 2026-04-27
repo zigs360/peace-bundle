@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Star, X, MessageSquarePlus, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 import api from '../services/api';
 
 export default function ReviewModal() {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
@@ -46,7 +48,7 @@ export default function ReviewModal() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!comment.trim()) {
-      toast.error('Please enter your feedback');
+      toast.error(t('reviews.promptEmpty'));
       return;
     }
 
@@ -54,13 +56,13 @@ export default function ReviewModal() {
     try {
       const res = await api.post('/reviews', { rating, comment });
       if (res.data.success) {
-        toast.success('Thank you for your feedback!');
+        toast.success(t('reviews.promptSuccess'));
         setHasReviewed(true);
         setIsOpen(false);
         localStorage.setItem('review_modal_last_shown', new Date().getTime().toString());
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to submit review');
+      toast.error(err.response?.data?.message || t('reviews.promptFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -103,12 +105,12 @@ export default function ReviewModal() {
                 <MessageSquarePlus className="w-8 h-8 text-primary-600" />
               </div>
               
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">How are we doing?</h2>
-              <p className="text-gray-500 mb-8">Your feedback helps us improve Peace Bundlle for everyone. It only takes a minute!</p>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">{t('reviews.promptTitle')}</h2>
+              <p className="text-gray-500 mb-8">{t('reviews.promptSubtitle')}</p>
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-3 text-center">Your Rating</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-3 text-center">{t('reviews.ratingLabel')}</label>
                   <div className="flex justify-center gap-3">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <button
@@ -126,12 +128,12 @@ export default function ReviewModal() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Detailed Feedback</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">{t('reviews.reviewLabel')}</label>
                   <textarea
                     required
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none bg-gray-50/50"
                     rows={4}
-                    placeholder="Tell us about your experience..."
+                    placeholder={t('reviews.reviewPlaceholder')}
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
                   />
@@ -146,16 +148,16 @@ export default function ReviewModal() {
                     {submitting ? (
                       <>
                         <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        Submitting...
+                        {t('reviews.submitting')}
                       </>
-                    ) : 'Submit Review'}
+                    ) : t('reviews.promptCta')}
                   </button>
                   <button
                     type="button"
                     onClick={handleClose}
                     className="w-full py-3 text-sm text-gray-400 font-medium hover:text-gray-600 transition"
                   >
-                    Maybe later
+                    {t('reviews.promptDismiss')}
                   </button>
                 </div>
               </form>

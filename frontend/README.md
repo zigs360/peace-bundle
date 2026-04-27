@@ -21,6 +21,13 @@ A modern, enterprise-grade React application for the Peace Bundlle VTU platform.
 - **State Management**: React Hooks.
 - **Testing**: Vitest + React Testing Library.
 
+## 📘 UI Documentation
+
+- **Design System**: `docs/design-system.md`
+- **Implementation Guidelines**: `docs/implementation-guidelines.md`
+- **Nigerian User Testing**: `docs/nigeria-user-testing.md`
+- **Animation Reference**: `ANIMATION_GUIDE.md`
+
 ## 📦 Setup & Installation
 
 1. **Clone the repository**

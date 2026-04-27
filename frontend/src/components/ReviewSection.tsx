@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Star, Quote, ThumbsUp, ChevronLeft, ChevronRight, MessageSquarePlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import api from '../services/api';
 import { FadeIn } from './animations/MotionComponents';
 
@@ -17,6 +18,7 @@ interface Review {
 }
 
 export default function ReviewSection() {
+  const { t } = useTranslation();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -70,7 +72,7 @@ export default function ReviewSection() {
 
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please log in to submit a review');
+      setError(t('reviews.loginRequired'));
       setSubmitting(false);
       return;
     }
@@ -78,12 +80,12 @@ export default function ReviewSection() {
     try {
       const res = await api.post('/reviews', formData);
       if (res.data.success) {
-        setSuccess('Thank you! Your review has been submitted for moderation.');
+        setSuccess(t('reviews.submitPending'));
         setFormData({ rating: 5, comment: '' });
         setTimeout(() => setIsModalOpen(false), 3000);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to submit review');
+      setError(err.response?.data?.message || t('reviews.submitFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -109,9 +111,9 @@ export default function ReviewSection() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <FadeIn>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">What Our Customers Say</h2>
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">{t('reviews.sectionTitle')}</h2>
             <p className="text-xl text-gray-500 max-w-2xl mx-auto">
-              Real feedback from real users who trust Peace Bundlle for their daily needs.
+              {t('reviews.sectionSubtitle')}
             </p>
           </FadeIn>
         </div>
@@ -164,7 +166,7 @@ export default function ReviewSection() {
                         className="flex items-center gap-2 text-gray-500 hover:text-primary-600 transition-colors group"
                       >
                         <ThumbsUp className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                        <span className="text-sm font-medium">{reviews[currentIndex].helpfulCount} Helpful</span>
+                        <span className="text-sm font-medium">{t('reviews.helpfulCount', { count: reviews[currentIndex].helpfulCount })}</span>
                       </button>
                     </div>
                   </div>
@@ -177,14 +179,14 @@ export default function ReviewSection() {
               <button 
                 onClick={handlePrev}
                 className="p-3 rounded-full bg-white border border-gray-200 text-gray-600 hover:bg-primary-50 hover:text-primary-600 transition-all shadow-sm"
-                aria-label="Previous review"
+                aria-label={t('reviews.previousAria')}
               >
                 <ChevronLeft className="w-6 h-6" />
               </button>
               <button 
                 onClick={handleNext}
                 className="p-3 rounded-full bg-white border border-gray-200 text-gray-600 hover:bg-primary-50 hover:text-primary-600 transition-all shadow-sm"
-                aria-label="Next review"
+                aria-label={t('reviews.nextAria')}
               >
                 <ChevronRight className="w-6 h-6" />
               </button>
@@ -192,7 +194,7 @@ export default function ReviewSection() {
           </div>
         ) : (
           <div className="text-center py-12 bg-gray-50 rounded-3xl border border-dashed border-gray-300">
-            <p className="text-gray-500">Be the first to share your experience!</p>
+            <p className="text-gray-500">{t('reviews.firstExperience')}</p>
           </div>
         )}
 
@@ -202,7 +204,7 @@ export default function ReviewSection() {
             className="inline-flex items-center gap-2 px-6 py-3 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 transition shadow-lg shadow-primary-500/20"
           >
             <MessageSquarePlus className="w-5 h-5" />
-            Write a Review
+            {t('reviews.writeReview')}
           </button>
         </div>
       </div>
@@ -224,14 +226,14 @@ export default function ReviewSection() {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md relative z-10"
             >
-              <h3 className="text-2xl font-bold text-gray-900 mb-6">Share Your Experience</h3>
+              <h3 className="text-2xl font-bold text-gray-900 mb-6">{t('reviews.shareExperience')}</h3>
               
               {error && <p className="p-3 mb-4 bg-red-50 text-red-600 rounded-xl text-sm border border-red-100">{error}</p>}
               {success && <p className="p-3 mb-4 bg-green-50 text-green-600 rounded-xl text-sm border border-green-100">{success}</p>}
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-3">Rating</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-3">{t('reviews.ratingLabel')}</label>
                   <div className="flex gap-2">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <button
@@ -249,12 +251,12 @@ export default function ReviewSection() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Your Review</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">{t('reviews.reviewLabel')}</label>
                   <textarea
                     required
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none"
                     rows={4}
-                    placeholder="Tell us what you like about Peace Bundlle..."
+                    placeholder={t('reviews.reviewPlaceholder')}
                     value={formData.comment}
                     onChange={(e) => setFormData({ ...formData, comment: e.target.value })}
                   />
@@ -266,14 +268,14 @@ export default function ReviewSection() {
                     onClick={() => setIsModalOpen(false)}
                     className="flex-1 px-6 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition"
                   >
-                    Cancel
+                    {t('reviews.cancel')}
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
                     className="flex-2 px-8 py-3 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 transition shadow-lg shadow-primary-500/20 disabled:opacity-50"
                   >
-                    {submitting ? 'Submitting...' : 'Submit Review'}
+                    {submitting ? t('reviews.submitting') : t('reviews.submit')}
                   </button>
                 </div>
               </form>

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import { Lock, User, Mail, Phone, Hash, ArrowLeft, Loader2, Eye, EyeOff } from 'lucide-react';
-import { SlideUp } from '../components/animations/MotionComponents';
+import { Lock, User, Mail, Phone, Hash, Loader2, Eye, EyeOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import AuthShell from '../components/ui/AuthShell';
 
 export default function Register() {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -44,41 +46,29 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <SlideUp className="max-w-md w-full bg-white p-10 rounded-2xl shadow-xl border border-gray-100">
-        <div>
-          <Link to="/" className="inline-flex items-center text-gray-500 hover:text-primary-600 mb-8 transition-colors text-sm font-medium">
-             <ArrowLeft className="w-4 h-4 mr-1" /> Back to Home
-          </Link>
-          <div className="flex justify-center mb-6">
-             <img src="/logo.png" alt="Peace Bundlle" className="h-20 w-auto object-contain" />
-          </div>
-          <h2 className="text-center text-3xl font-bold text-gray-900 mb-2">
-            Create Account
-          </h2>
-          <p className="text-center text-gray-500 mb-8">
-            Join Peace Bundlle for seamless VTU services
-          </p>
-        </div>
-        
+    <AuthShell
+      title={t('auth.createAccount')}
+      subtitle={t('auth.registerSubtitle')}
+      backLabel={t('auth.backHome')}
+    >
         {error && (
-            <div className="p-4 mb-6 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl flex items-start">
-                <span className="font-medium mr-1">Error:</span> {error}
-            </div>
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
         )}
         
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">{t('auth.fullName')}</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <User className="w-5 h-5 text-gray-400" />
+                <User className="w-5 h-5 text-slate-400" />
               </div>
               <input
                 name="fullName"
                 type="text"
                 required
-                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="enterprise-input pl-10"
                 value={formData.fullName}
                 onChange={handleChange}
                 placeholder="Al-Amin Aminu"
@@ -87,16 +77,16 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">{t('auth.email')}</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Mail className="w-5 h-5 text-gray-400" />
+                <Mail className="w-5 h-5 text-slate-400" />
               </div>
               <input
                 name="email"
                 type="email"
                 required
-                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="enterprise-input pl-10"
                 value={formData.email}
                 onChange={handleChange}
                 placeholder="al-amin@example.com"
@@ -105,16 +95,16 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">{t('auth.phone')}</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Phone className="w-5 h-5 text-gray-400" />
+                <Phone className="w-5 h-5 text-slate-400" />
               </div>
               <input
                 name="phone"
                 type="tel"
                 required
-                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="enterprise-input pl-10"
                 value={formData.phone}
                 onChange={handleChange}
                 placeholder="08012345678"
@@ -123,23 +113,23 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">{t('auth.password')}</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Lock className="w-5 h-5 text-gray-400" />
+                <Lock className="w-5 h-5 text-slate-400" />
               </div>
               <input
                 name="password"
                 type={showPassword ? "text" : "password"}
                 required
-                className="block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="enterprise-input pl-10 pr-10"
                 value={formData.password}
                 onChange={handleChange}
                 placeholder="Min 8 characters"
               />
                <button
                 type="button"
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
@@ -148,15 +138,17 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Referral Code <span className="text-gray-400 font-normal">(Optional)</span></label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              {t('auth.referralCode')} <span className="font-normal text-slate-400">({t('auth.optional')})</span>
+            </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Hash className="w-5 h-5 text-gray-400" />
+                <Hash className="w-5 h-5 text-slate-400" />
               </div>
               <input
                 name="referralCode"
                 type="text"
-                className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="enterprise-input pl-10"
                 value={formData.referralCode}
                 onChange={handleChange}
                 placeholder="Referral Code"
@@ -167,25 +159,24 @@ export default function Register() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex justify-center py-3.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-all disabled:opacity-70 disabled:cursor-not-allowed mt-4"
+            className="enterprise-button-primary mt-4 w-full"
           >
              {loading ? (
-                <span className="flex items-center">
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Creating Account...
-                </span>
-            ) : 'Create Account'}
+              <span className="flex items-center">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> {t('auth.creatingAccount')}
+              </span>
+            ) : t('auth.createAccount')}
           </button>
         </form>
         
         <div className="mt-8 text-center">
-            <p className="text-sm text-gray-600">
-                Already have an account?{' '}
-                <Link to="/login" className="font-bold text-primary-600 hover:text-primary-500 transition-colors">
-                    Sign in here
-                </Link>
-            </p>
+          <p className="text-sm text-slate-600">
+            {t('auth.hasAccount')}{' '}
+            <Link to="/login" className="font-semibold text-primary-700 hover:text-primary-800">
+              {t('auth.signInHere')}
+            </Link>
+          </p>
         </div>
-      </SlideUp>
-    </div>
+    </AuthShell>
   );
 }

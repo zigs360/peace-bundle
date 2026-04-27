@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { Star, MessageSquarePlus, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 interface Review {
   id: string;
@@ -14,6 +15,7 @@ interface Review {
 }
 
 export default function MyReviews() {
+  const { t } = useTranslation();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -26,9 +28,6 @@ export default function MyReviews() {
 
   const fetchMyReviews = async () => {
     try {
-      const res = await api.get('/reviews/admin', { params: { limit: 10 } }); // Admin endpoint works for self if backend allows or we need a specific endpoint
-      // Actually, let's assume we might need a specific endpoint or use a filtered version of the admin one.
-      // Better to have a dedicated endpoint /api/reviews/me
       const resMe = await api.get('/reviews/me');
       if (resMe.data.success) {
         setReviews(resMe.data.data);
@@ -46,15 +45,26 @@ export default function MyReviews() {
     try {
       const res = await api.post('/reviews', formData);
       if (res.data.success) {
-        toast.success('Review submitted successfully!');
+        toast.success(t('reviews.submitSuccess'));
         setFormData({ rating: 5, comment: '' });
         setIsModalOpen(false);
         fetchMyReviews();
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to submit review');
+      toast.error(err.response?.data?.message || t('reviews.submitFailed'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const getStatusLabel = (status: Review['status']) => {
+    switch (status) {
+      case 'approved':
+        return t('reviews.statusApproved');
+      case 'rejected':
+        return t('reviews.statusRejected');
+      default:
+        return t('reviews.statusPending');
     }
   };
 
@@ -62,8 +72,8 @@ export default function MyReviews() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Reviews</h1>
-          <p className="text-gray-500 text-sm">Manage your feedback and experiences.</p>
+          <h1 className="text-2xl font-bold text-gray-900">{t('reviews.myReviewsTitle')}</h1>
+          <p className="text-gray-500 text-sm">{t('reviews.myReviewsSubtitle')}</p>
         </div>
         {reviews.length === 0 && (
           <button 
@@ -71,7 +81,7 @@ export default function MyReviews() {
             className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg font-bold hover:bg-primary-700 transition shadow-lg shadow-primary-500/20"
           >
             <MessageSquarePlus className="w-4 h-4" />
-            Write a Review
+            {t('reviews.writeReview')}
           </button>
         )}
       </div>
@@ -100,15 +110,15 @@ export default function MyReviews() {
                   }`}>
                     {review.status === 'approved' ? <CheckCircle size={10} /> : 
                      review.status === 'rejected' ? <XCircle size={10} /> : <Clock size={10} />}
-                    {review.status}
+                    {getStatusLabel(review.status)}
                   </span>
                 </div>
               </div>
               <p className="text-gray-700 mb-4">"{review.comment}"</p>
               <div className="flex justify-between items-center text-xs text-gray-400 italic">
-                <span>Submitted on {new Date(review.createdAt).toLocaleDateString()}</span>
+                <span>{t('reviews.submittedOn', { date: new Date(review.createdAt).toLocaleDateString() })}</span>
                 {review.status === 'rejected' && review.rejectionReason && (
-                  <span className="text-red-500 font-medium">Reason: {review.rejectionReason}</span>
+                  <span className="text-red-500 font-medium">{t('reviews.rejectedReason', { reason: review.rejectionReason })}</span>
                 )}
               </div>
             </div>
@@ -121,7 +131,7 @@ export default function MyReviews() {
               <Star className="w-8 h-8 text-gray-300" />
             </div>
           </div>
-          <p className="text-gray-500">You haven't submitted any reviews yet.</p>
+          <p className="text-gray-500">{t('reviews.noReviews')}</p>
         </div>
       )}
 
@@ -142,10 +152,10 @@ export default function MyReviews() {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md relative z-10"
             >
-              <h3 className="text-2xl font-bold text-gray-900 mb-6">Rate Your Experience</h3>
+              <h3 className="text-2xl font-bold text-gray-900 mb-6">{t('reviews.rateExperience')}</h3>
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-3">Rating</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-3">{t('reviews.ratingLabel')}</label>
                   <div className="flex gap-2">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <button
@@ -162,12 +172,12 @@ export default function MyReviews() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Your Feedback</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">{t('reviews.reviewLabel')}</label>
                   <textarea
                     required
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all resize-none"
                     rows={4}
-                    placeholder="What do you think of Peace Bundlle?"
+                    placeholder={t('reviews.reviewPlaceholder')}
                     value={formData.comment}
                     onChange={(e) => setFormData({ ...formData, comment: e.target.value })}
                   />
@@ -178,14 +188,14 @@ export default function MyReviews() {
                     onClick={() => setIsModalOpen(false)}
                     className="flex-1 px-6 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition"
                   >
-                    Cancel
+                    {t('reviews.cancel')}
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
                     className="flex-2 px-8 py-3 bg-primary-600 text-white rounded-xl font-bold hover:bg-primary-700 transition shadow-lg shadow-primary-500/20 disabled:opacity-50"
                   >
-                    {submitting ? 'Submitting...' : 'Submit Review'}
+                    {submitting ? t('reviews.submitting') : t('reviews.submit')}
                   </button>
                 </div>
               </form>

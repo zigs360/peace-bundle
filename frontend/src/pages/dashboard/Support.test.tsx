@@ -38,7 +38,7 @@ describe('Support Page WhatsApp Redirect', () => {
     fireEvent.click(whatsappButton!);
 
     const expectedPhone = '2348035446865';
-    const expectedMessage = encodeURIComponent('Hello Peace Bundlle Support, I need assistance with my account.');
+    const expectedMessage = encodeURIComponent('Hello Peace Bundle Support, I need assistance with my account.');
     const expectedUrl = `https://wa.me/${expectedPhone}?text=${expectedMessage}`;
 
     expect(global.window.open).toHaveBeenCalledWith(expectedUrl, '_blank', 'noopener,noreferrer');
