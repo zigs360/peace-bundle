@@ -6,10 +6,12 @@ Administrators can delete plans from the admin plans management screen. The dele
 
 ## Deletion Rules
 
-1. Only authenticated users with the `admin` or `super_admin` role can call `DELETE /api/admin/plans/:id`.
+1. Only authenticated users with the `admin` or `super_admin` role can call `DELETE /api/admin/plans/:id` or `POST /api/admin/plans/bulk-delete`.
 2. Every deletion attempt writes an audit entry to `plan_deletion_audits` with:
    - the deleted plan id
    - the acting admin id and identifier
+   - the action scope (`single` or `bulk`)
+   - the shared bulk action id when the delete was triggered from a bulk request
    - the deletion mode (`hard` or `soft`)
    - the optional deletion reason
    - related record counts at the time of deletion
@@ -53,6 +55,7 @@ If new plan-linked billing tables are introduced later, they must be added to th
 ## Operational Notes
 
 - The admin UI always shows a confirmation dialog before calling the delete endpoint.
+- Bulk delete is enabled only when one or more plans are selected in the admin table.
 - The dialog warns that deletion may be permanent and that referenced plans are archived instead of destroyed.
 - Success and failure states are surfaced to administrators through toast notifications.
 

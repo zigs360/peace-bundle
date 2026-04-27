@@ -372,4 +372,95 @@ describe('Admin plan management', () => {
     expect(audit.related_counts.transactionCount).toBe(1);
     expect(audit.related_counts.pricingRuleCount).toBe(1);
   });
+
+  it('validates bulk delete requests', async () => {
+    const res = await request(app)
+      .post('/api/admin/plans/bulk-delete')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ids: [] });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.message).toBe('At least one valid plan id is required for bulk deletion');
+  });
+
+  it('bulk deletes selected plans and records a shared audit action', async () => {
+    const unique = `${Date.now()}-bulk`;
+    const hardDeletePlan = await DataPlan.create({
+      source: 'smeplug',
+      provider: 'mtn',
+      category: 'gifting',
+      name: 'Bulk hard delete plan',
+      size: '500MB',
+      size_mb: 500,
+      validity: '1 Day',
+      data_size: '500MB',
+      plan_id: '70101',
+      original_price: 300,
+      your_price: 280,
+      wallet_price: 290,
+      admin_price: 280,
+      api_cost: 290,
+      is_active: true,
+    });
+    const softDeletePlan = await DataPlan.create({
+      source: 'ogdams',
+      provider: 'airtel',
+      category: 'gifting',
+      name: 'Bulk soft delete plan',
+      size: '1GB',
+      size_mb: 1024,
+      validity: '3 Days',
+      data_size: '1GB',
+      plan_id: '70102',
+      original_price: 550,
+      your_price: 520,
+      wallet_price: 535,
+      admin_price: 520,
+      api_cost: 535,
+      is_active: true,
+      available_sim: true,
+      available_wallet: true,
+    });
+
+    await Transaction.create({
+      type: 'debit',
+      amount: 535,
+      balance_before: 1000,
+      balance_after: 465,
+      source: 'data_purchase',
+      provider: 'airtel',
+      reference: `txn-${unique}`,
+      status: 'completed',
+      dataPlanId: softDeletePlan.id,
+    });
+
+    const res = await request(app)
+      .post('/api/admin/plans/bulk-delete')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        ids: [hardDeletePlan.id, softDeletePlan.id],
+        reason: 'Bulk cleanup',
+      });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.count).toBe(2);
+    expect(res.body.summary.hard).toBe(1);
+    expect(res.body.summary.soft).toBe(1);
+    expect(res.body.bulkActionId).toBeTruthy();
+
+    const deletedHardPlan = await DataPlan.findByPk(hardDeletePlan.id, { paranoid: false });
+    const deletedSoftPlan = await DataPlan.findByPk(softDeletePlan.id, { paranoid: false });
+    expect(deletedHardPlan).toBeNull();
+    expect(deletedSoftPlan).toBeTruthy();
+    expect(deletedSoftPlan.deletedAt).toBeTruthy();
+
+    const audits = await PlanDeletionAudit.findAll({
+      where: { bulk_action_id: res.body.bulkActionId },
+      order: [['plan_id_ref', 'ASC']],
+    });
+    expect(audits).toHaveLength(2);
+    expect(audits.every((audit) => audit.action_scope === 'bulk')).toBe(true);
+    expect(audits.map((audit) => audit.reason)).toEqual(['Bulk cleanup', 'Bulk cleanup']);
+    expect(audits.map((audit) => audit.deletion_mode).sort()).toEqual(['hard', 'soft']);
+  });
 });

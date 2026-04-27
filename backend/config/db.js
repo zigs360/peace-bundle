@@ -356,6 +356,8 @@ const connectDB = async () => {
         await PlanDeletionAudit.sync();
         await ensureColumn(planDeletionAuditTable, 'plan_id_ref', { type: DataTypes.INTEGER, allowNull: false });
         await ensureColumn(planDeletionAuditTable, 'admin_id', { type: DataTypes.UUID, allowNull: true });
+        await ensureColumn(planDeletionAuditTable, 'action_scope', { type: DataTypes.STRING, allowNull: false, defaultValue: 'single' });
+        await ensureColumn(planDeletionAuditTable, 'bulk_action_id', { type: DataTypes.UUID, allowNull: true });
         await ensureColumn(planDeletionAuditTable, 'deleted_by', { type: DataTypes.STRING, allowNull: false, defaultValue: 'system' });
         await ensureColumn(planDeletionAuditTable, 'deletion_mode', { type: DataTypes.STRING, allowNull: false, defaultValue: 'soft' });
         await ensureColumn(planDeletionAuditTable, 'reason', { type: DataTypes.TEXT, allowNull: true });

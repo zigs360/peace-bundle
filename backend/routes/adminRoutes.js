@@ -130,6 +130,7 @@ router.get('/plans', protect, admin, adminPlanController.listPlans);
 router.post('/plans', protect, admin, adminPlanController.createPlan);
 router.post('/plans/import', protect, admin, planImportUpload.single('file'), adminPlanController.importPlansFromFile);
 router.post('/plans/bulk-update', protect, admin, adminPlanController.bulkUpdatePlans);
+router.post('/plans/bulk-delete', protect, admin, adminPlanController.bulkDeletePlans);
 router.put('/plans/:id/toggle-status', protect, admin, adminPlanController.togglePlanStatus);
 router.put('/plans/:id', protect, admin, adminPlanController.updatePlan);
 router.delete('/plans/:id', protect, admin, adminPlanController.deletePlan);

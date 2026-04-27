@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const crypto = require('crypto');
 const fs = require('fs');
 const sequelize = require('../config/database');
 const {
@@ -175,6 +176,77 @@ async function getPlanDeletionImpact(planId, transaction) {
     resellerPricingCount,
     priceHistoryCount,
     pricingRuleCount,
+  };
+}
+
+async function executePlanDeletion(plan, { req, transaction, reason = null, actionScope = 'single', bulkActionId = null }) {
+  const changedBy = getChangedBy(req);
+  const relatedCounts = await getPlanDeletionImpact(plan.id, transaction);
+  const hasBillingReferences = relatedCounts.transactionCount > 0 || relatedCounts.adminPurchaseCount > 0;
+  const deletionMode = hasBillingReferences ? 'soft' : 'hard';
+
+  await PlanDeletionAudit.create(
+    {
+      planIdRef: plan.id,
+      adminId: req.user?.id || null,
+      action_scope: actionScope,
+      bulk_action_id: bulkActionId,
+      deleted_by: changedBy,
+      deletion_mode: deletionMode,
+      reason,
+      related_counts: relatedCounts,
+      plan_snapshot: normalizePlan(plan),
+    },
+    { transaction },
+  );
+
+  if (deletionMode === 'soft') {
+    await PricingRule.update(
+      {
+        is_active: false,
+        ends_at: new Date(),
+        updatedBy: req.user?.id || null,
+      },
+      {
+        where: { dataPlanId: plan.id },
+        transaction,
+      },
+    );
+
+    await updatePlanInstance(
+      plan,
+      {
+        is_active: false,
+        available_sim: false,
+        available_wallet: false,
+      },
+      {
+        changedBy,
+        reason: reason || 'Plan soft deleted due to retained billing records',
+        transaction,
+      },
+    );
+
+    plan.deleted_by = changedBy;
+    plan.deletion_reason = reason;
+    plan.last_updated_by = changedBy;
+    await plan.save({ transaction });
+    await plan.destroy({ transaction });
+  } else {
+    await Promise.all([
+      ResellerPlanPricing.destroy({ where: { dataPlanId: plan.id }, transaction }),
+      PlanPriceHistory.destroy({ where: { planIdRef: plan.id }, transaction }),
+      PricingRule.destroy({ where: { dataPlanId: plan.id }, transaction }),
+    ]);
+    await plan.destroy({ transaction, force: true });
+  }
+
+  return {
+    planId: plan.id,
+    planName: plan.name,
+    deletionMode,
+    relatedCounts,
+    deletedBy: changedBy,
   };
 }
 
@@ -735,87 +807,101 @@ const deletePlan = async (req, res) => {
     }
 
     const reason = req.body?.reason ? String(req.body.reason).trim() : null;
-    const changedBy = getChangedBy(req);
-    const relatedCounts = await getPlanDeletionImpact(plan.id, transaction);
-    const hasBillingReferences = relatedCounts.transactionCount > 0 || relatedCounts.adminPurchaseCount > 0;
-    const deletionMode = hasBillingReferences ? 'soft' : 'hard';
-
-    await PlanDeletionAudit.create(
-      {
-        planIdRef: plan.id,
-        adminId: req.user?.id || null,
-        deleted_by: changedBy,
-        deletion_mode: deletionMode,
-        reason,
-        related_counts: relatedCounts,
-        plan_snapshot: normalizePlan(plan),
-      },
-      { transaction },
-    );
-
-    if (deletionMode === 'soft') {
-      await PricingRule.update(
-        {
-          is_active: false,
-          ends_at: new Date(),
-          updatedBy: req.user?.id || null,
-        },
-        {
-          where: { dataPlanId: plan.id },
-          transaction,
-        },
-      );
-
-      await updatePlanInstance(
-        plan,
-        {
-          is_active: false,
-          available_sim: false,
-          available_wallet: false,
-        },
-        {
-          changedBy,
-          reason: reason || 'Plan soft deleted due to retained billing records',
-          transaction,
-        },
-      );
-
-      plan.deleted_by = changedBy;
-      plan.deletion_reason = reason;
-      plan.last_updated_by = changedBy;
-      await plan.save({ transaction });
-      await plan.destroy({ transaction });
-    } else {
-      await Promise.all([
-        ResellerPlanPricing.destroy({ where: { dataPlanId: plan.id }, transaction }),
-        PlanPriceHistory.destroy({ where: { planIdRef: plan.id }, transaction }),
-        PricingRule.destroy({ where: { dataPlanId: plan.id }, transaction }),
-      ]);
-      await plan.destroy({ transaction, force: true });
-    }
+    const result = await executePlanDeletion(plan, { req, transaction, reason });
 
     await transaction.commit();
 
     logger.info('[AdminPlans] delete completed', {
       planId: Number(req.params.id),
-      deletionMode,
-      deletedBy: changedBy,
-      relatedCounts,
+      deletionMode: result.deletionMode,
+      deletedBy: result.deletedBy,
+      relatedCounts: result.relatedCounts,
     });
 
     return res.json({
       success: true,
       message:
-        deletionMode === 'hard'
+        result.deletionMode === 'hard'
           ? 'Plan permanently deleted'
           : 'Plan archived because billing history exists. It is hidden from active catalogs but retained for audit records.',
-      deletionMode,
-      relatedCounts,
+      deletionMode: result.deletionMode,
+      relatedCounts: result.relatedCounts,
     });
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
     logger.error('[AdminPlans] delete failed', { error: error.message, id: req.params.id });
     return res.status(500).json({ success: false, message: 'Failed to delete plan' });
+  }
+};
+
+const bulkDeletePlans = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const ids = [...new Set(rawIds.map((id) => Number.parseInt(String(id), 10)).filter((id) => Number.isInteger(id) && id > 0))];
+    const reason = req.body?.reason ? String(req.body.reason).trim() : null;
+
+    if (!ids.length) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'At least one valid plan id is required for bulk deletion' });
+    }
+
+    const plans = await DataPlan.findAll({
+      where: { id: { [Op.in]: ids } },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+      order: [['id', 'ASC']],
+    });
+
+    if (plans.length !== ids.length) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'One or more selected plans could not be found' });
+    }
+
+    const bulkActionId = crypto.randomUUID();
+    const results = [];
+    for (const plan of plans) {
+      results.push(
+        await executePlanDeletion(plan, {
+          req,
+          transaction,
+          reason,
+          actionScope: 'bulk',
+          bulkActionId,
+        }),
+      );
+    }
+
+    await transaction.commit();
+
+    const summary = results.reduce(
+      (acc, item) => {
+        acc[item.deletionMode] += 1;
+        return acc;
+      },
+      { hard: 0, soft: 0 },
+    );
+
+    logger.info('[AdminPlans] bulk delete completed', {
+      bulkActionId,
+      deletedBy: getChangedBy(req),
+      count: results.length,
+      summary,
+      planIds: results.map((item) => item.planId),
+    });
+
+    return res.json({
+      success: true,
+      message: `Deleted ${results.length} selected plans`,
+      count: results.length,
+      bulkActionId,
+      summary,
+      items: results,
+    });
+  } catch (error) {
+    if (!transaction.finished) await transaction.rollback();
+    logger.error('[AdminPlans] bulk delete failed', { error: error.message });
+    return res.status(500).json({ success: false, message: 'Bulk delete failed' });
   }
 };
 
@@ -835,4 +921,5 @@ module.exports = {
   createPlan,
   importPlansFromFile,
   deletePlan,
+  bulkDeletePlans,
 };

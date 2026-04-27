@@ -63,6 +63,7 @@ export default function PlansIndex() {
   const [loading, setLoading] = useState(true);
   const [savingIds, setSavingIds] = useState<number[]>([]);
   const [deletingIds, setDeletingIds] = useState<number[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [drafts, setDrafts] = useState<Record<number, Partial<Plan>>>({});
   const [filters, setFilters] = useState<PlanFilters>(EMPTY_FILTERS);
@@ -85,6 +86,7 @@ export default function PlansIndex() {
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [modalState, setModalState] = useState<Partial<Plan> & { reason?: string }>({});
   const [deleteDialog, setDeleteDialog] = useState<{ plan: Plan; reason: string } | null>(null);
+  const [bulkDeleteDialog, setBulkDeleteDialog] = useState<{ count: number; reason: string } | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -292,6 +294,28 @@ export default function PlansIndex() {
     }
   };
 
+  const confirmBulkDelete = async () => {
+    if (!bulkDeleteDialog || selectedIds.length === 0) return;
+
+    setBulkDeleting(true);
+    try {
+      const res = await api.post('/admin/plans/bulk-delete', {
+        ids: selectedIds,
+        reason: bulkDeleteDialog.reason.trim() || undefined,
+      });
+      toast.success(res.data?.message || t('admin.bulkDeleteSuccess', { count: selectedIds.length }));
+      setBulkDeleteDialog(null);
+      setSelectedIds([]);
+      await fetchPlans(filters);
+      await fetchSidebarData();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.message || t('admin.bulkDeleteFailed'));
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const openModal = (plan: Plan) => {
     setSelectedPlan(plan);
     setModalState({
@@ -454,7 +478,17 @@ export default function PlansIndex() {
             <h2 className="text-lg font-semibold text-gray-900">{t('admin.bulkUpdateTitle')}</h2>
             <p className="text-sm text-gray-600">{t('admin.bulkUpdateDescription')}</p>
           </div>
-          <div className="text-sm text-gray-600">{t('admin.selectedCount', { count: visibleSelectedCount })}</div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-sm text-gray-600">{t('admin.selectedCount', { count: visibleSelectedCount })}</div>
+            <button
+              onClick={() => setBulkDeleteDialog({ count: visibleSelectedCount, reason: '' })}
+              disabled={visibleSelectedCount === 0 || bulkDeleting}
+              className="inline-flex items-center px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              {bulkDeleting ? t('admin.bulkDeleting') : t('admin.deleteSelected')}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -750,6 +784,52 @@ export default function PlansIndex() {
                 className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
               >
                 {deletingIds.includes(deleteDialog.plan.id) ? t('admin.deletingPlan') : t('admin.confirmDeletePlan')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkDeleteDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl p-6 space-y-5">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">{t('admin.bulkDeleteTitle')}</h2>
+              <p className="mt-2 text-sm text-gray-600">
+                {t('admin.bulkDeleteWarning', { count: bulkDeleteDialog.count })}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 space-y-2">
+              <p>{t('admin.bulkDeleteImpactHeading')}</p>
+              <p>{t('admin.bulkDeleteImpactBody')}</p>
+            </div>
+
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">{t('admin.deletionReasonLabel')}</span>
+              <textarea
+                value={bulkDeleteDialog.reason}
+                onChange={(e) => setBulkDeleteDialog((prev) => (prev ? { ...prev, reason: e.target.value } : prev))}
+                rows={3}
+                placeholder={t('admin.bulkDeletionReasonPlaceholder')}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+              />
+            </label>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setBulkDeleteDialog(null)}
+                disabled={bulkDeleting}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={() => void confirmBulkDelete()}
+                disabled={bulkDeleting || selectedIds.length === 0}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {bulkDeleting ? t('admin.bulkDeleting') : t('admin.confirmBulkDelete', { count: bulkDeleteDialog.count })}
               </button>
             </div>
           </div>

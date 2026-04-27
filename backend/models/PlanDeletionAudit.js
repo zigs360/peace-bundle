@@ -20,6 +20,16 @@ const PlanDeletionAudit = sequelize.define(
       allowNull: true,
       field: 'admin_id',
     },
+    action_scope: {
+      type: DataTypes.ENUM('single', 'bulk'),
+      allowNull: false,
+      defaultValue: 'single',
+    },
+    bulk_action_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      field: 'bulk_action_id',
+    },
     deleted_by: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -50,6 +60,8 @@ const PlanDeletionAudit = sequelize.define(
     indexes: [
       { fields: ['plan_id_ref'] },
       { fields: ['admin_id'] },
+      { fields: ['action_scope'] },
+      { fields: ['bulk_action_id'] },
       { fields: ['deleted_by'] },
       { fields: ['deleted_at'] },
     ],

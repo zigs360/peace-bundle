@@ -303,6 +303,18 @@ export const resources = {
         deletionReasonLabel: 'Deletion reason (optional)',
         deletionReasonPlaceholder: 'Document why this plan is being removed',
         confirmDeletePlan: 'Delete permanently',
+        deleteSelected: 'Delete selected',
+        bulkDeleting: 'Deleting selected...',
+        bulkDeleteTitle: 'Delete selected plans?',
+        bulkDeleteWarning:
+          'You are about to delete {{count}} selected plans. Unreferenced plans will be removed permanently, while referenced plans will be archived to preserve billing history.',
+        bulkDeleteImpactHeading: 'Warning: this bulk action updates the catalog immediately.',
+        bulkDeleteImpactBody:
+          'Each selected plan is evaluated individually. Safe plans are hard deleted, and referenced plans are soft deleted with audit retention.',
+        bulkDeletionReasonPlaceholder: 'Document why these plans are being removed',
+        confirmBulkDelete: 'Delete {{count}} plans',
+        bulkDeleteSuccess: 'Deleted {{count}} selected plans',
+        bulkDeleteFailed: 'Failed to delete selected plans',
       },
       contact: {
         seoTitle: 'Contact Sales - Peace Bundle',
@@ -950,6 +962,18 @@ export const resources = {
         deletionReasonLabel: 'Dalilin gogewa (na zaɓi)',
         deletionReasonPlaceholder: 'Rubuta dalilin cire wannan tsari',
         confirmDeletePlan: 'Goge har abada',
+        deleteSelected: 'Goge wadanda aka zaba',
+        bulkDeleting: 'Ana goge wadanda aka zaba...',
+        bulkDeleteTitle: 'A goge tsare-tsaren da aka zaba?',
+        bulkDeleteWarning:
+          'Kuna shirin goge tsare-tsare {{count}} da aka zaba. Wadanda ba su da bayanan tarihi za a cire su har abada, yayin da masu alaka da bayanan biyan kudi za a archive su domin kiyaye tarihi.',
+        bulkDeleteImpactHeading: 'Gargadi: wannan bulk action zai sabunta catalog nan take.',
+        bulkDeleteImpactBody:
+          'Za a duba kowane tsari dabam. Tsare-tsare masu aminci za a hard delete, sannan masu alaka da tarihi za a soft delete tare da audit retention.',
+        bulkDeletionReasonPlaceholder: 'Rubuta dalilin cire wadannan tsare-tsare',
+        confirmBulkDelete: 'Goge tsare-tsare {{count}}',
+        bulkDeleteSuccess: 'An goge tsare-tsare {{count}} da aka zaba',
+        bulkDeleteFailed: 'Goge tsare-tsaren da aka zaba ya gaza',
       },
       contact: {
         seoTitle: 'Tuntuɓi Tallace-tallace - Peace Bundle',
@@ -1597,6 +1621,18 @@ export const resources = {
         deletionReasonLabel: 'Idi piparẹ (aṣayan)',
         deletionReasonPlaceholder: 'Ṣalaye idi ti a fi n yọ plan yii',
         confirmDeletePlan: 'Pa a títí láé',
+        deleteSelected: 'Pa awọn ti a yan rẹ',
+        bulkDeleting: 'N pa awọn ti a yan...',
+        bulkDeleteTitle: 'Pa awọn plan ti a yan rẹ?',
+        bulkDeleteWarning:
+          'O fẹ pa awọn plan {{count}} ti a yan rẹ. Awọn ti ko ni history ni a o yọ patapata, nigba ti awọn to ni billing reference yoo wa ni archive lati daabobo itan naa.',
+        bulkDeleteImpactHeading: 'Ikilọ: bulk action yii yoo yi catalog pada lẹsẹkẹsẹ.',
+        bulkDeleteImpactBody:
+          'A o ṣe ayẹwo plan kọọkan lọtọ. Awọn to ni aabo ni a o hard delete, ati awọn to ni reference ni a o soft delete pẹlu audit retention.',
+        bulkDeletionReasonPlaceholder: 'Ṣalaye idi ti a fi n yọ awọn plan wọnyi',
+        confirmBulkDelete: 'Pa plans {{count}} rẹ',
+        bulkDeleteSuccess: 'A ti pa plans {{count}} ti a yan ni aṣeyọri',
+        bulkDeleteFailed: 'Pipa awọn plan ti a yan kuna',
       },
       contact: {
         seoTitle: 'Kan Si Tita - Peace Bundle',
@@ -2244,6 +2280,18 @@ export const resources = {
         deletionReasonLabel: 'Ihe kpatara ihichapụ (nhọrọ)',
         deletionReasonPlaceholder: 'Depụta ihe kpatara iwepu plan a',
         confirmDeletePlan: 'Hichapụ ruo mgbe ebighị ebi',
+        deleteSelected: 'Hichapụ ndị ahọpụtara',
+        bulkDeleting: 'Na-ehichapụ ndị ahọpụtara...',
+        bulkDeleteTitle: 'Hichapụ plans ahọpụtara?',
+        bulkDeleteWarning:
+          'Ị na-achọ ihichapụ plans {{count}} ahọpụtara. Plans na-enweghị history ga-apụ kpamkpam, ebe ndị nwere billing reference ga-anọgide archived iji chekwaa akụkọ ha.',
+        bulkDeleteImpactHeading: 'Ncheta: bulk action a ga-emetụta catalog ozugbo.',
+        bulkDeleteImpactBody:
+          'A na-enyocha plan ọ bụla n’otu n’otu. Ndị dị nchebe na-enweta hard delete, ebe ndị nwere reference na-enweta soft delete yana audit retention.',
+        bulkDeletionReasonPlaceholder: 'Depụta ihe kpatara iwepu plans ndị a',
+        confirmBulkDelete: 'Hichapụ plans {{count}}',
+        bulkDeleteSuccess: 'Ehichapụrụ plans {{count}} ahọpụtara nke ọma',
+        bulkDeleteFailed: 'Ihichapụ plans ahọpụtara dara',
       },
       contact: {
         seoTitle: 'Kpọtụrụ Ahịa - Peace Bundle',
