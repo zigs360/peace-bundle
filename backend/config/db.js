@@ -230,6 +230,14 @@ const connectDB = async () => {
       }
 
       const qi = sequelize.getQueryInterface();
+      const tableExists = async (tableName) => {
+        try {
+          await qi.describeTable(tableName);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      };
       const ensureColumn = async (tableName, columnName, columnDef) => {
         try {
           const desc = await qi.describeTable(tableName);
@@ -255,6 +263,75 @@ const connectDB = async () => {
           ensureColumn(voiceBundlePurchasesTable, 'bundle_category', { type: DataTypes.STRING, allowNull: false, defaultValue: 'minute' }),
           ensureColumn(voiceBundlePurchasesTable, 'migrated_from_purchase_id', { type: DataTypes.UUID, allowNull: true }),
         ]);
+      const ensurePlanDeletionAuditCompatibility = async () => {
+        const exists = await tableExists(planDeletionAuditTable);
+        if (!exists) {
+          await qi.createTable(planDeletionAuditTable, {
+            id: {
+              type: DataTypes.UUID,
+              allowNull: false,
+              primaryKey: true,
+            },
+            plan_id_ref: {
+              type: DataTypes.INTEGER,
+              allowNull: false,
+            },
+            admin_id: {
+              type: DataTypes.UUID,
+              allowNull: true,
+            },
+            action_scope: {
+              type: DataTypes.STRING,
+              allowNull: false,
+              defaultValue: 'single',
+            },
+            bulk_action_id: {
+              type: DataTypes.UUID,
+              allowNull: true,
+            },
+            deleted_by: {
+              type: DataTypes.STRING,
+              allowNull: false,
+              defaultValue: 'system',
+            },
+            deletion_mode: {
+              type: DataTypes.STRING,
+              allowNull: false,
+              defaultValue: 'soft',
+            },
+            reason: {
+              type: DataTypes.TEXT,
+              allowNull: true,
+            },
+            related_counts: {
+              type: DataTypes.JSONB,
+              allowNull: false,
+              defaultValue: {},
+            },
+            plan_snapshot: {
+              type: DataTypes.JSONB,
+              allowNull: false,
+              defaultValue: {},
+            },
+            deleted_at: {
+              type: DataTypes.DATE,
+              allowNull: false,
+              defaultValue: sequelize.literal('CURRENT_TIMESTAMP'),
+            },
+          });
+          return;
+        }
+
+        await ensureColumn(planDeletionAuditTable, 'plan_id_ref', { type: DataTypes.INTEGER, allowNull: false });
+        await ensureColumn(planDeletionAuditTable, 'admin_id', { type: DataTypes.UUID, allowNull: true });
+        await ensureColumn(planDeletionAuditTable, 'action_scope', { type: DataTypes.STRING, allowNull: false, defaultValue: 'single' });
+        await ensureColumn(planDeletionAuditTable, 'bulk_action_id', { type: DataTypes.UUID, allowNull: true });
+        await ensureColumn(planDeletionAuditTable, 'deleted_by', { type: DataTypes.STRING, allowNull: false, defaultValue: 'system' });
+        await ensureColumn(planDeletionAuditTable, 'deletion_mode', { type: DataTypes.STRING, allowNull: false, defaultValue: 'soft' });
+        await ensureColumn(planDeletionAuditTable, 'reason', { type: DataTypes.TEXT, allowNull: true });
+        await ensureColumn(planDeletionAuditTable, 'related_counts', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
+        await ensureColumn(planDeletionAuditTable, 'plan_snapshot', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
+      };
 
       if (process.env.NODE_ENV !== 'test') {
         await Promise.all([
@@ -286,6 +363,7 @@ const connectDB = async () => {
           ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
           ensureVoiceBundlePurchaseColumns(),
         ]);
+        await ensurePlanDeletionAuditCompatibility();
       }
 
       if (process.env.NODE_ENV === 'test') {
@@ -353,16 +431,8 @@ const connectDB = async () => {
       }
 
       try {
+        await ensurePlanDeletionAuditCompatibility();
         await PlanDeletionAudit.sync();
-        await ensureColumn(planDeletionAuditTable, 'plan_id_ref', { type: DataTypes.INTEGER, allowNull: false });
-        await ensureColumn(planDeletionAuditTable, 'admin_id', { type: DataTypes.UUID, allowNull: true });
-        await ensureColumn(planDeletionAuditTable, 'action_scope', { type: DataTypes.STRING, allowNull: false, defaultValue: 'single' });
-        await ensureColumn(planDeletionAuditTable, 'bulk_action_id', { type: DataTypes.UUID, allowNull: true });
-        await ensureColumn(planDeletionAuditTable, 'deleted_by', { type: DataTypes.STRING, allowNull: false, defaultValue: 'system' });
-        await ensureColumn(planDeletionAuditTable, 'deletion_mode', { type: DataTypes.STRING, allowNull: false, defaultValue: 'soft' });
-        await ensureColumn(planDeletionAuditTable, 'reason', { type: DataTypes.TEXT, allowNull: true });
-        await ensureColumn(planDeletionAuditTable, 'related_counts', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
-        await ensureColumn(planDeletionAuditTable, 'plan_snapshot', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
       } catch (e) {
         console.error('Plan deletion audit table sync failed:', e.message);
       }
