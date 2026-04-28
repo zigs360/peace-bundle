@@ -139,41 +139,46 @@ describe('Data plan catalog and purchase flow', () => {
     expect(res.body.some((plan) => plan.name === 'NaN Plan')).toBe(false);
   });
 
-  it('GET /api/plans/catalog groups plans by network, category, and subcategory', async () => {
+  it('GET /api/plans/catalog merges MTN plans, classifies categories, and returns nested catalog data', async () => {
     await DataPlan.bulkCreate([
       {
         source: 'ogdams',
         provider: 'mtn',
         category: 'gifting',
-        service_name: 'Data Plans',
-        service_slug: 'data-plans',
-        category_name: 'Gifting Plans',
-        category_slug: 'gifting-plans',
-        subcategory_name: 'Daily Plans (1-2 Days)',
-        subcategory_slug: 'daily-plans',
-        name: '500MB Daily',
-        size: '500MB',
-        size_mb: 500,
+        name: '1GB [GIFTING] + 25 minutes',
+        size: '1GB',
+        size_mb: 1024,
         validity: '1 Day',
-        data_size: '500MB',
-        plan_id: 'MTN-DAILY-500',
-        original_price: 200,
-        your_price: 195,
-        wallet_price: 200,
-        admin_price: 195,
-        api_cost: 200,
+        data_size: '1GB',
+        plan_id: 'MTN-GIFT-1GB-A',
+        original_price: 500,
+        your_price: 475,
+        wallet_price: 500,
+        admin_price: 475,
+        api_cost: 500,
+        is_active: true,
+      },
+      {
+        source: 'smeplug',
+        provider: 'mtn',
+        category: 'gifting',
+        name: '1GB [GIFTING]',
+        size: '1GB',
+        size_mb: 1024,
+        validity: '1 Day',
+        data_size: '1GB',
+        plan_id: 'MTN-GIFT-1GB-B',
+        original_price: 500,
+        your_price: 475,
+        wallet_price: 500,
+        admin_price: 475,
+        api_cost: 500,
         is_active: true,
       },
       {
         source: 'smeplug',
         provider: 'airtel',
         category: 'social',
-        service_name: 'Data Plans',
-        service_slug: 'data-plans',
-        category_name: 'Social Bundles',
-        category_slug: 'social-bundles',
-        subcategory_name: 'Instagram/TikTok Plans',
-        subcategory_slug: 'instagram-tiktok-plans',
         name: 'Airtel Social 1GB',
         size: '1GB',
         size_mb: 1024,
@@ -187,6 +192,23 @@ describe('Data plan catalog and purchase flow', () => {
         api_cost: 500,
         is_active: true,
       },
+      {
+        source: 'smeplug',
+        provider: 'glo',
+        category: 'voice',
+        name: 'Talk More - 10MINS',
+        size: '10MINS',
+        size_mb: 0,
+        validity: '3 Days',
+        data_size: null,
+        plan_id: 'GLO-VOICE-10',
+        original_price: 100,
+        your_price: 98,
+        wallet_price: 100,
+        admin_price: 98,
+        api_cost: 100,
+        is_active: true,
+      },
     ]);
 
     const res = await request(app)
@@ -194,12 +216,15 @@ describe('Data plan catalog and purchase flow', () => {
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.body.items)).toBe(true);
     expect(Array.isArray(res.body.networks)).toBe(true);
     expect(res.body.networks[0].code).toBe('mtn');
-    expect(res.body.networks[0].services[0].categories[0].name).toBe('Gifting Plans');
-    expect(res.body.networks[0].services[0].categories[0].subcategories[0].plans[0].plan_id).toBe('MTN-DAILY-500');
-    expect(res.body.networks[1].code).toBe('airtel');
-    expect(res.body.networks[1].services[0].categories[0].subcategories[0].name).toBe('Instagram/TikTok Plans');
+    expect(res.body.catalog.MTN.GIFTING).toHaveLength(1);
+    expect(res.body.catalog.MTN.GIFTING[0].plan_id).toBe('MTN-GIFT-1GB-A');
+    expect(res.body.catalog.MTN.GIFTING[0].bonus_text).toMatch(/\+ 25 min/i);
+    expect(res.body.catalog.Airtel.SOCIAL[0].plan_id).toBe('AIRTEL-SOCIAL-1GB');
+    expect(res.body.catalog.GLO.VOICE_COMBO[0].display_title).toBe('10 MINS Voice');
+    expect(res.body.items.some((plan) => plan.plan_id === 'MTN-GIFT-1GB-B')).toBe(false);
   });
 
   it('POST /api/transactions/data rejects phone numbers with the wrong network prefix', async () => {

@@ -10,6 +10,12 @@ const {
     parseValidityToDays,
     toFiniteNumber,
 } = require('../utils/dataPlanUtils');
+const {
+    CATALOG_NETWORKS,
+    buildNestedCatalog,
+    cleanCatalogPlan,
+    mergeAndDeduplicatePlans,
+} = require('../utils/vtuCatalogUtils');
 
 function normalizePlanForCatalog(plan, effectivePrice) {
     const json = plan.toJSON();
@@ -189,7 +195,8 @@ async function loadCatalogPlans(req) {
     return payload
         .filter((plan) => {
             const telecoPrice = toFiniteNumber(plan.teleco_price, NaN);
-            if (!Number.isFinite(telecoPrice) || telecoPrice <= 0) return false;
+            const ourPrice = toFiniteNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, NaN);
+            if (!Number.isFinite(telecoPrice) && !Number.isFinite(ourPrice)) return false;
             if (!NETWORK_ORDER.includes(String(plan.provider || '').toLowerCase())) return false;
             if (plan.available_wallet === false && plan.available_sim === false) return false;
             if (!normalizedSearch) return true;
@@ -204,15 +211,19 @@ async function loadCatalogPlans(req) {
 const getDataPlans = async (req, res) => {
     try {
         const filtered = await loadCatalogPlans(req);
+        const legacyVisiblePlans = filtered.filter((plan) => {
+            const telecoPrice = toFiniteNumber(plan.teleco_price, NaN);
+            return Number.isFinite(telecoPrice) && telecoPrice > 0;
+        });
 
         if (req.query.grouped === 'true' || req.query.view === 'hierarchy') {
             return res.json({
-                items: filtered.map(cleanPlanPayload),
-                networks: buildGroupedCatalog(filtered),
+                items: legacyVisiblePlans.map(cleanPlanPayload),
+                networks: buildGroupedCatalog(legacyVisiblePlans),
             });
         }
 
-        res.json(filtered.map(cleanPlanPayload));
+        res.json(legacyVisiblePlans.map(cleanPlanPayload));
     } catch (error) {
         logger.error(`[DataPlan] Fetch error: ${error.message}`, { db: error.original?.message || null });
         res.status(500).json({ 
@@ -406,9 +417,16 @@ const deleteDataPlan = async (req, res) => {
 const getVtuDataPlanCatalog = async (req, res) => {
     try {
         const filtered = await loadCatalogPlans(req);
+        const catalogItems = mergeAndDeduplicatePlans(filtered);
+        const catalog = buildNestedCatalog(catalogItems);
         return res.json({
-            items: filtered.map(cleanPlanPayload),
-            networks: buildGroupedCatalog(filtered),
+            items: catalogItems.map(cleanCatalogPlan),
+            networks: CATALOG_NETWORKS.map((network) => ({
+                code: network,
+                name: network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO',
+                categories: catalog[network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO'],
+            })),
+            catalog,
         });
     } catch (error) {
         logger.error(`[DataPlan] VTU catalog error: ${error.message}`, { db: error.original?.message || null });

@@ -5,75 +5,65 @@ import { FadeIn, HoverCard, SlideUp, StaggerContainer, StaggerItem } from '../..
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from 'react-i18next';
 
-const NETWORKS = ['mtn', 'airtel', 'glo'] as const;
-const PLAN_CACHE_KEY = 'buy_data_plan_catalog_v1';
+const NETWORK_KEYS = ['mtn', 'airtel', 'glo'] as const;
+const NETWORK_LABELS = {
+  mtn: 'MTN',
+  airtel: 'Airtel',
+  glo: 'GLO',
+} as const;
+const NETWORK_TOP_KEYS = {
+  mtn: 'MTN',
+  airtel: 'Airtel',
+  glo: 'GLO',
+} as const;
+const PLAN_CACHE_KEY = 'buy_data_plan_catalog_v2';
 const PLAN_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
 const DUPLICATE_GUARD_MS = 45 * 1000;
 
-type NetworkName = typeof NETWORKS[number];
-
+type NetworkKey = typeof NETWORK_KEYS[number];
+type NetworkTopKey = typeof NETWORK_TOP_KEYS[NetworkKey];
 type Feedback = { type: 'success' | 'error'; text: string } | null;
 
-interface DataPlan {
+interface PlanBadge {
+  key: string;
+  label: string;
+  icon: string;
+}
+
+interface CatalogPlan {
   id: string;
-  network: NetworkName | string;
-  provider: string;
-  network_display_name?: string;
+  network_key: NetworkKey;
+  network_label: string;
+  category_key: string;
+  category_label: string;
   plan: string;
   name: string;
   plan_id: string;
   validity: string;
-  validity_days?: number;
   teleco_price: number;
   our_price: number;
   effective_price?: number;
   admin_price?: number;
-  size?: string;
-  size_mb?: number;
-  service_name?: string;
-  category_name?: string;
-  subcategory_name?: string;
+  display_amount?: string | null;
+  minutes_label?: string | null;
+  display_title?: string | null;
+  bonus_text?: string | null;
+  is_voice_only?: boolean;
+  is_free?: boolean;
+  is_add_on?: boolean;
+  badges: PlanBadge[];
 }
 
-interface CatalogSubcategory {
-  name: string;
-  slug: string;
-  plans: DataPlan[];
-}
-
-interface CatalogCategory {
-  name: string;
-  slug: string;
-  subcategories: CatalogSubcategory[];
-}
-
-interface CatalogService {
-  name: string;
-  slug: string;
-  categories: CatalogCategory[];
-}
-
-interface CatalogNetwork {
-  code: NetworkName | string;
-  name: string;
-  icon?: string;
-  color?: string;
-  services: CatalogService[];
-}
+type NestedCatalog = Record<NetworkTopKey, Record<string, CatalogPlan[]>>;
 
 interface CachedPlanCatalog {
   fetchedAt: number;
   version: number;
-  plans: DataPlan[];
+  items: CatalogPlan[];
+  catalog: NestedCatalog;
 }
 
-const NETWORK_LABELS: Record<string, string> = {
-  mtn: 'MTN',
-  airtel: 'Airtel',
-  glo: 'Glo',
-};
-
-const PHONE_PREFIXES: Record<string, string[]> = {
+const PHONE_PREFIXES: Record<NetworkKey, string[]> = {
   mtn: ['0803', '0806', '0703', '0706', '0810', '0813', '0814', '0816'],
   airtel: ['0802', '0808', '0708', '0812', '0901', '0902', '0907', '0904'],
   glo: ['0805', '0807', '0705', '0811', '0905', '0915'],
@@ -91,7 +81,7 @@ function normalizePhone(phone: string) {
   return digits;
 }
 
-function getPhoneError(network: string, phone: string, t: (key: string, options?: Record<string, unknown>) => string) {
+function getPhoneError(network: NetworkKey, phone: string, t: (key: string, options?: Record<string, unknown>) => string) {
   const normalized = normalizePhone(phone);
   if (!/^\d{11}$/.test(normalized)) return t('buyDataPage.phoneDigitsError');
   const prefixes = PHONE_PREFIXES[network] || [];
@@ -101,162 +91,181 @@ function getPhoneError(network: string, phone: string, t: (key: string, options?
   return null;
 }
 
-function extractPlanSize(plan: DataPlan) {
-  const text = String(plan.plan || plan.name || '').toUpperCase();
-  const match = text.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/);
-  if (match) return `${match[1]}${match[2]}`;
-  if (plan.size) return String(plan.size).toUpperCase();
-  if (plan.size_mb && plan.size_mb >= 1024) return `${(plan.size_mb / 1024).toFixed(plan.size_mb % 1024 === 0 ? 0 : 1)}GB`;
-  if (plan.size_mb) return `${plan.size_mb}MB`;
-  return text;
+function getDuplicateGuardKey(plan: CatalogPlan, phone: string) {
+  return `buy_data_guard:${plan.network_key}:${String(plan.plan_id)}:${normalizePhone(phone)}`;
 }
 
-function getDuplicateGuardKey(plan: DataPlan, phone: string) {
-  return `buy_data_guard:${String(plan.network)}:${String(plan.plan_id)}:${normalizePhone(phone)}`;
+function normalizePlan(plan: any): CatalogPlan {
+  return {
+    ...plan,
+    id: String(plan.id),
+    network_key: String(plan.network_key || plan.provider || '').toLowerCase() as NetworkKey,
+    network_label: String(plan.network_label || NETWORK_LABELS[String(plan.network_key || plan.provider || '').toLowerCase() as NetworkKey] || ''),
+    category_key: String(plan.category_key || ''),
+    category_label: String(plan.category_label || plan.category_key || ''),
+    plan: String(plan.plan || plan.name || ''),
+    name: String(plan.name || plan.plan || ''),
+    plan_id: String(plan.plan_id || plan.id),
+    validity: String(plan.validity || ''),
+    teleco_price: toNumber(plan.teleco_price, 0),
+    our_price: toNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, 0),
+    effective_price: toNumber(plan.effective_price ?? plan.our_price ?? plan.admin_price, 0),
+    admin_price: toNumber(plan.admin_price, 0),
+    display_amount: plan.display_amount ? String(plan.display_amount) : null,
+    minutes_label: plan.minutes_label ? String(plan.minutes_label) : null,
+    display_title: plan.display_title ? String(plan.display_title) : null,
+    bonus_text: plan.bonus_text ? String(plan.bonus_text) : null,
+    is_voice_only: Boolean(plan.is_voice_only),
+    is_free: Boolean(plan.is_free),
+    is_add_on: Boolean(plan.is_add_on),
+    badges: Array.isArray(plan.badges) ? plan.badges.map((badge: any): PlanBadge => ({
+      key: String(badge.key || ''),
+      label: String(badge.label || ''),
+      icon: String(badge.icon || ''),
+    })) : [],
+  };
 }
 
-function readCachedPlans(version: number) {
+function normalizeCatalog(rawCatalog: any): NestedCatalog {
+  const catalog = {} as NestedCatalog;
+  for (const network of NETWORK_KEYS) {
+    const topKey = NETWORK_TOP_KEYS[network];
+    const source = rawCatalog?.[topKey] || {};
+    catalog[topKey] = Object.fromEntries(
+      Object.entries(source).map(([category, plans]) => [
+        category,
+        Array.isArray(plans) ? plans.map((plan) => normalizePlan(plan)) : [],
+      ]),
+    ) as Record<string, CatalogPlan[]>;
+  }
+  return catalog;
+}
+
+function readCachedCatalog(version: number) {
   const raw = localStorage.getItem(PLAN_CACHE_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as CachedPlanCatalog;
-    if (!Array.isArray(parsed.plans)) return null;
+    if (!Array.isArray(parsed.items)) return null;
+    if (!parsed.catalog) return null;
     if (parsed.version !== version) return null;
     if (Date.now() - parsed.fetchedAt > PLAN_CACHE_MAX_AGE_MS) return null;
-    return parsed.plans;
+    return {
+      items: parsed.items.map((plan) => normalizePlan(plan)),
+      catalog: normalizeCatalog(parsed.catalog),
+    };
   } catch {
     return null;
   }
 }
 
-function writeCachedPlans(plans: DataPlan[], version: number) {
+function writeCachedCatalog(items: CatalogPlan[], catalog: NestedCatalog, version: number) {
   const payload: CachedPlanCatalog = {
     fetchedAt: Date.now(),
     version,
-    plans,
+    items,
+    catalog,
   };
   localStorage.setItem(PLAN_CACHE_KEY, JSON.stringify(payload));
 }
 
-function mapPlan(plan: any): DataPlan {
-  return {
-    ...plan,
-    id: String(plan.id),
-    network: String(plan.network || plan.provider || '').toLowerCase(),
-    provider: String(plan.provider || plan.network || '').toLowerCase(),
-    network_display_name: plan.network_display_name ? String(plan.network_display_name) : undefined,
-    plan: String(plan.plan || plan.name || ''),
-    name: String(plan.name || plan.plan || ''),
-    plan_id: String(plan.plan_id || plan.smeplug_plan_id || plan.id),
-    validity: String(plan.validity || ''),
-    teleco_price: toNumber(plan.teleco_price, NaN),
-    our_price: toNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, 0),
-    effective_price: toNumber(plan.effective_price ?? plan.our_price ?? plan.admin_price, 0),
-    admin_price: toNumber(plan.admin_price, 0),
-    size: plan.size ? String(plan.size) : undefined,
-    size_mb: plan.size_mb ? toNumber(plan.size_mb) : undefined,
-    service_name: plan.service_name ? String(plan.service_name) : undefined,
-    category_name: plan.category_name ? String(plan.category_name) : undefined,
-    subcategory_name: plan.subcategory_name ? String(plan.subcategory_name) : undefined,
-  };
+function formatPriceLabel(plan: CatalogPlan) {
+  if (plan.is_free) return 'FREE / ADD-ON';
+  return `₦${toNumber(plan.our_price).toLocaleString()}`;
 }
 
-function flattenCatalog(networks: CatalogNetwork[]) {
-  return networks.flatMap((network) =>
-    (network.services || []).flatMap((service) =>
-      (service.categories || []).flatMap((category) =>
-        (category.subcategories || []).flatMap((subcategory) =>
-          (subcategory.plans || []).map((plan) => mapPlan(plan)),
-        ),
-      ),
-    ),
-  );
+function extractPriceRange(query: string) {
+  const lower = query.toLowerCase();
+  let min: number | null = null;
+  let max: number | null = null;
+  let cleaned = lower;
+
+  const rangeMatch = lower.match(/(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)/);
+  if (rangeMatch) {
+    min = Number(rangeMatch[1]);
+    max = Number(rangeMatch[2]);
+    cleaned = cleaned.replace(rangeMatch[0], ' ');
+  }
+
+  const underMatch = lower.match(/(?:under|below|less than|max)\s*(\d+(?:\.\d+)?)/);
+  if (underMatch) {
+    max = Number(underMatch[1]);
+    cleaned = cleaned.replace(underMatch[0], ' ');
+  }
+
+  const overMatch = lower.match(/(?:above|over|from|greater than|min)\s*(\d+(?:\.\d+)?)/);
+  if (overMatch) {
+    min = Number(overMatch[1]);
+    cleaned = cleaned.replace(overMatch[0], ' ');
+  }
+
+  const tokens = cleaned
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  return { min, max, tokens };
 }
 
-function buildCatalogFromPlans(plans: DataPlan[]): CatalogNetwork[] {
-  const networksMap = new Map<string, CatalogNetwork & { servicesMap: Map<string, CatalogService & { categoriesMap: Map<string, CatalogCategory & { subcategoriesMap: Map<string, CatalogSubcategory> }> }> }>();
+function matchesSearch(plan: CatalogPlan, query: string) {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return true;
+  const { min, max, tokens } = extractPriceRange(trimmed);
+  const price = toNumber(plan.our_price, 0);
 
-  plans.forEach((plan) => {
-    const networkCode = String(plan.network || plan.provider || '').toLowerCase();
-    if (!networkCode) return;
+  if (min !== null && price < min) return false;
+  if (max !== null && price > max) return false;
 
-    if (!networksMap.has(networkCode)) {
-      networksMap.set(networkCode, {
-        code: networkCode,
-        name: plan.network_display_name || NETWORK_LABELS[networkCode] || networkCode.toUpperCase(),
-        icon: '📡',
-        color: undefined,
-        services: [],
-        servicesMap: new Map(),
-      });
-    }
+  const haystack = [
+    plan.name,
+    plan.plan,
+    plan.display_amount,
+    plan.minutes_label,
+    plan.validity,
+    plan.category_key,
+    plan.category_label,
+    plan.network_label,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
 
-    const network = networksMap.get(networkCode)!;
-    const serviceSlug = String(plan.service_name || 'Data Plans').toLowerCase().replace(/\s+/g, '-');
-    const categorySlug = String(plan.category_name || 'General Plans').toLowerCase().replace(/\s+/g, '-');
-    const subcategorySlug = String(plan.subcategory_name || 'All Plans').toLowerCase().replace(/\s+/g, '-');
+  return tokens.every((token) => haystack.includes(token));
+}
 
-    if (!network.servicesMap.has(serviceSlug)) {
-      network.servicesMap.set(serviceSlug, {
-        name: plan.service_name || 'Data Plans',
-        slug: serviceSlug,
-        categories: [],
-        categoriesMap: new Map(),
-      });
-    }
-
-    const service = network.servicesMap.get(serviceSlug)!;
-    if (!service.categoriesMap.has(categorySlug)) {
-      service.categoriesMap.set(categorySlug, {
-        name: plan.category_name || 'General Plans',
-        slug: categorySlug,
-        subcategories: [],
-        subcategoriesMap: new Map(),
-      });
-    }
-
-    const category = service.categoriesMap.get(categorySlug)!;
-    if (!category.subcategoriesMap.has(subcategorySlug)) {
-      category.subcategoriesMap.set(subcategorySlug, {
-        name: plan.subcategory_name || 'All Plans',
-        slug: subcategorySlug,
-        plans: [],
-      });
-    }
-
-    category.subcategoriesMap.get(subcategorySlug)!.plans.push(plan);
-  });
-
-  return NETWORKS
-    .filter((network) => networksMap.has(network))
-    .map((network) => {
-      const networkNode = networksMap.get(network)!;
-      return {
-        code: networkNode.code,
-        name: networkNode.name,
-        icon: networkNode.icon,
-        color: networkNode.color,
-        services: Array.from(networkNode.servicesMap.values()).map((service) => ({
-          name: service.name,
-          slug: service.slug,
-          categories: Array.from(service.categoriesMap.values()).map((category) => ({
-            name: category.name,
-            slug: category.slug,
-            subcategories: Array.from(category.subcategoriesMap.values()),
-          })),
-        })),
-      };
-    });
+function getBadgeClasses(key: string) {
+  switch (key) {
+    case 'VOICE':
+      return 'bg-violet-100 text-violet-700';
+    case 'ROAMING':
+      return 'bg-sky-100 text-sky-700';
+    case 'ROUTER':
+      return 'bg-indigo-100 text-indigo-700';
+    case 'NIGHT':
+      return 'bg-slate-100 text-slate-700';
+    case 'SOCIAL':
+      return 'bg-pink-100 text-pink-700';
+    case 'SHARE':
+      return 'bg-amber-100 text-amber-700';
+    case 'CORPORATE':
+      return 'bg-emerald-100 text-emerald-700';
+    case 'BROADBAND':
+      return 'bg-cyan-100 text-cyan-700';
+    default:
+      return 'bg-gray-100 text-gray-700';
+  }
 }
 
 export default function BuyData() {
   const { t } = useTranslation();
-  const [plans, setPlans] = useState<DataPlan[]>([]);
-  const [catalogNetworks, setCatalogNetworks] = useState<CatalogNetwork[]>([]);
+  const [plans, setPlans] = useState<CatalogPlan[]>([]);
+  const [catalog, setCatalog] = useState<NestedCatalog>({ MTN: {}, Airtel: {}, GLO: {} } as NestedCatalog);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [phone, setPhone] = useState('');
   const [search, setSearch] = useState('');
-  const [activeNetwork, setActiveNetwork] = useState<NetworkName>('mtn');
+  const [activeNetwork, setActiveNetwork] = useState<NetworkKey | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string>('');
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [plansLoading, setPlansLoading] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -267,26 +276,25 @@ export default function BuyData() {
     setFeedback(null);
     try {
       if (!forceRefresh) {
-        const cached = readCachedPlans(pricingVersion);
+        const cached = readCachedCatalog(pricingVersion);
         if (cached) {
-          setPlans(cached);
-          setCatalogNetworks(buildCatalogFromPlans(cached));
+          setPlans(cached.items);
+          setCatalog(cached.catalog);
           return;
         }
       }
 
       const res = await api.get('/plans/catalog');
-      const rawNetworks = Array.isArray(res.data?.networks) ? res.data.networks : [];
-      const mappedNetworks = rawNetworks as CatalogNetwork[];
-      const mappedPlans = flattenCatalog(mappedNetworks);
+      const items = Array.isArray(res.data?.items) ? res.data.items.map((plan: any) => normalizePlan(plan)) : [];
+      const mappedCatalog = normalizeCatalog(res.data?.catalog);
 
-      setCatalogNetworks(mappedNetworks);
-      setPlans(mappedPlans);
-      writeCachedPlans(mappedPlans, pricingVersion);
+      setPlans(items);
+      setCatalog(mappedCatalog);
+      writeCachedCatalog(items, mappedCatalog, pricingVersion);
     } catch (err) {
       console.error('Failed to fetch plans', err);
-      setCatalogNetworks([]);
       setPlans([]);
+      setCatalog({ MTN: {}, Airtel: {}, GLO: {} } as NestedCatalog);
       setFeedback({ type: 'error', text: t('buyDataPage.loadFailed') });
     } finally {
       setPlansLoading(false);
@@ -297,64 +305,55 @@ export default function BuyData() {
     void fetchPlans(false);
   }, [fetchPlans]);
 
-  const filteredPlans = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return plans.filter((plan) => {
-      if (!NETWORKS.includes(plan.network as NetworkName)) return false;
-      if (!(toNumber(plan.teleco_price, NaN) > 0)) return false;
-      if (!query) return true;
-      const haystack = `${plan.plan} ${plan.name} ${extractPlanSize(plan)} ${plan.validity}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [plans, search]);
-
-  const filteredCatalog = useMemo(() => {
-    const filteredIds = new Set(filteredPlans.map((plan) => String(plan.id)));
-    return catalogNetworks
-      .map((network) => ({
-        ...network,
-        services: (network.services || [])
-          .map((service) => ({
-            ...service,
-            categories: (service.categories || [])
-              .map((category) => ({
-                ...category,
-                subcategories: (category.subcategories || [])
-                  .map((subcategory) => ({
-                    ...subcategory,
-                    plans: (subcategory.plans || [])
-                      .map((plan) => mapPlan(plan))
-                      .filter((plan) => filteredIds.has(String(plan.id))),
-                  }))
-                  .filter((subcategory) => subcategory.plans.length > 0),
-              }))
-              .filter((category) => category.subcategories.length > 0),
-          }))
-          .filter((service) => service.categories.length > 0),
-      }))
-      .filter((network) => network.services.length > 0);
-  }, [catalogNetworks, filteredPlans]);
-
-  const groupedPlans = useMemo(() => {
-    return NETWORKS.reduce((acc, network) => {
-      acc[network] = filteredPlans.filter((plan) => plan.network === network);
-      return acc;
-    }, {} as Record<NetworkName, DataPlan[]>);
-  }, [filteredPlans]);
-
   const selectedPlan = useMemo(
     () => plans.find((plan) => String(plan.id) === String(selectedPlanId)) || null,
     [plans, selectedPlanId],
   );
 
+  const globalResults = useMemo(
+    () => plans.filter((plan) => matchesSearch(plan, search)),
+    [plans, search],
+  );
+
+  const networkCategories = useMemo(() => {
+    if (!activeNetwork) return [];
+    const topKey = NETWORK_TOP_KEYS[activeNetwork];
+    return Object.entries(catalog[topKey] || {})
+      .map(([categoryKey, categoryPlans]) => ({
+        key: categoryKey,
+        label: categoryPlans[0]?.category_label || categoryKey.replace(/_/g, ' '),
+        count: categoryPlans.length,
+      }))
+      .filter((category) => category.count > 0);
+  }, [activeNetwork, catalog]);
+
+  useEffect(() => {
+    if (!activeNetwork) return;
+    if (networkCategories.some((category) => category.key === activeCategory)) return;
+    setActiveCategory(networkCategories[0]?.key || '');
+  }, [activeCategory, activeNetwork, networkCategories]);
+
+  const visibleCategoryPlans = useMemo(() => {
+    if (!activeNetwork || !activeCategory) return [];
+    const topKey = NETWORK_TOP_KEYS[activeNetwork];
+    return (catalog[topKey]?.[activeCategory] || []).filter((plan) => matchesSearch(plan, search));
+  }, [activeCategory, activeNetwork, catalog, search]);
+
+  const categoryViewKey = activeNetwork && activeCategory ? `${activeNetwork}:${activeCategory}` : '';
+  const categoryVisibleCount = visibleCounts[categoryViewKey] || 5;
+  const categoryPlansToRender = visibleCategoryPlans.slice(0, categoryVisibleCount);
+
   useEffect(() => {
     if (selectedPlan) return;
-    const firstAvailable = NETWORKS.flatMap((network) => groupedPlans[network]).find(Boolean);
-    if (firstAvailable) {
-      setSelectedPlanId(String(firstAvailable.id));
-      setActiveNetwork(firstAvailable.network as NetworkName);
+    const firstPlan = search.trim()
+      ? globalResults[0]
+      : categoryPlansToRender[0];
+    if (firstPlan) {
+      setSelectedPlanId(String(firstPlan.id));
+      setActiveNetwork(firstPlan.network_key);
+      setActiveCategory(firstPlan.category_key);
     }
-  }, [groupedPlans, selectedPlan]);
+  }, [categoryPlansToRender, globalResults, search, selectedPlan]);
 
   const liveWalletBalance = useMemo(() => {
     if (walletBalance !== null && walletBalanceUpdatedAt > 0) return walletBalance;
@@ -373,7 +372,7 @@ export default function BuyData() {
     }
 
     const normalizedPhone = normalizePhone(phone);
-    const phoneError = getPhoneError(selectedPlan.network, normalizedPhone, t);
+    const phoneError = getPhoneError(selectedPlan.network_key, normalizedPhone, t);
     if (phoneError) {
       setFeedback({ type: 'error', text: phoneError });
       return;
@@ -388,12 +387,12 @@ export default function BuyData() {
 
     const confirmText = [
       t('buyDataPage.confirmTitle'),
-      ``,
-      `${t('buyDataPage.networkLabel')}: ${NETWORK_LABELS[selectedPlan.network] || selectedPlan.network}`,
-      `${t('buyDataPage.planLabel')}: ${selectedPlan.plan}`,
+      '',
+      `${t('buyDataPage.networkLabel')}: ${selectedPlan.network_label}`,
+      `${t('buyDataPage.planLabel')}: ${selectedPlan.name}`,
       `${t('buyDataPage.validityLabel')}: ${selectedPlan.validity}`,
       `${t('buyDataPage.phoneLabel')}: ${normalizedPhone}`,
-      `${t('buyDataPage.chargeLabel')}: ₦${toNumber(selectedPlan.our_price).toLocaleString()}`,
+      `${t('buyDataPage.chargeLabel')}: ${formatPriceLabel(selectedPlan)}`,
       `${t('buyDataPage.providerPlanIdLabel')}: ${selectedPlan.plan_id}`,
     ].join('\n');
 
@@ -406,7 +405,7 @@ export default function BuyData() {
     try {
       sessionStorage.setItem(duplicateKey, String(Date.now()));
       const res = await api.post('/transactions/data', {
-        network: selectedPlan.network,
+        network: selectedPlan.network_key,
         planId: Number(selectedPlan.id),
         phone: normalizedPhone,
         amount: toNumber(selectedPlan.our_price),
@@ -439,7 +438,7 @@ export default function BuyData() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-6xl mx-auto">
       <FadeIn className="flex items-center mb-8">
         <div className="p-3 bg-primary-100 rounded-full mr-4">
           <Wifi className="w-8 h-8 text-primary-600" />
@@ -468,7 +467,7 @@ export default function BuyData() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder={t('buyDataPage.searchPlaceholder')}
+                placeholder="Search all plans by name, amount, price range, or category"
               />
             </div>
             <button
@@ -482,93 +481,184 @@ export default function BuyData() {
             </button>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-6">
-            {NETWORKS.map((network) => (
-              <button
-                key={network}
-                type="button"
-                onClick={() => setActiveNetwork(network)}
-                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
-                  activeNetwork === network
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {NETWORK_LABELS[network]} ({groupedPlans[network].length})
-              </button>
-            ))}
+          <div className="mb-6">
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Step 1: Choose a network</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {NETWORK_KEYS.map((network) => {
+                const topKey = NETWORK_TOP_KEYS[network];
+                const count = Object.values(catalog[topKey] || {}).reduce((total, items) => total + items.length, 0);
+                return (
+                  <button
+                    key={network}
+                    type="button"
+                    onClick={() => setActiveNetwork(network)}
+                    className={`rounded-xl border px-4 py-4 text-left transition ${
+                      activeNetwork === network
+                        ? 'border-primary-500 bg-primary-50'
+                        : 'border-gray-200 hover:border-primary-300'
+                    }`}
+                  >
+                    <div className="font-bold text-gray-900">{NETWORK_LABELS[network]} {network === 'mtn' ? '(merged)' : ''}</div>
+                    <div className="text-sm text-gray-500 mt-1">{count} plans available</div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          {activeNetwork && (
+            <div className="mb-6">
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Step 2: Choose a category</div>
+              <div className="flex flex-wrap gap-2">
+                {networkCategories.map((category) => (
+                  <button
+                    key={category.key}
+                    type="button"
+                    onClick={() => setActiveCategory(category.key)}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                      activeCategory === category.key
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {category.label} ({category.count})
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {plansLoading ? (
             <div className="text-center py-8 text-gray-500">{t('buyDataPage.loadingPlans')}</div>
-          ) : (
-            <div className="space-y-8">
-              {NETWORKS.map((network) => {
-                const networkCatalog = filteredCatalog.find((item) => item.code === network);
-                if (!networkCatalog) return null;
-                return (
-                  <section key={network} className={activeNetwork === network ? '' : 'opacity-70'}>
-                    <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-lg font-bold text-gray-900">{networkCatalog.name || NETWORK_LABELS[network]}</h2>
-                      <span className="text-xs text-gray-500">{t('buyDataPage.groupedHint')}</span>
-                    </div>
-                    <div className="space-y-6">
-                      {networkCatalog.services.map((service) => (
-                        <div key={`${network}-${service.slug}`} className="space-y-4">
-                          <div className="text-sm font-semibold text-primary-700">{service.name}</div>
-                          {service.categories.map((category) => (
-                            <div key={`${service.slug}-${category.slug}`} className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <h3 className="text-base font-semibold text-gray-900">{category.name}</h3>
-                              </div>
-                              {category.subcategories.map((subcategory) => (
-                                <div key={`${category.slug}-${subcategory.slug}`} className="space-y-3">
-                                  <div className="text-sm font-medium text-gray-600">{subcategory.name}</div>
-                                  <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {subcategory.plans.map((plan) => {
-                                      const selected = String(selectedPlanId) === String(plan.id);
-                                      return (
-                                        <StaggerItem
-                                          key={plan.id}
-                                          onClick={() => {
-                                            setSelectedPlanId(String(plan.id));
-                                            setActiveNetwork(network);
-                                          }}
-                                          className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                                            selected
-                                              ? 'border-primary-500 bg-primary-50'
-                                              : 'border-gray-200 hover:border-primary-200'
-                                          }`}
-                                        >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                              <div className="font-bold text-gray-800">{plan.plan}</div>
-                                              <div className="text-sm text-gray-500">{plan.validity}</div>
-                                              <div className="text-xs text-gray-400 mt-1">{t('buyDataPage.providerPlanIdLabel')}: {plan.plan_id}</div>
-                                            </div>
-                                            <div className="text-right">
-                                              <div className="font-bold text-primary-700">₦{toNumber(plan.our_price).toLocaleString()}</div>
-                                              <div className="text-xs text-gray-500">{extractPlanSize(plan)}</div>
-                                              {selected && <CheckCircle className="w-4 h-4 text-primary-600 ml-auto mt-2" />}
-                                            </div>
-                                          </div>
-                                        </StaggerItem>
-                                      );
-                                    })}
-                                  </StaggerContainer>
-                                </div>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
-              {filteredPlans.length === 0 && (
+          ) : search.trim() ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">Search Results</h2>
+                  <p className="text-sm text-gray-500">Showing matches across MTN, Airtel, and GLO.</p>
+                </div>
+                <div className="text-sm text-gray-500">{globalResults.length} matches</div>
+              </div>
+
+              {globalResults.length === 0 && (
                 <div className="text-center py-8 text-gray-500">{t('buyDataPage.noSearchResults')}</div>
               )}
+
+              <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {globalResults.slice(0, 20).map((plan) => {
+                  const selected = String(selectedPlanId) === String(plan.id);
+                  return (
+                    <StaggerItem
+                      key={plan.id}
+                      onClick={() => {
+                        setSelectedPlanId(String(plan.id));
+                        setActiveNetwork(plan.network_key);
+                        setActiveCategory(plan.category_key);
+                      }}
+                      className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                        selected ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-primary-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            {plan.network_label} • {plan.category_label}
+                          </div>
+                          <div className="font-bold text-gray-900 mt-1">{plan.display_title || plan.name}</div>
+                          <div className="text-sm text-gray-600 mt-1">{plan.validity}</div>
+                          {plan.bonus_text && <div className="text-xs text-primary-700 mt-1">{plan.bonus_text}</div>}
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            {plan.badges.map((badge: PlanBadge) => (
+                              <span key={badge.key} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${getBadgeClasses(badge.key)}`}>
+                                <span>{badge.icon}</span>
+                                <span>{badge.label}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="font-bold text-primary-700">{formatPriceLabel(plan)}</div>
+                          {plan.teleco_price > plan.our_price && plan.teleco_price > 0 && !plan.is_free && (
+                            <div className="text-xs text-gray-400 line-through">₦{toNumber(plan.teleco_price).toLocaleString()}</div>
+                          )}
+                          {selected && <CheckCircle className="w-4 h-4 text-primary-600 ml-auto mt-3" />}
+                        </div>
+                      </div>
+                    </StaggerItem>
+                  );
+                })}
+              </StaggerContainer>
+            </div>
+          ) : activeNetwork && activeCategory ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-gray-500">Step 3: Browse plans</div>
+                  <h2 className="text-lg font-bold text-gray-900">
+                    {NETWORK_LABELS[activeNetwork]} {networkCategories.find((category) => category.key === activeCategory)?.label || activeCategory}
+                  </h2>
+                </div>
+                <div className="text-sm text-gray-500">{visibleCategoryPlans.length} plans</div>
+              </div>
+
+              {visibleCategoryPlans.length === 0 && (
+                <div className="text-center py-8 text-gray-500">{t('buyDataPage.noSearchResults')}</div>
+              )}
+
+              <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {categoryPlansToRender.map((plan) => {
+                  const selected = String(selectedPlanId) === String(plan.id);
+                  return (
+                    <StaggerItem
+                      key={plan.id}
+                      onClick={() => setSelectedPlanId(String(plan.id))}
+                      className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                        selected ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-primary-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-bold text-gray-900">{plan.display_title || plan.name}</div>
+                          <div className="text-sm text-gray-600 mt-1">{plan.validity}</div>
+                          <div className="text-xs text-gray-400 mt-1">{t('buyDataPage.providerPlanIdLabel')}: {plan.plan_id}</div>
+                          {plan.bonus_text && <div className="text-xs text-primary-700 mt-2">{plan.bonus_text}</div>}
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            {plan.badges.map((badge: PlanBadge) => (
+                              <span key={badge.key} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${getBadgeClasses(badge.key)}`}>
+                                <span>{badge.icon}</span>
+                                <span>{badge.label}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="font-bold text-primary-700">{formatPriceLabel(plan)}</div>
+                          {plan.teleco_price > plan.our_price && plan.teleco_price > 0 && !plan.is_free && (
+                            <div className="text-xs text-gray-400 line-through">₦{toNumber(plan.teleco_price).toLocaleString()}</div>
+                          )}
+                          {selected && <CheckCircle className="w-4 h-4 text-primary-600 ml-auto mt-3" />}
+                        </div>
+                      </div>
+                    </StaggerItem>
+                  );
+                })}
+              </StaggerContainer>
+
+              {visibleCategoryPlans.length > categoryVisibleCount && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCounts((prev) => ({ ...prev, [categoryViewKey]: (prev[categoryViewKey] || 5) + 10 }))}
+                    className="inline-flex items-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    View More Options
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-10 text-gray-500">
+              Select a network to continue, or use the global search above.
             </div>
           )}
         </SlideUp>
@@ -594,13 +684,22 @@ export default function BuyData() {
           <form onSubmit={handleBuy}>
             <div className="mb-5">
               <label className="block text-gray-700 font-bold mb-2">{t('buyDataPage.selectedPlan')}</label>
-              <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 min-h-[110px]">
+              <div className="p-4 rounded-lg border border-gray-200 bg-gray-50 min-h-[140px]">
                 {selectedPlan ? (
                   <>
-                    <div className="font-bold text-gray-900">{selectedPlan.plan}</div>
-                    <div className="text-sm text-gray-600 mt-1">{NETWORK_LABELS[selectedPlan.network] || selectedPlan.network}</div>
+                    <div className="font-bold text-gray-900">{selectedPlan.display_title || selectedPlan.name}</div>
+                    <div className="text-sm text-gray-600 mt-1">{selectedPlan.network_label} • {selectedPlan.category_label}</div>
                     <div className="text-sm text-gray-600">{selectedPlan.validity}</div>
-                    <div className="text-lg font-bold text-primary-700 mt-2">₦{toNumber(selectedPlan.our_price).toLocaleString()}</div>
+                    {selectedPlan.bonus_text && <div className="text-xs text-primary-700 mt-2">{selectedPlan.bonus_text}</div>}
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      {selectedPlan.badges.map((badge: PlanBadge) => (
+                        <span key={badge.key} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${getBadgeClasses(badge.key)}`}>
+                          <span>{badge.icon}</span>
+                          <span>{badge.label}</span>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="text-lg font-bold text-primary-700 mt-3">{formatPriceLabel(selectedPlan)}</div>
                   </>
                 ) : (
                   <div className="text-sm text-gray-500">{t('buyDataPage.selectPlanPrompt')}</div>
@@ -624,8 +723,8 @@ export default function BuyData() {
                 />
               </div>
               {selectedPlan && phone && (
-                <p className={`text-xs mt-2 ${getPhoneError(selectedPlan.network, phone, t) ? 'text-red-600' : 'text-green-600'}`}>
-                  {getPhoneError(selectedPlan.network, phone, t) || t('buyDataPage.phoneMatchesNetwork')}
+                <p className={`text-xs mt-2 ${getPhoneError(selectedPlan.network_key, phone, t) ? 'text-red-600' : 'text-green-600'}`}>
+                  {getPhoneError(selectedPlan.network_key, phone, t) || t('buyDataPage.phoneMatchesNetwork')}
                 </p>
               )}
             </div>

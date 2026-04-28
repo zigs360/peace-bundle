@@ -4,6 +4,13 @@ import BuyData from './BuyData';
 
 const apiGet = vi.fn();
 const apiPost = vi.fn();
+const mockT = (key: string, options?: Record<string, unknown>) => {
+  if (key === 'buyDataPage.purchaseSuccess') {
+    return `Purchase successful. Charged NGN ${options?.amount} with reference ${options?.reference}.`;
+  }
+  if (key === 'buyDataPage.phonePlaceholder') return '08012345678';
+  return key;
+};
 
 vi.mock('../../services/api', () => ({
   default: {
@@ -20,6 +27,12 @@ vi.mock('../../context/NotificationContext', () => ({
   }),
 }));
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: mockT,
+  }),
+}));
+
 describe('BuyData page', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -29,60 +42,178 @@ describe('BuyData page', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
 
     apiGet.mockResolvedValue({
-      data: [
-        {
-          id: 2,
-          network: 'mtn',
-          provider: 'mtn',
-          plan: '110MB [GIFTING]',
-          name: '110MB [GIFTING]',
-          plan_id: '20001',
-          validity: '1 Day',
-          teleco_price: 100,
-          our_price: 95,
-          size: '110MB',
-          size_mb: 110,
+      data: {
+        items: [
+          {
+            id: 2,
+            network_key: 'mtn',
+            network_label: 'MTN',
+            category_key: 'GIFTING',
+            category_label: 'Gifting',
+            plan: '110MB [GIFTING]',
+            name: '110MB [GIFTING]',
+            plan_id: '20001',
+            validity: '1 Day',
+            teleco_price: 100,
+            our_price: 95,
+            display_title: '110MB',
+            display_amount: '110MB',
+            badges: [],
+          },
+          {
+            id: 1,
+            network_key: 'mtn',
+            network_label: 'MTN',
+            category_key: 'GIFTING',
+            category_label: 'Gifting',
+            plan: '1GB [GIFTING]',
+            name: '1GB [GIFTING]',
+            plan_id: '20002',
+            validity: '1 Day',
+            teleco_price: 500,
+            our_price: 475,
+            display_title: '1GB',
+            display_amount: '1GB',
+            badges: [],
+          },
+          {
+            id: 3,
+            network_key: 'airtel',
+            network_label: 'Airtel',
+            category_key: 'SOCIAL',
+            category_label: 'Social',
+            plan: 'Airtel Social 2GB',
+            name: 'Airtel Social 2GB',
+            plan_id: '30002',
+            validity: '7 Days',
+            teleco_price: 900,
+            our_price: 855,
+            display_title: '2GB',
+            display_amount: '2GB',
+            badges: [{ key: 'SOCIAL', label: 'Social', icon: '📱' }],
+          },
+          {
+            id: 4,
+            network_key: 'glo',
+            network_label: 'GLO',
+            category_key: 'VOICE_COMBO',
+            category_label: 'Voice Combo',
+            plan: 'Talk More - 10MINS',
+            name: 'Talk More - 10MINS',
+            plan_id: '40002',
+            validity: '3 Days',
+            teleco_price: 100,
+            our_price: 98,
+            display_title: '10 MINS Voice',
+            minutes_label: '10 MINS',
+            is_voice_only: true,
+            badges: [{ key: 'VOICE', label: 'Voice', icon: '🎙️' }],
+          },
+        ],
+        catalog: {
+          MTN: {
+            GIFTING: [
+              {
+                id: 2,
+                network_key: 'mtn',
+                network_label: 'MTN',
+                category_key: 'GIFTING',
+                category_label: 'Gifting',
+                plan: '110MB [GIFTING]',
+                name: '110MB [GIFTING]',
+                plan_id: '20001',
+                validity: '1 Day',
+                teleco_price: 100,
+                our_price: 95,
+                display_title: '110MB',
+                display_amount: '110MB',
+                badges: [],
+              },
+              {
+                id: 1,
+                network_key: 'mtn',
+                network_label: 'MTN',
+                category_key: 'GIFTING',
+                category_label: 'Gifting',
+                plan: '1GB [GIFTING]',
+                name: '1GB [GIFTING]',
+                plan_id: '20002',
+                validity: '1 Day',
+                teleco_price: 500,
+                our_price: 475,
+                display_title: '1GB',
+                display_amount: '1GB',
+                badges: [],
+              },
+            ],
+            AWOOF: [],
+            DATA_SHARE: [],
+            SOCIAL: [],
+            CORPORATE: [],
+            BROADBAND: [],
+            UNLIMITED: [],
+            SME_THRYVE: [],
+            NIGHT: [],
+            VOICE_COMBO: [],
+            GENERAL: [],
+            OTHER_PLANS: [],
+          },
+          Airtel: {
+            GIFTING: [],
+            AWOOF: [],
+            VOICE_COMBO: [],
+            ROAMING: [],
+            UNLIMITED: [],
+            ROUTER: [],
+            BINGE: [],
+            SOCIAL: [
+              {
+                id: 3,
+                network_key: 'airtel',
+                network_label: 'Airtel',
+                category_key: 'SOCIAL',
+                category_label: 'Social',
+                plan: 'Airtel Social 2GB',
+                name: 'Airtel Social 2GB',
+                plan_id: '30002',
+                validity: '7 Days',
+                teleco_price: 900,
+                our_price: 855,
+                display_title: '2GB',
+                display_amount: '2GB',
+                badges: [{ key: 'SOCIAL', label: 'Social', icon: '📱' }],
+              },
+            ],
+            NIGHT: [],
+            GENERAL: [],
+          },
+          GLO: {
+            GIFTING: [],
+            AWOOF: [],
+            CORPORATE_GIFTING_CG: [],
+            VOICE_COMBO: [
+              {
+                id: 4,
+                network_key: 'glo',
+                network_label: 'GLO',
+                category_key: 'VOICE_COMBO',
+                category_label: 'Voice Combo',
+                plan: 'Talk More - 10MINS',
+                name: 'Talk More - 10MINS',
+                plan_id: '40002',
+                validity: '3 Days',
+                teleco_price: 100,
+                our_price: 98,
+                display_title: '10 MINS Voice',
+                minutes_label: '10 MINS',
+                is_voice_only: true,
+                badges: [{ key: 'VOICE', label: 'Voice', icon: '🎙️' }],
+              },
+            ],
+            NIGHT: [],
+          },
         },
-        {
-          id: 1,
-          network: 'mtn',
-          provider: 'mtn',
-          plan: '1GB [GIFTING]',
-          name: '1GB [GIFTING]',
-          plan_id: '20002',
-          validity: '1 Day',
-          teleco_price: 500,
-          our_price: 475,
-          size: '1GB',
-          size_mb: 1024,
-        },
-        {
-          id: 3,
-          network: 'airtel',
-          provider: 'airtel',
-          plan: '2GB [GIFTING]',
-          name: '2GB [GIFTING]',
-          plan_id: '30002',
-          validity: '7 Days',
-          teleco_price: 900,
-          our_price: 855,
-          size: '2GB',
-          size_mb: 2048,
-        },
-        {
-          id: 4,
-          network: 'glo',
-          provider: 'glo',
-          plan: '10GB [GIFTING]',
-          name: '10GB [GIFTING]',
-          plan_id: '40002',
-          validity: '30 Days',
-          teleco_price: 4200,
-          our_price: 3990,
-          size: '10GB',
-          size_mb: 10240,
-        },
-      ],
+      },
     });
 
     apiPost.mockResolvedValue({
@@ -95,31 +226,41 @@ describe('BuyData page', () => {
     });
   });
 
-  it('groups plans by network, filters by size, and submits the selected plan purchase payload', async () => {
+  it('shows network and category flow, supports global search, and submits the selected plan purchase payload', async () => {
     render(<BuyData />);
 
     await waitFor(() => {
-      expect(screen.getByText('MTN')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /MTN \(merged\)/i })).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Airtel')).toBeInTheDocument();
-    expect(screen.getByText('Glo')).toBeInTheDocument();
-    expect(screen.getByText('1GB [GIFTING]')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Airtel/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /GLO/i })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText(/search by size/i), {
+    fireEvent.click(screen.getByRole('button', { name: /MTN/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Gifting \(2\)/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Gifting \(2\)/i }));
+
+    expect(screen.getByText('1GB')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/search all plans/i), {
       target: { value: '1GB' },
     });
 
-    expect(screen.getByText('1GB [GIFTING]')).toBeInTheDocument();
-    expect(screen.queryByText('10GB [GIFTING]')).not.toBeInTheDocument();
+    expect(screen.getByText('Search Results')).toBeInTheDocument();
+    expect(screen.getByText('1GB')).toBeInTheDocument();
+    expect(screen.queryByText('10 MINS Voice')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('08012345678'), {
       target: { value: '08031234567' },
     });
 
-    fireEvent.click(screen.getByText('1GB [GIFTING]'));
+    fireEvent.click(screen.getAllByText('1GB')[0]);
 
-    fireEvent.click(screen.getByRole('button', { name: /buy selected plan/i }));
+    fireEvent.click(screen.getByRole('button', { name: /buyDataPage\.buySelectedPlan/i }));
 
     await waitFor(() => {
       expect(apiPost).toHaveBeenCalledTimes(1);
