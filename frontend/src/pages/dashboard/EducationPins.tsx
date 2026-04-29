@@ -2,6 +2,7 @@ import { useState } from 'react';
 import api from '../../services/api';
 import { GraduationCap, CheckCircle, Copy } from 'lucide-react';
 import { getStoredUser } from '../../utils/storage';
+import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
 const EXAM_TYPES = [
   { id: 'WAEC', name: 'WAEC Result', price: 3500 },
@@ -15,34 +16,40 @@ export default function EducationPins() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [pins, setPins] = useState<any[]>([]);
+  const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
   const handlePurchase = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setMessage(null);
-    setPins([]);
+    await ensureTransactionPin(async () => {
+      setLoading(true);
+      setMessage(null);
+      setPins([]);
 
-    try {
-      const user = getStoredUser<any>();
-      if (!user?.id) throw new Error('User not found');
+      try {
+        const user = getStoredUser<any>();
+        if (!user?.id) throw new Error('User not found');
 
-      const res = await api.post('/transactions/result-checker', {
-        userId: user.id,
-        examType,
-        quantity: parseInt(quantity.toString())
-      });
+        const res = await api.post('/transactions/result-checker', {
+          userId: user.id,
+          examType,
+          quantity: parseInt(quantity.toString())
+        });
 
-      setMessage({ type: 'success', text: 'Pins generated successfully!' });
-      const data = res.data as any;
-      setPins(data.pins || []);
-    } catch (err: any) {
-      setMessage({ 
-        type: 'error', 
-        text: err.response?.data?.message || 'Purchase failed. Please try again.' 
-      });
-    } finally {
-      setLoading(false);
-    }
+        setMessage({ type: 'success', text: 'Pins generated successfully!' });
+        const data = res.data as any;
+        setPins(data.pins || []);
+      } catch (err: any) {
+        setMessage({
+          type: 'error',
+          text: err.response?.data?.message || 'Purchase failed. Please try again.'
+        });
+      } finally {
+        setLoading(false);
+      }
+    }, {
+      amountLabel: `exam pin purchase of NGN ${totalCost.toLocaleString()}`,
+      actionLabel: 'Authorize exam pin purchase'
+    });
   };
 
   const copyToClipboard = (text: string) => {
@@ -55,6 +62,7 @@ export default function EducationPins() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      {prompt}
       <div className="flex items-center mb-8">
         <div className="p-3 bg-blue-100 rounded-full mr-4">
           <GraduationCap className="w-8 h-8 text-blue-600" />

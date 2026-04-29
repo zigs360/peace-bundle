@@ -131,6 +131,38 @@ const User = sequelize.define('User', {
   lockout_until: {
     type: DataTypes.DATE,
     allowNull: true,
+  },
+  transaction_pin_hash: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  transaction_pin_failed_attempts: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  transaction_pin_locked_until: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  transaction_pin_last_changed_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  transaction_pin_last_verified_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  transaction_pin_recovery_otp_hash: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  transaction_pin_recovery_otp_expires_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  transaction_pin_recovery_otp_sent_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
   }
 }, {
   timestamps: true,

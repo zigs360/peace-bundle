@@ -3,6 +3,14 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { body } = require('express-validator');
 const { registerUser, loginUser, getMe, getAllUsers, updateProfile, changePassword, submitKyc } = require('../controllers/authController');
+const {
+  getTransactionPinStatus,
+  createTransactionPin,
+  changeTransactionPin,
+  requestTransactionPinRecoveryOtp,
+  recoverTransactionPin,
+  createTransactionPinSession,
+} = require('../controllers/transactionPinController');
 const { protect, admin } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 const validate = require('../middleware/validationMiddleware');
@@ -44,5 +52,11 @@ router.get('/users', protect, admin, getAllUsers);
 router.put('/profile', protect, upload.single('avatar'), updateProfile);
 router.put('/password', protect, changePassword);
 router.post('/kyc', protect, upload.single('document'), submitKyc);
+router.get('/transaction-pin', protect, getTransactionPinStatus);
+router.post('/transaction-pin', protect, createTransactionPin);
+router.put('/transaction-pin', protect, changeTransactionPin);
+router.post('/transaction-pin/recovery/otp', protect, requestTransactionPinRecoveryOtp);
+router.post('/transaction-pin/recover', protect, recoverTransactionPin);
+router.post('/transaction-pin/session', protect, createTransactionPinSession);
 
 module.exports = router;

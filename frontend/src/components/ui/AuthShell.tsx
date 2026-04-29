@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { ShieldCheck, Sparkles, Workflow } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
+import peaceBundlleLogo from '../../assets/peacebundlle.png';
 import BrandMark from './BrandMark';
 import LanguageSwitcher from './LanguageSwitcher';
 import ShellFrame from './ShellFrame';
@@ -16,6 +17,7 @@ interface AuthShellProps {
 
 export default function AuthShell({ title, subtitle, backLabel, children }: AuthShellProps) {
   const { t } = useTranslation();
+  const logoAlt = 'Peace Bundle logo';
 
   const trustItems = [
     { icon: ShieldCheck, text: t('auth.trustedOne') },
@@ -37,6 +39,17 @@ export default function AuthShell({ title, subtitle, backLabel, children }: Auth
               <div>
                 <div className="inline-flex rounded-full bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-200">
                   {t('auth.trustedTitle')}
+                </div>
+                <div className="mt-8 flex justify-center">
+                  <img
+                    src={peaceBundlleLogo}
+                    alt={logoAlt}
+                    width={320}
+                    height={214}
+                    loading="eager"
+                    decoding="async"
+                    className="block h-auto w-full max-w-[20rem]"
+                  />
                 </div>
                 <h1 className="mt-6 text-balance text-4xl font-semibold tracking-tight">{title}</h1>
                 <p className="mt-4 max-w-lg text-lg leading-8 text-slate-300">{subtitle}</p>
@@ -62,6 +75,17 @@ export default function AuthShell({ title, subtitle, backLabel, children }: Auth
             <Link to="/" className="mb-8 inline-flex items-center text-sm font-semibold text-slate-500 hover:text-primary-700">
               {backLabel}
             </Link>
+            <div className="mb-6 flex justify-center lg:hidden">
+              <img
+                src={peaceBundlleLogo}
+                alt={logoAlt}
+                width={168}
+                height={112}
+                loading="eager"
+                decoding="async"
+                className="block h-auto w-full max-w-[10.5rem]"
+              />
+            </div>
             <h2 className="text-3xl font-semibold tracking-tight text-slate-950">{title}</h2>
             <p className="mt-3 text-base leading-7 text-slate-600">{subtitle}</p>
             <div className="mt-8">{children}</div>

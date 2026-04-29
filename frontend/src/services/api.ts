@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
+import { clearTransactionPinSession, getStoredTransactionPinSession } from '../utils/transactionPin';
 
 const apiBaseUrl = (import.meta as any).env.VITE_API_URL || '/api';
 
@@ -25,6 +26,11 @@ api.interceptors.request.use(
       config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
     }
+    const pinSession = getStoredTransactionPinSession('financial');
+    if (pinSession) {
+      config.headers = config.headers || {};
+      config.headers['x-transaction-pin-token'] = pinSession.token;
+    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -38,12 +44,17 @@ api.interceptors.response.use(
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      clearTransactionPinSession('financial');
       
       // Prevent redirect loop if already on login
       if (window.location.pathname !== '/login') {
           window.location.href = '/login';
           toast.error('Session expired. Please login again.');
       }
+    }
+
+    if (error.response && error.response.data?.code === 'TRANSACTION_PIN_SESSION_INVALID') {
+      clearTransactionPinSession('financial');
     }
 
     // Return the error so specific components can handle it if needed

@@ -5,6 +5,7 @@ import { Banknote, Building2, User, Hash, ArrowLeft, Loader2, CheckCircle, Searc
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import { FadeIn, SlideUp } from '../../components/animations/MotionComponents';
+import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
 interface Bank {
   bank_code: string;
@@ -23,6 +24,7 @@ export default function Transfer() {
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [successData, setSuccessData] = useState<any>(null);
+  const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
   useEffect(() => {
     fetchBanks();
@@ -76,26 +78,31 @@ export default function Transfer() {
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const res = await api.post('/transfer/send', {
-        bank_code: selectedBank.bank_code,
-        bank_name: selectedBank.bank_name,
-        account_number: accountNumber,
-        account_name: accountName,
-        amount: parseFloat(amount),
-        description
-      });
+    await ensureTransactionPin(async () => {
+      setSubmitting(true);
+      try {
+        const res = await api.post('/transfer/send', {
+          bank_code: selectedBank.bank_code,
+          bank_name: selectedBank.bank_name,
+          account_number: accountNumber,
+          account_name: accountName,
+          amount: parseFloat(amount),
+          description
+        });
 
-      if (res.data.success) {
-        setSuccessData(res.data.transaction);
-        toast.success('Transfer initiated successfully!');
+        if (res.data.success) {
+          setSuccessData(res.data.transaction);
+          toast.success('Transfer initiated successfully!');
+        }
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || 'Transfer failed. Please try again.');
+      } finally {
+        setSubmitting(false);
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Transfer failed. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
+    }, {
+      amountLabel: `bank transfer of NGN ${Number(amount || 0).toLocaleString()}`,
+      actionLabel: 'Authorize bank transfer'
+    });
   };
 
   if (successData) {
@@ -138,6 +145,7 @@ export default function Transfer() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      {prompt}
       <div className="flex items-center mb-8">
         <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-full mr-4 transition-colors">
           <ArrowLeft className="w-6 h-6 text-gray-600" />

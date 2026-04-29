@@ -44,6 +44,7 @@ const AdminWalletDeduction = require('../models/AdminWalletDeduction');
 const AdminWalletDeductionAudit = require('../models/AdminWalletDeductionAudit');
 const VoiceBundlePurchase = require('../models/VoiceBundlePurchase');
 const VoiceBundlePurchaseAudit = require('../models/VoiceBundlePurchaseAudit');
+const TransactionPinSecurityEvent = require('../models/TransactionPinSecurityEvent');
 
 // Define Associations (Top Level)
 
@@ -176,6 +177,9 @@ try {
   User.hasMany(VoiceBundlePurchase, { foreignKey: 'userId', as: 'voiceBundlePurchases', onDelete: 'CASCADE' });
   VoiceBundlePurchase.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
+  User.hasMany(TransactionPinSecurityEvent, { foreignKey: 'userId', as: 'transactionPinSecurityEvents', onDelete: 'CASCADE' });
+  TransactionPinSecurityEvent.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
   CallPlan.hasMany(VoiceBundlePurchase, { foreignKey: 'callPlanId', as: 'voiceBundlePurchases', onDelete: 'CASCADE' });
   VoiceBundlePurchase.belongsTo(CallPlan, { foreignKey: 'callPlanId', as: 'callPlan' });
 
@@ -257,11 +261,23 @@ const connectDB = async () => {
         typeof PlanDeletionAudit.getTableName === 'function' ? PlanDeletionAudit.getTableName() : 'plan_deletion_audits';
       const voiceBundlePurchasesTable =
         typeof VoiceBundlePurchase.getTableName === 'function' ? VoiceBundlePurchase.getTableName() : 'voice_bundle_purchases';
+      const usersTable = typeof User.getTableName === 'function' ? User.getTableName() : 'Users';
       const ensureVoiceBundlePurchaseColumns = async () =>
         Promise.all([
           ensureColumn(voiceBundlePurchasesTable, 'expires_at', { type: DataTypes.DATE, allowNull: true }),
           ensureColumn(voiceBundlePurchasesTable, 'bundle_category', { type: DataTypes.STRING, allowNull: false, defaultValue: 'minute' }),
           ensureColumn(voiceBundlePurchasesTable, 'migrated_from_purchase_id', { type: DataTypes.UUID, allowNull: true }),
+        ]);
+      const ensureTransactionPinColumns = async () =>
+        Promise.all([
+          ensureColumn(usersTable, 'transaction_pin_hash', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(usersTable, 'transaction_pin_failed_attempts', { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }),
+          ensureColumn(usersTable, 'transaction_pin_locked_until', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(usersTable, 'transaction_pin_last_changed_at', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(usersTable, 'transaction_pin_last_verified_at', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(usersTable, 'transaction_pin_recovery_otp_hash', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(usersTable, 'transaction_pin_recovery_otp_expires_at', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(usersTable, 'transaction_pin_recovery_otp_sent_at', { type: DataTypes.DATE, allowNull: true }),
         ]);
       const ensurePlanDeletionAuditCompatibility = async () => {
         const exists = await tableExists(planDeletionAuditTable);
@@ -362,6 +378,7 @@ const connectDB = async () => {
           ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
           ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
           ensureVoiceBundlePurchaseColumns(),
+          ensureTransactionPinColumns(),
         ]);
         await ensurePlanDeletionAuditCompatibility();
       }
@@ -414,6 +431,7 @@ const connectDB = async () => {
         ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
         ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
         ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
+        ensureTransactionPinColumns(),
       ]);
 
       try {
@@ -450,6 +468,12 @@ const connectDB = async () => {
         await ensureVoiceBundlePurchaseColumns();
       } catch (e) {
         console.error('Voice bundle purchase tables sync failed:', e.message);
+      }
+
+      try {
+        await TransactionPinSecurityEvent.sync();
+      } catch (e) {
+        console.error('Transaction PIN security event table sync failed:', e.message);
       }
 
       console.log('Database Synced');
@@ -655,5 +679,6 @@ module.exports = {
   AdminWalletDeduction,
   AdminWalletDeductionAudit,
   VoiceBundlePurchase,
-  VoiceBundlePurchaseAudit
+  VoiceBundlePurchaseAudit,
+  TransactionPinSecurityEvent
 };

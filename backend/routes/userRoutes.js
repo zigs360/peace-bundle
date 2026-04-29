@@ -17,6 +17,7 @@ const {
 const dataPurchaseController = require('../controllers/dataPurchaseController');
 const bulkDataController = require('../controllers/bulkDataController');
 const { protect } = require('../middleware/authMiddleware');
+const { requireTransactionPinSession } = require('../middleware/transactionPinMiddleware');
 const { check } = require('express-validator');
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
@@ -28,7 +29,7 @@ router.post('/data/purchase', [
     check('plan_id').exists().withMessage('Plan ID is required'),
     check('recipient_phone').matches(/^0[7-9][0-1]\d{8}$/).withMessage('Please enter a valid Nigerian phone number (e.g., 08012345678)'),
     check('sim_id').optional()
-], dataPurchaseController.store);
+], requireTransactionPinSession('financial'), dataPurchaseController.store);
 
 // Bulk Data
 router.get('/data/bulk', protect, bulkDataController.index);

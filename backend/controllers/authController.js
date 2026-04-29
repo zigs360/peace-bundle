@@ -12,6 +12,33 @@ const path = require('path');
 const { encrypt } = require('../utils/cryptoUtils');
 const logger = require('../utils/logger');
 
+const SENSITIVE_USER_FIELDS = [
+    'password',
+    'two_factor_secret',
+    'transaction_pin_hash',
+    'transaction_pin_failed_attempts',
+    'transaction_pin_locked_until',
+    'transaction_pin_last_changed_at',
+    'transaction_pin_last_verified_at',
+    'transaction_pin_recovery_otp_hash',
+    'transaction_pin_recovery_otp_expires_at',
+    'transaction_pin_recovery_otp_sent_at',
+];
+
+const mapUserForClient = (user) => ({
+    id: user.id,
+    fullName: user.name,
+    email: user.email,
+    phone: user.phone,
+    balance: user.wallet ? user.wallet.balance : 0,
+    package: user.package,
+    referralCode: user.referral_code,
+    role: user.role,
+    kycStatus: user.kyc_status,
+    avatar: user.avatar || null,
+    hasTransactionPin: Boolean(user.transaction_pin_hash),
+});
+
 // Generate JWT
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -104,17 +131,7 @@ const registerUser = async (req, res) => {
 
         res.status(201).json({
             token: generateToken(user.id),
-            user: {
-                id: user.id,
-                fullName: user.name,
-                email: user.email,
-                phone: user.phone,
-                balance: 0.00,
-                package: user.package,
-                referralCode: user.referral_code,
-                role: user.role,
-                kycStatus: user.kyc_status
-            },
+            user: mapUserForClient({ ...user.toJSON(), wallet: { balance: 0.00 } }),
             message: 'Registration successful'
         });
     } catch (error) {
@@ -183,18 +200,7 @@ const loginUser = async (req, res) => {
 
             res.json({
                 token: generateToken(user.id),
-                user: {
-                    id: user.id,
-                    fullName: user.name,
-                    email: user.email,
-                    phone: user.phone,
-                    balance: user.wallet ? user.wallet.balance : 0,
-                    package: user.package,
-                    referralCode: user.referral_code,
-                    role: user.role,
-                    kycStatus: user.kyc_status,
-                    avatar: user.avatar
-                },
+                user: mapUserForClient(user),
                 message: 'Login successful'
             });
         } else {
@@ -238,7 +244,7 @@ const loginUser = async (req, res) => {
 const getMe = async (req, res) => {
     try {
         const user = await User.findByPk(req.user.id, {
-            attributes: { exclude: ['password'] },
+            attributes: { exclude: SENSITIVE_USER_FIELDS },
             include: [{ model: Wallet, as: 'wallet' }]
         });
         
@@ -266,6 +272,7 @@ const getMe = async (req, res) => {
         // Transform response to flat structure expected by frontend
         const userResponse = user.toJSON();
         userResponse.balance = user.wallet ? user.wallet.balance : 0;
+        userResponse.hasTransactionPin = Boolean(user.transaction_pin_hash);
         
         res.json(userResponse);
     } catch (error) {
@@ -283,7 +290,7 @@ const getMe = async (req, res) => {
 const getAllUsers = async (req, res) => {
     try {
         const users = await User.findAll({
-            attributes: { exclude: ['password'] },
+            attributes: { exclude: SENSITIVE_USER_FIELDS },
             include: [{ model: Wallet, as: 'wallet' }],
             order: [['createdAt', 'DESC']]
         });
@@ -351,6 +358,7 @@ const updateProfile = async (req, res) => {
             role: updatedUser.role,
             kycStatus: updatedUser.kyc_status,
             avatar: updatedUser.avatar,
+            hasTransactionPin: Boolean(updatedUser.transaction_pin_hash),
             token: generateToken(updatedUser.id)
         });
     } catch (error) {

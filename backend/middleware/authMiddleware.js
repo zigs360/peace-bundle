@@ -17,7 +17,20 @@ const protect = async (req, res, next) => {
             
             // Fetch user from DB (Sequelize)
             req.user = await User.findByPk(decoded.id, {
-                attributes: { exclude: ['password'] }
+                attributes: {
+                    exclude: [
+                        'password',
+                        'two_factor_secret',
+                        'transaction_pin_hash',
+                        'transaction_pin_failed_attempts',
+                        'transaction_pin_locked_until',
+                        'transaction_pin_last_changed_at',
+                        'transaction_pin_last_verified_at',
+                        'transaction_pin_recovery_otp_hash',
+                        'transaction_pin_recovery_otp_expires_at',
+                        'transaction_pin_recovery_otp_sent_at',
+                    ]
+                }
             });
 
             if (!req.user) {

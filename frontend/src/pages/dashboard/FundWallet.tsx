@@ -9,6 +9,7 @@ import { useVirtualAccount } from '../../hooks/useVirtualAccount';
 import VirtualAccountWidget from '../../components/VirtualAccountWidget';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from 'react-i18next';
+import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
 export default function FundWallet() {
   const { t } = useTranslation();
@@ -22,6 +23,7 @@ export default function FundWallet() {
   const { walletVersion } = useNotifications();
   const [pendingReference, setPendingReference] = useState<string | null>(null);
   const [lastKnownBalance, setLastKnownBalance] = useState<number | null>(null);
+  const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
   useEffect(() => {
     fetchUserProfile();
@@ -117,29 +119,33 @@ export default function FundWallet() {
         return;
     }
 
-    setLoading(true);
-    try {
-      const reference = `MNFY-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+    await ensureTransactionPin(async () => {
+      setLoading(true);
+      try {
+        const reference = `MNFY-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
 
-      await api.post('/transactions/fund', {
-        userId: user?.id,
-        amount: parseFloat(amount),
-        method,
-        reference
-      });
+        await api.post('/transactions/fund', {
+          userId: user?.id,
+          amount: parseFloat(amount),
+          method,
+          reference
+        });
 
-      toast.success(t('fundWalletPage.initiatedSuccess'));
-      if (user?.id) {
-        await refreshBalance(user.id);
+        toast.success(t('fundWalletPage.initiatedSuccess'));
+        if (user?.id) {
+          await refreshBalance(user.id);
+        }
+        setPendingReference(reference);
+        setAmount('');
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || t('fundWalletPage.fundingFailed'));
+      } finally {
+        setLoading(false);
       }
-      setPendingReference(reference);
-      setAmount('');
-      // Optionally redirect or refresh balance
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || t('fundWalletPage.fundingFailed'));
-    } finally {
-      setLoading(false);
-    }
+    }, {
+      amountLabel: `wallet funding of NGN ${Number(amount || 0).toLocaleString()}`,
+      actionLabel: 'Authorize wallet funding'
+    });
   };
 
   if (fetchingUser) {
@@ -153,6 +159,7 @@ export default function FundWallet() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 md:py-10">
+      {prompt}
       <FadeIn className="flex items-center mb-10">
         <div className="p-4 bg-primary-100 rounded-2xl mr-5 shadow-sm">
           <Wallet className="w-10 h-10 text-primary-600" />

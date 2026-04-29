@@ -26,6 +26,14 @@ export default function Settings() {
   const [bvn, setBvn] = useState(''); // New state for BVN
   const [kycLoading, setKycLoading] = useState(false);
   const [kycMessage, setKycMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [pinStatus, setPinStatus] = useState<{ hasPin: boolean; failedAttemptsRemaining: number; lockedUntil: string | null } | null>(null);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [otpRequesting, setOtpRequesting] = useState(false);
+  const [recoveryOtpMeta, setRecoveryOtpMeta] = useState<{ expiresAt: string; deliveryChannels: Array<{ channel: string; destination: string }> } | null>(null);
+  const [pinMessage, setPinMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [createPinData, setCreatePinData] = useState({ password: '', pin: '', confirmPin: '' });
+  const [changePinData, setChangePinData] = useState({ currentPin: '', newPin: '', confirmPin: '' });
+  const [recoverPinData, setRecoverPinData] = useState({ password: '', otp: '', newPin: '', confirmPin: '' });
 
   useEffect(() => {
     const userData = getStoredUser<any>();
@@ -38,7 +46,28 @@ export default function Settings() {
         referralCode: userData.referralCode || ''
       });
     }
+    void fetchPinStatus();
   }, []);
+
+  const refreshStoredUser = async () => {
+    const res = await api.get('/auth/me');
+    const userData = res.data as any;
+    const userForStorage = { ...userData };
+    delete userForStorage.virtual_account_number;
+    delete userForStorage.virtual_account_bank;
+    delete userForStorage.virtual_account_name;
+    localStorage.setItem('user', JSON.stringify(userForStorage));
+    setUser(userForStorage);
+  };
+
+  const fetchPinStatus = async () => {
+    try {
+      const res = await api.get('/auth/transaction-pin');
+      setPinStatus(res.data?.data || null);
+    } catch {
+      setPinStatus(null);
+    }
+  };
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,6 +174,81 @@ export default function Settings() {
         });
     } finally {
         setKycLoading(false);
+    }
+  };
+
+  const handleCreatePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinLoading(true);
+    setPinMessage(null);
+    try {
+      await api.post('/auth/transaction-pin', createPinData);
+      setPinMessage({ type: 'success', text: 'Transaction PIN created successfully' });
+      setCreatePinData({ password: '', pin: '', confirmPin: '' });
+      await fetchPinStatus();
+      await refreshStoredUser();
+    } catch (err: any) {
+      setPinMessage({ type: 'error', text: err.response?.data?.message || 'Failed to create transaction PIN' });
+    } finally {
+      setPinLoading(false);
+    }
+  };
+
+  const handleChangePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinLoading(true);
+    setPinMessage(null);
+    try {
+      await api.put('/auth/transaction-pin', changePinData);
+      setPinMessage({ type: 'success', text: 'Transaction PIN changed successfully' });
+      setChangePinData({ currentPin: '', newPin: '', confirmPin: '' });
+      await fetchPinStatus();
+      await refreshStoredUser();
+    } catch (err: any) {
+      setPinMessage({ type: 'error', text: err.response?.data?.message || 'Failed to change transaction PIN' });
+    } finally {
+      setPinLoading(false);
+    }
+  };
+
+  const handleRecoverPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinLoading(true);
+    setPinMessage(null);
+    try {
+      await api.post('/auth/transaction-pin/recover', recoverPinData);
+      setPinMessage({ type: 'success', text: 'Transaction PIN recovered successfully' });
+      setRecoverPinData({ password: '', otp: '', newPin: '', confirmPin: '' });
+      setRecoveryOtpMeta(null);
+      await fetchPinStatus();
+      await refreshStoredUser();
+    } catch (err: any) {
+      setPinMessage({ type: 'error', text: err.response?.data?.message || 'Failed to recover transaction PIN' });
+    } finally {
+      setPinLoading(false);
+    }
+  };
+
+  const handleRequestRecoveryOtp = async () => {
+    setOtpRequesting(true);
+    setPinMessage(null);
+    try {
+      const res = await api.post('/auth/transaction-pin/recovery/otp');
+      const recoveryMeta = res.data?.data || null;
+      setRecoveryOtpMeta(recoveryMeta);
+      const channelText = (recoveryMeta?.deliveryChannels || [])
+        .map((item: { channel: string; destination: string }) => `${item.channel.toUpperCase()}: ${item.destination}`)
+        .join(', ');
+      setPinMessage({
+        type: 'success',
+        text: channelText
+          ? `Recovery code sent successfully to ${channelText}`
+          : 'Recovery code sent successfully',
+      });
+    } catch (err: any) {
+      setPinMessage({ type: 'error', text: err.response?.data?.message || 'Failed to send recovery OTP' });
+    } finally {
+      setOtpRequesting(false);
     }
   };
 
@@ -411,6 +515,70 @@ export default function Settings() {
                 </button>
             </div>
         </form>
+
+        <div className="bg-white p-6 rounded-lg shadow-md space-y-6">
+            <div className="flex items-center mb-2 border-b pb-4">
+                <Lock className="w-6 h-6 text-primary-600 mr-3" />
+                <div>
+                    <h2 className="text-xl font-bold text-gray-800">Transaction PIN</h2>
+                    <p className="text-sm text-gray-500">Use a 4-digit PIN to approve all financial transactions.</p>
+                </div>
+            </div>
+
+            {pinMessage && (
+                <div className={`p-3 rounded-md text-sm ${pinMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {pinMessage.text}
+                </div>
+            )}
+
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                <div><strong>Status:</strong> {pinStatus?.hasPin ? 'Configured' : 'Not set'}</div>
+                <div><strong>Attempts remaining:</strong> {pinStatus?.failedAttemptsRemaining ?? '-'}</div>
+                {pinStatus?.lockedUntil && <div><strong>Locked until:</strong> {new Date(pinStatus.lockedUntil).toLocaleString()}</div>}
+            </div>
+
+            {!pinStatus?.hasPin ? (
+                <form onSubmit={handleCreatePin} className="space-y-4">
+                    <input type="password" value={createPinData.password} onChange={(e) => setCreatePinData({ ...createPinData, password: e.target.value })} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Account password" required />
+                    <input type="password" inputMode="numeric" maxLength={4} value={createPinData.pin} onChange={(e) => setCreatePinData({ ...createPinData, pin: e.target.value.replace(/\D/g, '').slice(0, 4) })} className="w-full px-4 py-2 rounded-lg border border-gray-300 text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="New 4-digit PIN" required />
+                    <input type="password" inputMode="numeric" maxLength={4} value={createPinData.confirmPin} onChange={(e) => setCreatePinData({ ...createPinData, confirmPin: e.target.value.replace(/\D/g, '').slice(0, 4) })} className="w-full px-4 py-2 rounded-lg border border-gray-300 text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Confirm PIN" required />
+                    <button type="submit" disabled={pinLoading} className="w-full py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50">{pinLoading ? 'Saving PIN...' : 'Create Transaction PIN'}</button>
+                </form>
+            ) : (
+                <>
+                    <form onSubmit={handleChangePin} className="space-y-4">
+                        <h3 className="font-semibold text-gray-800">Change PIN</h3>
+                        <input type="password" inputMode="numeric" maxLength={4} value={changePinData.currentPin} onChange={(e) => setChangePinData({ ...changePinData, currentPin: e.target.value.replace(/\D/g, '').slice(0, 4) })} className="w-full px-4 py-2 rounded-lg border border-gray-300 text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Current PIN" required />
+                        <input type="password" inputMode="numeric" maxLength={4} value={changePinData.newPin} onChange={(e) => setChangePinData({ ...changePinData, newPin: e.target.value.replace(/\D/g, '').slice(0, 4) })} className="w-full px-4 py-2 rounded-lg border border-gray-300 text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="New PIN" required />
+                        <input type="password" inputMode="numeric" maxLength={4} value={changePinData.confirmPin} onChange={(e) => setChangePinData({ ...changePinData, confirmPin: e.target.value.replace(/\D/g, '').slice(0, 4) })} className="w-full px-4 py-2 rounded-lg border border-gray-300 text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Confirm new PIN" required />
+                        <button type="submit" disabled={pinLoading} className="w-full py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition disabled:opacity-50">{pinLoading ? 'Updating PIN...' : 'Change Transaction PIN'}</button>
+                    </form>
+
+                    <form onSubmit={handleRecoverPin} className="space-y-4 border-t pt-6">
+                        <h3 className="font-semibold text-gray-800">Forgot PIN Recovery</h3>
+                        <p className="text-xs text-gray-500">Request a one-time recovery code, then confirm your account password and new PIN.</p>
+                        <button
+                          type="button"
+                          onClick={() => void handleRequestRecoveryOtp()}
+                          disabled={otpRequesting}
+                          className="w-full py-2 border border-primary-200 text-primary-700 rounded-lg hover:bg-primary-50 transition disabled:opacity-50"
+                        >
+                          {otpRequesting ? 'Sending recovery code...' : 'Send Recovery OTP'}
+                        </button>
+                        {recoveryOtpMeta && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                            Code expires at {new Date(recoveryOtpMeta.expiresAt).toLocaleString()}.
+                          </div>
+                        )}
+                        <input type="password" value={recoverPinData.password} onChange={(e) => setRecoverPinData({ ...recoverPinData, password: e.target.value })} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Account password" required />
+                        <input type="password" inputMode="numeric" maxLength={6} value={recoverPinData.otp} onChange={(e) => setRecoverPinData({ ...recoverPinData, otp: e.target.value.replace(/\D/g, '').slice(0, 6) })} className="w-full px-4 py-2 rounded-lg border border-gray-300 text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="6-digit recovery OTP" required />
+                        <input type="password" inputMode="numeric" maxLength={4} value={recoverPinData.newPin} onChange={(e) => setRecoverPinData({ ...recoverPinData, newPin: e.target.value.replace(/\D/g, '').slice(0, 4) })} className="w-full px-4 py-2 rounded-lg border border-gray-300 text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="New PIN" required />
+                        <input type="password" inputMode="numeric" maxLength={4} value={recoverPinData.confirmPin} onChange={(e) => setRecoverPinData({ ...recoverPinData, confirmPin: e.target.value.replace(/\D/g, '').slice(0, 4) })} className="w-full px-4 py-2 rounded-lg border border-gray-300 text-center tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="Confirm new PIN" required />
+                        <button type="submit" disabled={pinLoading} className="w-full py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50">{pinLoading ? 'Recovering PIN...' : 'Recover Transaction PIN'}</button>
+                    </form>
+                </>
+            )}
+        </div>
       </StaggerItem>
     </StaggerContainer>
   );

@@ -7,6 +7,7 @@ import { detectNetwork, networkServices, recommendations, isValidNigerianNumber 
 import { toast } from 'react-hot-toast';
 import SelectProvider from '../../components/Forms/SelectProvider';
 import { useNotifications } from '../../context/NotificationContext';
+import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
 const SERVICE_LABELS: Record<string, string> = {
   airtime: 'Airtime',
@@ -25,6 +26,7 @@ export default function BuyAirtime() {
   const [isPhoneValid, setIsPhoneValid] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
   const { pricingVersion } = useNotifications();
+  const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
   useEffect(() => {
     setIsPhoneValid(isValidNigerianNumber(phone));
@@ -79,58 +81,62 @@ export default function BuyAirtime() {
       return;
     }
 
-    setLoading(true);
-    setActivationCode(null);
+    await ensureTransactionPin(async () => {
+      setLoading(true);
+      setActivationCode(null);
 
-    try {
-      // Normalize phone number before sending to backend
-      let cleanPhone = phone.replace(/\D/g, '');
-      if (cleanPhone.startsWith('234')) {
-        cleanPhone = '0' + cleanPhone.substring(3);
-      }
-      if (cleanPhone.length === 10 && !cleanPhone.startsWith('0')) {
-        cleanPhone = '0' + cleanPhone;
-      }
-
-      const payload: any = {
-        phone: cleanPhone,
-        serviceType,
-        network,
-      };
-
-      if (serviceType === 'data') {
-        if (!planId) {
-          toast.error('Please select a data plan');
-          setLoading(false);
-          return;
+      try {
+        let cleanPhone = phone.replace(/\D/g, '');
+        if (cleanPhone.startsWith('234')) {
+          cleanPhone = '0' + cleanPhone.substring(3);
         }
-        payload.planId = planId;
-      } else {
-        if (!amount || parseFloat(amount) <= 0) {
-          toast.error('Please enter a valid amount');
-          setLoading(false);
-          return;
+        if (cleanPhone.length === 10 && !cleanPhone.startsWith('0')) {
+          cleanPhone = '0' + cleanPhone;
         }
-        payload.amount = parseFloat(amount);
-      }
 
-      const res = await api.post('/purchase/unified', payload);
+        const payload: any = {
+          phone: cleanPhone,
+          serviceType,
+          network,
+        };
 
-      if (res.data.success) {
-        toast.success(res.data.message);
-        if (res.data.activationCode) {
-          setActivationCode(res.data.activationCode);
+        if (serviceType === 'data') {
+          if (!planId) {
+            toast.error('Please select a data plan');
+            setLoading(false);
+            return;
+          }
+          payload.planId = planId;
         } else {
-          setPhone('');
-          setAmount('');
-          setPlanId('');
+          if (!amount || parseFloat(amount) <= 0) {
+            toast.error('Please enter a valid amount');
+            setLoading(false);
+            return;
+          }
+          payload.amount = parseFloat(amount);
         }
+
+        const res = await api.post('/purchase/unified', payload);
+
+        if (res.data.success) {
+          toast.success(res.data.message);
+          if (res.data.activationCode) {
+            setActivationCode(res.data.activationCode);
+          } else {
+            setPhone('');
+            setAmount('');
+            setPlanId('');
+          }
+        }
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || 'Purchase failed. Please try again.');
+      } finally {
+        setLoading(false);
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Purchase failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    }, {
+      amountLabel: serviceType === 'data' ? 'bundle purchase' : `airtime purchase of NGN ${Number(amount || 0).toLocaleString()}`,
+      actionLabel: 'Authorize purchase'
+    });
   };
 
   const handleDeepLinkDial = (code: string) => {
@@ -150,6 +156,7 @@ export default function BuyAirtime() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      {prompt}
       <FadeIn className="flex items-center mb-8">
         <div className="p-3 bg-primary-100 rounded-full mr-4">
           <Zap className="w-8 h-8 text-primary-600" />

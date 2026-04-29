@@ -2,6 +2,7 @@ import { useState } from 'react';
 import api from '../../services/api';
 import { Tv, Zap, Smartphone, Banknote, CreditCard, CheckCircle } from 'lucide-react';
 import { getStoredUser } from '../../utils/storage';
+import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
 const CABLE_PROVIDERS = ['DSTV', 'GOTV', 'STARTIMES'];
 const POWER_PROVIDERS = ['IKEDC', 'EKEDC', 'AEDC', 'IBEDC', 'EEDC', 'KEDCO', 'JEDC'];
@@ -18,6 +19,7 @@ export default function PayBills() {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [detectedName, setDetectedName] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
   const handleBillTypeChange = (type: 'cable' | 'power') => {
     setBillType(type);
@@ -28,38 +30,43 @@ export default function PayBills() {
 
   const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setMessage(null);
+    await ensureTransactionPin(async () => {
+      setLoading(true);
+      setMessage(null);
 
-    try {
-      const user = getStoredUser<any>();
-      if (!user?.id) throw new Error('User not found');
+      try {
+        const user = getStoredUser<any>();
+        if (!user?.id) throw new Error('User not found');
 
-      await api.post('/transactions/bill', {
-        userId: user.id,
-        billType,
-        provider,
-        smartCardNumber, // acts as meter number for power
-        amount: parseFloat(amount),
-        phone,
-        meterType: billType === 'power' ? meterType : undefined,
-        name: detectedName || undefined
-      });
+        await api.post('/transactions/bill', {
+          userId: user.id,
+          billType,
+          provider,
+          smartCardNumber,
+          amount: parseFloat(amount),
+          phone,
+          meterType: billType === 'power' ? meterType : undefined,
+          name: detectedName || undefined
+        });
 
-      setMessage({ type: 'success', text: 'Bill payment successful!' });
-      setAmount('');
-      setSmartCardNumber('');
-      setPhone('');
-      setProvider('');
-      setDetectedName(null);
-    } catch (err: any) {
-      setMessage({ 
-        type: 'error', 
-        text: err.response?.data?.message || 'Payment failed. Please try again.' 
-      });
-    } finally {
-      setLoading(false);
-    }
+        setMessage({ type: 'success', text: 'Bill payment successful!' });
+        setAmount('');
+        setSmartCardNumber('');
+        setPhone('');
+        setProvider('');
+        setDetectedName(null);
+      } catch (err: any) {
+        setMessage({
+          type: 'error',
+          text: err.response?.data?.message || 'Payment failed. Please try again.'
+        });
+      } finally {
+        setLoading(false);
+      }
+    }, {
+      amountLabel: `bill payment of NGN ${Number(amount || 0).toLocaleString()}`,
+      actionLabel: 'Authorize bill payment'
+    });
   };
 
   const validateCustomer = async () => {
@@ -80,6 +87,7 @@ export default function PayBills() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      {prompt}
       <div className="flex items-center mb-8">
         <div className={`p-3 rounded-full mr-4 ${billType === 'cable' ? 'bg-purple-100' : 'bg-yellow-100'}`}>
           {billType === 'cable' ? <Tv className="w-8 h-8 text-purple-600" /> : <Zap className="w-8 h-8 text-yellow-600" />}

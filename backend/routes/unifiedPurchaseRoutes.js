@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { purchaseUnified } = require('../controllers/unifiedPurchaseController');
 const { protect } = require('../middleware/authMiddleware');
+const { requireTransactionPinSession } = require('../middleware/transactionPinMiddleware');
 const validate = require('../middleware/validationMiddleware');
 const { check } = require('express-validator');
 
@@ -11,6 +12,6 @@ router.post('/unified', protect, validate([
     check('network').notEmpty().withMessage('Network is required'),
     check('amount').optional().isFloat({ gt: 0 }).withMessage('Amount must be positive'),
     check('planId').optional().notEmpty().withMessage('Plan ID is required for data')
-]), purchaseUnified);
+]), requireTransactionPinSession('financial'), purchaseUnified);
 
 module.exports = router;

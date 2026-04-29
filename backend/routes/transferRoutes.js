@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getBanks, resolveAccount, initiateTransfer } = require('../controllers/transferController');
 const { protect } = require('../middleware/authMiddleware');
+const { requireTransactionPinSession } = require('../middleware/transactionPinMiddleware');
 const validate = require('../middleware/validationMiddleware');
 const { check } = require('express-validator');
 
@@ -18,6 +19,6 @@ router.post('/send', protect, validate([
     check('amount').isFloat({ gt: 0 }).withMessage('Amount must be greater than zero'),
     check('bank_name').notEmpty().withMessage('Bank name is required'),
     check('account_name').notEmpty().withMessage('Account name is required')
-]), initiateTransfer);
+]), requireTransactionPinSession('financial'), initiateTransfer);
 
 module.exports = router;

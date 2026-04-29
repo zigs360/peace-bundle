@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import api from '../../services/api';
 import { MessageSquare, Users, Send, Loader2, AlertCircle } from 'lucide-react';
+import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
 export default function BulkSMS() {
   const [formData, setFormData] = useState({
@@ -11,6 +12,7 @@ export default function BulkSMS() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -23,23 +25,29 @@ export default function BulkSMS() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess('');
+    await ensureTransactionPin(async () => {
+      setLoading(true);
+      setError('');
+      setSuccess('');
 
-    try {
-      const res = await api.post('/transactions/bulk-sms', formData);
-      setSuccess((res.data as any).message);
-      setFormData({ senderId: '', recipients: '', message: '' });
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to send SMS');
-    } finally {
-      setLoading(false);
-    }
+      try {
+        const res = await api.post('/transactions/bulk-sms', formData);
+        setSuccess((res.data as any).message);
+        setFormData({ senderId: '', recipients: '', message: '' });
+      } catch (err: any) {
+        setError(err.response?.data?.message || 'Failed to send SMS');
+      } finally {
+        setLoading(false);
+      }
+    }, {
+      amountLabel: `bulk SMS purchase of NGN ${calculateCost().toLocaleString()}`,
+      actionLabel: 'Authorize bulk SMS'
+    });
   };
 
   return (
     <div className="max-w-2xl mx-auto">
+      {prompt}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
         <div className="flex items-center space-x-3 mb-6">
           <div className="p-3 bg-primary-50 rounded-xl">

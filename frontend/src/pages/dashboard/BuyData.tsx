@@ -4,6 +4,7 @@ import { Wifi, Smartphone, CheckCircle, Search, Wallet, RefreshCw } from 'lucide
 import { FadeIn, HoverCard, SlideUp, StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from 'react-i18next';
+import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
 const NETWORK_KEYS = ['mtn', 'airtel', 'glo'] as const;
 const NETWORK_LABELS = {
@@ -270,6 +271,7 @@ export default function BuyData() {
   const [plansLoading, setPlansLoading] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const { pricingVersion, walletBalance, walletBalanceUpdatedAt } = useNotifications();
+  const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
   const fetchPlans = useCallback(async (forceRefresh = false) => {
     setPlansLoading(true);
@@ -398,47 +400,53 @@ export default function BuyData() {
 
     if (!window.confirm(confirmText)) return;
 
-    setLoading(true);
-    setFeedback(null);
-    const reference = `DATA-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+    await ensureTransactionPin(async () => {
+      setLoading(true);
+      setFeedback(null);
+      const reference = `DATA-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
 
-    try {
-      sessionStorage.setItem(duplicateKey, String(Date.now()));
-      const res = await api.post('/transactions/data', {
-        network: selectedPlan.network_key,
-        planId: Number(selectedPlan.id),
-        phone: normalizedPhone,
-        amount: toNumber(selectedPlan.our_price),
-        reference,
-      }, {
-        headers: {
-          'Idempotency-Key': reference,
-        },
-      });
+      try {
+        sessionStorage.setItem(duplicateKey, String(Date.now()));
+        const res = await api.post('/transactions/data', {
+          network: selectedPlan.network_key,
+          planId: Number(selectedPlan.id),
+          phone: normalizedPhone,
+          amount: toNumber(selectedPlan.our_price),
+          reference,
+        }, {
+          headers: {
+            'Idempotency-Key': reference,
+          },
+        });
 
-      const transactionRef = res.data?.transaction_ref || res.data?.transaction?.reference || reference;
-      const chargedPrice = toNumber(res.data?.charged_price, toNumber(selectedPlan.our_price));
-      setFeedback({
-        type: 'success',
-        text: t('buyDataPage.purchaseSuccess', {
-          amount: chargedPrice.toLocaleString(),
-          reference: transactionRef,
-        }),
-      });
-      setPhone('');
-    } catch (err: any) {
-      sessionStorage.removeItem(duplicateKey);
-      setFeedback({
-        type: 'error',
-        text: err.response?.data?.message || t('buyDataPage.purchaseFailed'),
-      });
-    } finally {
-      setLoading(false);
-    }
+        const transactionRef = res.data?.transaction_ref || res.data?.transaction?.reference || reference;
+        const chargedPrice = toNumber(res.data?.charged_price, toNumber(selectedPlan.our_price));
+        setFeedback({
+          type: 'success',
+          text: t('buyDataPage.purchaseSuccess', {
+            amount: chargedPrice.toLocaleString(),
+            reference: transactionRef,
+          }),
+        });
+        setPhone('');
+      } catch (err: any) {
+        sessionStorage.removeItem(duplicateKey);
+        setFeedback({
+          type: 'error',
+          text: err.response?.data?.message || t('buyDataPage.purchaseFailed'),
+        });
+      } finally {
+        setLoading(false);
+      }
+    }, {
+      amountLabel: `data purchase of NGN ${toNumber(selectedPlan.our_price).toLocaleString()}`,
+      actionLabel: 'Authorize data purchase'
+    });
   };
 
   return (
     <div className="max-w-6xl mx-auto">
+      {prompt}
       <FadeIn className="flex items-center mb-8">
         <div className="p-3 bg-primary-100 rounded-full mr-4">
           <Wifi className="w-8 h-8 text-primary-600" />
