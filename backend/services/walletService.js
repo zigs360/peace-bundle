@@ -12,6 +12,11 @@ const LEGACY_TRANSACTION_SOURCE_MAP = {
 };
 
 class WalletService {
+  toFiniteNumber(value) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
   normalizeTransactionSource(source) {
     const raw = String(source || '').trim();
     const normalized = LEGACY_TRANSACTION_SOURCE_MAP[raw] || raw;
@@ -97,15 +102,38 @@ class WalletService {
         throw new Error('Invalid amount');
       }
 
-      const feeAmount = 0;
+      const metadataFeeAmount =
+        this.toFiniteNumber(metadata?.fee_amount) ??
+        this.toFiniteNumber(metadata?.feeAmount) ??
+        this.toFiniteNumber(metadata?.fee);
+      const metadataGrossAmount =
+        this.toFiniteNumber(metadata?.gross_amount) ??
+        this.toFiniteNumber(metadata?.grossAmount);
+      const metadataNetAmount =
+        this.toFiniteNumber(metadata?.net_amount) ??
+        this.toFiniteNumber(metadata?.netAmount);
+
       const netAmount = amountNum;
+      const feeAmount =
+        metadataFeeAmount !== null
+          ? metadataFeeAmount
+          : metadataGrossAmount !== null && metadataGrossAmount >= netAmount
+            ? metadataGrossAmount - netAmount
+            : metadataNetAmount !== null && metadataNetAmount >= 0 && amountNum >= metadataNetAmount
+              ? amountNum - metadataNetAmount
+              : 0;
+      const normalizedFeeAmount = Number.isFinite(feeAmount) && feeAmount > 0 ? feeAmount : 0;
+      const grossAmount =
+        metadataGrossAmount !== null && metadataGrossAmount >= netAmount
+          ? metadataGrossAmount
+          : netAmount + normalizedFeeAmount;
       const nextMeta = {
         ...metadata,
-        gross_amount: amountNum,
-        fee_amount: feeAmount,
+        gross_amount: grossAmount,
+        fee_amount: normalizedFeeAmount,
         net_amount: netAmount,
         fee_currency: 'NGN',
-        fee_policy: 'none',
+        fee_policy: normalizedFeeAmount > 0 ? 'provider_fee' : 'none',
       };
 
       if (isMockUser && Number.isFinite(amountNum) && amountNum > 0) {

@@ -787,6 +787,7 @@ const getAdminStats = async (req, res) => {
 
         const totalRevenue = treasurySnapshot.revenue.totalRecognizedRevenue;
 
+        res.set('Cache-Control', 'no-store');
         res.json({
             stats: {
                 total_users: totalUsers,

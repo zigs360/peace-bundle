@@ -158,16 +158,16 @@ describe('AdminDashboard treasury reconciliation', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => expect(screen.getAllByText('Recognized Revenue').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('admin.recognizedRevenue').length).toBeGreaterThan(0));
 
     expect(screen.getAllByText(/1,720/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Available Balance')).toBeInTheDocument();
+    expect(screen.getByText('admin.availableBalance')).toBeInTheDocument();
     expect(screen.getAllByText(/650/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Withdrawn / Settled')).toBeInTheDocument();
+    expect(screen.getByText('admin.withdrawnSettled')).toBeInTheDocument();
     expect(screen.getAllByText(/1,070/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Available balance equals recognized revenue minus settled and pending withdrawals.')).toBeInTheDocument();
-    expect(screen.getByText('Frontend Build')).toBeInTheDocument();
-    expect(screen.getByText('Backend Build')).toBeInTheDocument();
+    expect(screen.getByText('admin.reconciliationHealthy')).toBeInTheDocument();
+    expect(screen.getByText('admin.frontendBuild')).toBeInTheDocument();
+    expect(screen.getByText('admin.backendBuild')).toBeInTheDocument();
     expect(screen.getAllByText('d36b0ef').length).toBeGreaterThanOrEqual(2);
   });
 });

@@ -16,17 +16,21 @@ const TreasuryLedgerEntry = require('../models/TreasuryLedgerEntry');
 const SystemSetting = require('../models/SystemSetting');
 const Notification = require('../models/Notification');
 const treasuryService = require('../services/treasuryService');
+const notificationRealtimeService = require('../services/notificationRealtimeService');
+const walletService = require('../services/walletService');
 
 describe('Treasury revenue synchronization', () => {
   beforeAll(async () => {
     await connectDB();
     process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_jwt_secret';
     process.env.TREASURY_AUTO_SYNC_ON_READ = 'true';
+    process.env.TREASURY_AUTO_SYNC_DEBOUNCE_MS = '0';
     process.env.SETTLEMENT_TRANSFER_FEE_NGN = '50';
     process.env.SETTLEMENT_BANK_CODE = '50515';
   });
 
   beforeEach(async () => {
+    await treasuryService.waitForAutoSyncIdle();
     await Notification.destroy({ where: {} });
     await TreasuryLedgerEntry.destroy({ where: {} });
     await TreasuryBalance.destroy({ where: {} });
@@ -40,6 +44,11 @@ describe('Treasury revenue synchronization', () => {
       reference: 'BILLSTACK-TREASURY-SYNC',
       data: { status: true },
     });
+  });
+
+  afterEach(async () => {
+    await treasuryService.waitForAutoSyncIdle();
+    jest.restoreAllMocks();
   });
 
   const makeUser = async (role, prefix) =>
@@ -164,22 +173,97 @@ describe('Treasury revenue synchronization', () => {
     expect(balance).toBe(25);
   });
 
-  it('skips invalid revenue transactions and alerts admins', async () => {
-    const admin = await makeUser('admin', 'treasury_admin_invalid');
-    const user = await makeUser('user', 'treasury_invalid_customer');
+  it('auto-syncs treasury revenue and emits admin updates when funding fees are credited', async () => {
+    const admin = await makeUser('admin', 'treasury_admin_realtime');
+    const user = await makeUser('user', 'treasury_realtime_customer');
+
+    const emitSpy = jest.spyOn(notificationRealtimeService, 'emitToUser').mockImplementation(() => {});
+    jest.spyOn(notificationRealtimeService, 'getConnectedUserIds').mockReturnValue([admin.id]);
+
+    const syncStart = new Date();
+    await SystemSetting.set('treasury_last_sync_at', syncStart.toISOString(), 'string', 'treasury');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await walletService.creditFundingWithFraudChecks(user, 200, 'Realtime funding credit', {
+      reference: `TREASURY-AUTO-FUND-${Date.now()}`,
+      gateway: 'billstack',
+      gross_amount: 225,
+      fee_amount: 25,
+      net_amount: 200,
+    });
+
+    await treasuryService.waitForAutoSyncIdle();
+
+    const snapshot = await treasuryService.getTreasurySnapshot();
+    expect(snapshot.revenue.totalRecognizedRevenue).toBe(25);
+    expect(snapshot.revenue.feeRevenue).toBe(25);
+    expect(snapshot.balance).toBe(25);
+    expect(emitSpy).toHaveBeenCalledWith(
+      admin.id,
+      'treasury_balance_updated',
+      expect.objectContaining({
+        balance: 25,
+        snapshot: expect.objectContaining({
+          revenue: expect.objectContaining({
+            totalRecognizedRevenue: 25,
+            feeRevenue: 25,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('auto-syncs treasury revenue when a pending data purchase completes', async () => {
+    const user = await makeUser('user', 'treasury_auto_data_customer');
     const wallet = await Wallet.findOne({ where: { userId: user.id } });
     const plan = await DataPlan.create({
       provider: 'mtn',
       category: 'sme',
-      name: 'Broken Plan',
-      size: '500MB',
-      size_mb: 500,
+      name: 'Auto Sync 1GB',
+      size: '1GB',
+      size_mb: 1024,
       validity: '30 days',
-      admin_price: 50,
-      api_cost: null,
+      admin_price: 100,
+      api_cost: 70,
       is_active: true,
     });
 
+    const txn = await Transaction.create({
+      walletId: wallet.id,
+      userId: user.id,
+      type: 'debit',
+      amount: 100,
+      balance_before: 500,
+      balance_after: 400,
+      source: 'data_purchase',
+      reference: `TREASURY-AUTO-DATA-${Date.now()}`,
+      description: 'Pending data purchase',
+      dataPlanId: plan.id,
+      status: 'pending',
+      completed_at: null,
+    });
+
+    const syncStart = new Date();
+    await SystemSetting.set('treasury_last_sync_at', syncStart.toISOString(), 'string', 'treasury');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await txn.update({
+      status: 'completed',
+      completed_at: new Date(),
+    });
+
+    await treasuryService.waitForAutoSyncIdle();
+
+    const snapshot = await treasuryService.getTreasurySnapshot();
+    expect(snapshot.revenue.totalRecognizedRevenue).toBe(30);
+    expect(snapshot.revenue.dataProfit).toBe(30);
+    expect(snapshot.balance).toBe(30);
+  });
+
+  it('skips invalid revenue transactions and alerts admins', async () => {
+    const admin = await makeUser('admin', 'treasury_admin_invalid');
+    const user = await makeUser('user', 'treasury_invalid_customer');
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
     await Transaction.create({
       walletId: wallet.id,
       userId: user.id,
@@ -190,7 +274,6 @@ describe('Treasury revenue synchronization', () => {
       source: 'data_purchase',
       reference: `TREASURY-INVALID-${Date.now()}`,
       description: 'Broken revenue record',
-      dataPlanId: plan.id,
       status: 'completed',
       completed_at: new Date(),
     });

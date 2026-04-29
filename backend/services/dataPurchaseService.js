@@ -223,6 +223,7 @@ class DataPurchaseService {
         recipient_phone: recipientPhone,
         provider: plan.provider,
         status: 'pending',
+        completed_at: null,
         dataPlanId: plan.id,
         simId: sim ? sim.id : null
       }, { transaction: t });
@@ -434,7 +435,7 @@ class DataPurchaseService {
 
     // Update Transaction
     await transaction.increment('retry_count');
-    await transaction.update({ status: 'pending' });
+    await transaction.update({ status: 'pending', completed_at: null });
 
     // Dispense (using a new transaction scope for safety or null?)
     // dispenseData handles error by refunding.
@@ -543,7 +544,7 @@ class DataPurchaseService {
         t
       );
 
-      await transaction.update({ reference, status: 'processing' }, { transaction: t });
+      await transaction.update({ reference, status: 'processing', completed_at: null }, { transaction: t });
 
       try {
         await this.dispenseAirtimeWithFallback(

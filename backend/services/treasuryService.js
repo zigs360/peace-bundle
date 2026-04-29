@@ -28,6 +28,118 @@ class TreasuryService {
   constructor() {
     this._sqliteSyncGate = Promise.resolve();
     this._alertCooldowns = new Map();
+    this._autoSyncTimer = null;
+    this._autoSyncInFlight = null;
+    this._autoSyncWaiters = [];
+    this._autoSyncReasons = new Set();
+  }
+
+  _resolveAutoSyncWaiters() {
+    if (!this._autoSyncWaiters.length) return;
+    const waiters = this._autoSyncWaiters.splice(0, this._autoSyncWaiters.length);
+    for (const resolve of waiters) resolve();
+  }
+
+  isRevenueBearingTransaction(txn) {
+    return Boolean(
+      txn &&
+      String(txn.status || '').toLowerCase() === 'completed' &&
+      ['funding', 'data_purchase'].includes(String(txn.source || '').toLowerCase())
+    );
+  }
+
+  scheduleAutoSync(trigger = {}) {
+    const {
+      reason = 'transaction_completed',
+      source = null,
+      transactionId = null,
+      reference = null,
+    } = trigger || {};
+    const debounceMsRaw = Number.parseInt(process.env.TREASURY_AUTO_SYNC_DEBOUNCE_MS || '250', 10);
+    const debounceMs = Number.isFinite(debounceMsRaw) && debounceMsRaw >= 0 ? debounceMsRaw : 250;
+
+    this._autoSyncReasons.add(
+      JSON.stringify({
+        reason,
+        source,
+        transactionId,
+        reference,
+      }),
+    );
+
+    const waiter = new Promise((resolve) => {
+      this._autoSyncWaiters.push(resolve);
+    });
+
+    if (this._autoSyncTimer) {
+      return waiter;
+    }
+
+    this._autoSyncTimer = setTimeout(() => {
+      this._autoSyncTimer = null;
+      void this.runAutoSync();
+    }, debounceMs);
+
+    this._autoSyncTimer.unref?.();
+    return waiter;
+  }
+
+  async runAutoSync() {
+    if (this._autoSyncInFlight) {
+      return this._autoSyncInFlight;
+    }
+
+    const reasons = Array.from(this._autoSyncReasons).map((item) => {
+      try {
+        return JSON.parse(item);
+      } catch (error) {
+        return { reason: item };
+      }
+    });
+    this._autoSyncReasons.clear();
+
+    this._autoSyncInFlight = (async () => {
+      try {
+        logger.info('[Treasury] Running automatic revenue sync', {
+          triggerCount: reasons.length,
+          reasons,
+        });
+        await this.syncRevenue({ adminUserId: null });
+      } catch (error) {
+        logger.error('[Treasury] Automatic revenue sync failed', {
+          error: error.message,
+          reasons,
+        });
+      } finally {
+        this._autoSyncInFlight = null;
+        this._resolveAutoSyncWaiters();
+        if (this._autoSyncReasons.size) {
+          void this.runAutoSync();
+        }
+      }
+    })();
+
+    return this._autoSyncInFlight;
+  }
+
+  async waitForAutoSyncIdle() {
+    let safety = 0;
+    while ((this._autoSyncTimer || this._autoSyncInFlight || this._autoSyncReasons.size) && safety < 20) {
+      safety += 1;
+      if (this._autoSyncTimer) {
+        clearTimeout(this._autoSyncTimer);
+        this._autoSyncTimer = null;
+        await this.runAutoSync();
+        continue;
+      }
+      if (this._autoSyncInFlight) {
+        await this._autoSyncInFlight;
+        continue;
+      }
+      if (this._autoSyncReasons.size) {
+        await this.runAutoSync();
+      }
+    }
   }
 
   async withSqliteSyncMutex(fn) {

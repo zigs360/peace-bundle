@@ -2,6 +2,44 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database'); // Import the instance directly
 const crypto = require('crypto');
 
+const TREASURY_SYNC_SOURCES = new Set(['funding', 'data_purchase']);
+
+function hasTreasurySyncMetadata(transaction) {
+  return Boolean(transaction?.metadata?.treasury_sync?.syncedAt);
+}
+
+function shouldScheduleTreasurySync(transaction) {
+  return Boolean(
+    transaction &&
+    String(transaction.status || '').toLowerCase() === 'completed' &&
+    TREASURY_SYNC_SOURCES.has(String(transaction.source || '').toLowerCase()) &&
+    !hasTreasurySyncMetadata(transaction)
+  );
+}
+
+function enqueueTreasurySync(transaction, options = {}, reason) {
+  const run = () => {
+    try {
+      const treasuryService = require('../services/treasuryService');
+      treasuryService.scheduleAutoSync({
+        reason,
+        transactionId: transaction.id,
+        source: transaction.source,
+        reference: transaction.reference,
+      }).catch(() => {});
+    } catch (error) {
+      void error;
+    }
+  };
+
+  if (options.transaction && typeof options.transaction.afterCommit === 'function') {
+    options.transaction.afterCommit(() => run());
+    return;
+  }
+
+  run();
+}
+
 const Transaction = sequelize.define('Transaction', {
   id: {
     type: DataTypes.UUID,
@@ -129,6 +167,21 @@ const Transaction = sequelize.define('Transaction', {
 }, {
   timestamps: true,
   tableName: 'transactions',
+  hooks: {
+    afterCreate(transaction, options) {
+      if (String(transaction.source || '').toLowerCase() !== 'funding') return;
+      if (!shouldScheduleTreasurySync(transaction)) return;
+      enqueueTreasurySync(transaction, options, 'funding_created_completed');
+    },
+    afterUpdate(transaction, options) {
+      const previousStatus = String(transaction.previous('status') || '').toLowerCase();
+      const currentStatus = String(transaction.status || '').toLowerCase();
+      if (previousStatus === currentStatus) return;
+      if (currentStatus !== 'completed') return;
+      if (!shouldScheduleTreasurySync(transaction)) return;
+      enqueueTreasurySync(transaction, options, 'transaction_marked_completed');
+    },
+  },
   scopes: {
     pending: {
       where: {
