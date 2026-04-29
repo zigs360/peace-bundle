@@ -295,10 +295,27 @@ const connectDB = async () => {
           ensureColumn(voiceBundlePurchasesTable, 'bundle_category', { type: DataTypes.STRING, allowNull: false, defaultValue: 'minute' }),
           ensureColumn(voiceBundlePurchasesTable, 'migrated_from_purchase_id', { type: DataTypes.UUID, allowNull: true }),
         ]);
-      const ensureTransactionPinColumns = async () =>
-        Promise.all([
+      const ensureTransactionPinColumns = async () => {
+        if (dialect === 'postgres') {
+          const queryGenerator = qi.queryGenerator;
+          const quotedTable = queryGenerator.quoteTable(normalizeTableName(usersTable));
+          await sequelize.query(`
+            ALTER TABLE ${quotedTable}
+            ADD COLUMN IF NOT EXISTS "transaction_pin_hash" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "transaction_pin_failed_attempts" INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "transaction_pin_locked_until" TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS "transaction_pin_last_changed_at" TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS "transaction_pin_last_verified_at" TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS "transaction_pin_recovery_otp_hash" VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS "transaction_pin_recovery_otp_expires_at" TIMESTAMP WITH TIME ZONE,
+            ADD COLUMN IF NOT EXISTS "transaction_pin_recovery_otp_sent_at" TIMESTAMP WITH TIME ZONE;
+          `);
+          return;
+        }
+
+        await Promise.all([
           ensureColumn(usersTable, 'transaction_pin_hash', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(usersTable, 'transaction_pin_failed_attempts', { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }),
+          ensureColumn(usersTable, 'transaction_pin_failed_attempts', { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0 }),
           ensureColumn(usersTable, 'transaction_pin_locked_until', { type: DataTypes.DATE, allowNull: true }),
           ensureColumn(usersTable, 'transaction_pin_last_changed_at', { type: DataTypes.DATE, allowNull: true }),
           ensureColumn(usersTable, 'transaction_pin_last_verified_at', { type: DataTypes.DATE, allowNull: true }),
@@ -306,6 +323,7 @@ const connectDB = async () => {
           ensureColumn(usersTable, 'transaction_pin_recovery_otp_expires_at', { type: DataTypes.DATE, allowNull: true }),
           ensureColumn(usersTable, 'transaction_pin_recovery_otp_sent_at', { type: DataTypes.DATE, allowNull: true }),
         ]);
+      };
       const ensurePlanDeletionAuditCompatibility = async () => {
         const exists = await tableExists(planDeletionAuditTable);
         if (!exists) {
@@ -405,8 +423,8 @@ const connectDB = async () => {
           ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
           ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
           ensureVoiceBundlePurchaseColumns(),
-          ensureTransactionPinColumns(),
         ]);
+        await ensureTransactionPinColumns();
         await ensurePlanDeletionAuditCompatibility();
       }
 
@@ -458,8 +476,8 @@ const connectDB = async () => {
         ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
         ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
         ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
-        ensureTransactionPinColumns(),
       ]);
+      await ensureTransactionPinColumns();
 
       try {
         await PlanPriceHistory.sync();
