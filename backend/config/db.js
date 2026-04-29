@@ -234,21 +234,48 @@ const connectDB = async () => {
       }
 
       const qi = sequelize.getQueryInterface();
+      const dialect = sequelize.getDialect();
+      const normalizeTableName = (tableName) => {
+        if (typeof tableName === 'string') return tableName;
+        if (tableName && typeof tableName === 'object') {
+          return tableName.tableName || tableName.table || tableName;
+        }
+        return tableName;
+      };
       const tableExists = async (tableName) => {
         try {
-          await qi.describeTable(tableName);
+          await qi.describeTable(normalizeTableName(tableName));
           return true;
         } catch (e) {
           return false;
         }
       };
       const ensureColumn = async (tableName, columnName, columnDef) => {
+        const normalizedTableName = normalizeTableName(tableName);
         try {
-          const desc = await qi.describeTable(tableName);
+          const desc = await qi.describeTable(normalizedTableName);
           if (desc && Object.prototype.hasOwnProperty.call(desc, columnName)) return;
-          await qi.addColumn(tableName, columnName, columnDef);
+          if (dialect === 'postgres') {
+            const queryGenerator = qi.queryGenerator;
+            const quotedTable = queryGenerator.quoteTable(normalizedTableName);
+            const quotedColumn = queryGenerator.quoteIdentifier(columnName);
+            const columnSql = queryGenerator.attributeToSQL(columnDef, {
+              context: 'addColumn',
+              table: normalizedTableName,
+              key: columnName,
+            });
+            await sequelize.query(
+              `ALTER TABLE ${quotedTable} ADD COLUMN IF NOT EXISTS ${quotedColumn} ${columnSql};`,
+            );
+            return;
+          }
+
+          await qi.addColumn(normalizedTableName, columnName, columnDef);
         } catch (e) {
-          void e;
+          console.error(
+            `[DB] Failed to ensure column "${columnName}" on table "${String(normalizedTableName)}": ${e.message}`,
+          );
+          throw e;
         }
       };
 
