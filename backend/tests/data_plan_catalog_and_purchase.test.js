@@ -1,5 +1,6 @@
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
 const app = require('../server');
 const { connectDB, User } = require('../config/db');
@@ -12,6 +13,9 @@ const smeplugService = require('../services/smeplugService');
 describe('Data plan catalog and purchase flow', () => {
   let token;
   let user;
+  let adminToken;
+  let adminUser;
+  let transactionPinToken;
 
   beforeAll(async () => {
     await connectDB();
@@ -19,10 +23,11 @@ describe('Data plan catalog and purchase flow', () => {
 
   beforeEach(async () => {
     const unique = Date.now();
+    const hashedPassword = await bcrypt.hash('password123', 4);
     user = await User.create({
       name: 'Bundle Buyer',
       email: `bundle-buyer-${unique}@test.com`,
-      password: 'password123',
+      password: hashedPassword,
       phone: `0803${String(unique).slice(-7)}`,
       role: 'user',
     });
@@ -34,6 +39,29 @@ describe('Data plan catalog and purchase flow', () => {
     });
 
     token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    adminUser = await User.create({
+      name: 'Bundle Admin',
+      email: `bundle-admin-${unique}@test.com`,
+      password: hashedPassword,
+      phone: `0813${String(unique).slice(-7)}`,
+      role: 'admin',
+    });
+    adminToken = jwt.sign({ id: adminUser.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    await request(app)
+      .post('/api/auth/transaction-pin')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ password: 'password123', pin: '4826', confirmPin: '4826' });
+
+    const pinSessionRes = await request(app)
+      .post('/api/auth/transaction-pin/session')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ pin: '4826', scope: 'financial' });
+
+    transactionPinToken = pinSessionRes.body?.data?.token;
+    expect(pinSessionRes.statusCode).toBe(200);
+    expect(transactionPinToken).toBeTruthy();
   });
 
   afterEach(async () => {
@@ -42,6 +70,7 @@ describe('Data plan catalog and purchase flow', () => {
     await DataPlan.destroy({ where: {}, force: true });
     await Wallet.destroy({ where: {}, force: true });
     await User.destroy({ where: { email: { [require('sequelize').Op.like]: 'bundle-buyer-%@test.com' } }, force: true });
+    await User.destroy({ where: { email: { [require('sequelize').Op.like]: 'bundle-admin-%@test.com' } }, force: true });
     jest.clearAllMocks();
   });
 
@@ -132,7 +161,7 @@ describe('Data plan catalog and purchase flow', () => {
       '2GB [GIFTING]',
       '10GB [GIFTING]',
     ]);
-    expect(res.body[0].plan_id).toBe('20001');
+    expect(res.body[0].plan_id).toBeUndefined();
     expect(res.body[0].network).toBe('mtn');
     expect(res.body[0].our_price).toBeGreaterThan(0);
     expect(res.body.some((plan) => plan.name === 'Broken Plan')).toBe(false);
@@ -213,7 +242,7 @@ describe('Data plan catalog and purchase flow', () => {
 
     const res = await request(app)
       .get('/api/plans/catalog')
-      .set('Authorization', `Bearer ${token}`);
+      .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.statusCode).toBe(200);
     expect(Array.isArray(res.body.items)).toBe(true);
@@ -225,6 +254,62 @@ describe('Data plan catalog and purchase flow', () => {
     expect(res.body.catalog.Airtel.SOCIAL[0].plan_id).toBe('AIRTEL-SOCIAL-1GB');
     expect(res.body.catalog.GLO.VOICE_COMBO[0].display_title).toBe('10 MINS Voice');
     expect(res.body.items.some((plan) => plan.plan_id === 'MTN-GIFT-1GB-B')).toBe(false);
+  });
+
+  it('GET /api/plans/catalog hides provider plan ids from regular users but keeps them for admins', async () => {
+    await DataPlan.bulkCreate([
+      {
+        source: 'smeplug',
+        provider: 'mtn',
+        category: 'gifting',
+        name: 'Cheap Plan [GIFTING]',
+        size: '200MB',
+        size_mb: 200,
+        validity: '1 Day',
+        data_size: '200MB',
+        plan_id: 'MTN-CHEAP',
+        original_price: 120,
+        your_price: 100,
+        wallet_price: 120,
+        admin_price: 100,
+        api_cost: 120,
+        is_active: true,
+      },
+      {
+        source: 'smeplug',
+        provider: 'mtn',
+        category: 'gifting',
+        name: 'Expensive Plan [GIFTING]',
+        size: '1GB',
+        size_mb: 1024,
+        validity: '1 Day',
+        data_size: '1GB',
+        plan_id: 'MTN-EXPENSIVE',
+        original_price: 500,
+        your_price: 450,
+        wallet_price: 500,
+        admin_price: 450,
+        api_cost: 500,
+        is_active: true,
+      },
+    ]);
+
+    const userRes = await request(app)
+      .get('/api/plans/catalog')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(userRes.statusCode).toBe(200);
+    expect(userRes.body.items.map((plan) => plan.name)).toEqual(['Cheap Plan [GIFTING]', 'Expensive Plan [GIFTING]']);
+    expect(userRes.body.items[0].plan_id).toBeUndefined();
+    expect(userRes.body.catalog.MTN.GIFTING[0].plan_id).toBeUndefined();
+
+    const adminRes = await request(app)
+      .get('/api/plans/catalog')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(adminRes.statusCode).toBe(200);
+    expect(adminRes.body.items[0].plan_id).toBe('MTN-CHEAP');
+    expect(adminRes.body.catalog.MTN.GIFTING[0].plan_id).toBe('MTN-CHEAP');
   });
 
   it('POST /api/transactions/data rejects phone numbers with the wrong network prefix', async () => {
@@ -244,6 +329,7 @@ describe('Data plan catalog and purchase flow', () => {
     const res = await request(app)
       .post('/api/transactions/data')
       .set('Authorization', `Bearer ${token}`)
+      .set('x-transaction-pin-token', transactionPinToken)
       .send({
         network: 'mtn',
         planId: plan.id,
@@ -282,12 +368,14 @@ describe('Data plan catalog and purchase flow', () => {
       .post('/api/transactions/data')
       .set('Authorization', `Bearer ${token}`)
       .set('Idempotency-Key', payload.reference)
+      .set('x-transaction-pin-token', transactionPinToken)
       .send(payload);
 
     const second = await request(app)
       .post('/api/transactions/data')
       .set('Authorization', `Bearer ${token}`)
       .set('Idempotency-Key', payload.reference)
+      .set('x-transaction-pin-token', transactionPinToken)
       .send(payload);
 
     expect(first.statusCode).toBe(200);

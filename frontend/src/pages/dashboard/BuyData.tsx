@@ -5,6 +5,8 @@ import { FadeIn, HoverCard, SlideUp, StaggerContainer, StaggerItem } from '../..
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from 'react-i18next';
 import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
+import { getStoredUser } from '../../utils/storage';
+import { formatPlanCurrency, getLowestValidPlanPrice, getPlanPriceInfo, sortPlansByAscendingPrice } from '../../utils/planPriceSort';
 
 const NETWORK_KEYS = ['mtn', 'airtel', 'glo'] as const;
 const NETWORK_LABELS = {
@@ -39,7 +41,7 @@ interface CatalogPlan {
   category_label: string;
   plan: string;
   name: string;
-  plan_id: string;
+  plan_id?: string | null;
   validity: string;
   teleco_price: number;
   our_price: number;
@@ -93,7 +95,7 @@ function getPhoneError(network: NetworkKey, phone: string, t: (key: string, opti
 }
 
 function getDuplicateGuardKey(plan: CatalogPlan, phone: string) {
-  return `buy_data_guard:${plan.network_key}:${String(plan.plan_id)}:${normalizePhone(phone)}`;
+  return `buy_data_guard:${plan.network_key}:${String(plan.plan_id || plan.id)}:${normalizePhone(phone)}`;
 }
 
 function normalizePlan(plan: any): CatalogPlan {
@@ -106,7 +108,7 @@ function normalizePlan(plan: any): CatalogPlan {
     category_label: String(plan.category_label || plan.category_key || ''),
     plan: String(plan.plan || plan.name || ''),
     name: String(plan.name || plan.plan || ''),
-    plan_id: String(plan.plan_id || plan.id),
+    plan_id: plan.plan_id ? String(plan.plan_id) : null,
     validity: String(plan.validity || ''),
     teleco_price: toNumber(plan.teleco_price, 0),
     our_price: toNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, 0),
@@ -135,7 +137,7 @@ function normalizeCatalog(rawCatalog: any): NestedCatalog {
     catalog[topKey] = Object.fromEntries(
       Object.entries(source).map(([category, plans]) => [
         category,
-        Array.isArray(plans) ? plans.map((plan) => normalizePlan(plan)) : [],
+        Array.isArray(plans) ? sortPlansByAscendingPrice(plans.map((plan) => normalizePlan(plan))) : [],
       ]),
     ) as Record<string, CatalogPlan[]>;
   }
@@ -172,7 +174,8 @@ function writeCachedCatalog(items: CatalogPlan[], catalog: NestedCatalog, versio
 
 function formatPriceLabel(plan: CatalogPlan) {
   if (plan.is_free) return 'FREE / ADD-ON';
-  return `₦${toNumber(plan.our_price).toLocaleString()}`;
+  const priceInfo = getPlanPriceInfo(plan);
+  return formatPlanCurrency(priceInfo.value ?? plan.our_price);
 }
 
 function extractPriceRange(query: string) {
@@ -259,6 +262,8 @@ function getBadgeClasses(key: string) {
 
 export default function BuyData() {
   const { t } = useTranslation();
+  const viewer = getStoredUser<{ role?: string }>();
+  const canViewProviderPlanId = viewer?.role === 'admin';
   const [plans, setPlans] = useState<CatalogPlan[]>([]);
   const [catalog, setCatalog] = useState<NestedCatalog>({ MTN: {}, Airtel: {}, GLO: {} } as NestedCatalog);
   const [selectedPlanId, setSelectedPlanId] = useState('');
@@ -287,7 +292,9 @@ export default function BuyData() {
       }
 
       const res = await api.get('/plans/catalog');
-      const items = Array.isArray(res.data?.items) ? res.data.items.map((plan: any) => normalizePlan(plan)) : [];
+      const items = Array.isArray(res.data?.items)
+        ? sortPlansByAscendingPrice(res.data.items.map((plan: any) => normalizePlan(plan)))
+        : [];
       const mappedCatalog = normalizeCatalog(res.data?.catalog);
 
       setPlans(items);
@@ -313,7 +320,7 @@ export default function BuyData() {
   );
 
   const globalResults = useMemo(
-    () => plans.filter((plan) => matchesSearch(plan, search)),
+    () => sortPlansByAscendingPrice(plans.filter((plan) => matchesSearch(plan, search))),
     [plans, search],
   );
 
@@ -338,12 +345,16 @@ export default function BuyData() {
   const visibleCategoryPlans = useMemo(() => {
     if (!activeNetwork || !activeCategory) return [];
     const topKey = NETWORK_TOP_KEYS[activeNetwork];
-    return (catalog[topKey]?.[activeCategory] || []).filter((plan) => matchesSearch(plan, search));
+    return sortPlansByAscendingPrice((catalog[topKey]?.[activeCategory] || []).filter((plan) => matchesSearch(plan, search)));
   }, [activeCategory, activeNetwork, catalog, search]);
 
   const categoryViewKey = activeNetwork && activeCategory ? `${activeNetwork}:${activeCategory}` : '';
   const categoryVisibleCount = visibleCounts[categoryViewKey] || 5;
   const categoryPlansToRender = visibleCategoryPlans.slice(0, categoryVisibleCount);
+  const lowestVisiblePrice = useMemo(
+    () => getLowestValidPlanPrice(search.trim() ? globalResults : visibleCategoryPlans),
+    [globalResults, search, visibleCategoryPlans],
+  );
 
   useEffect(() => {
     if (selectedPlan) return;
@@ -395,7 +406,9 @@ export default function BuyData() {
       `${t('buyDataPage.validityLabel')}: ${selectedPlan.validity}`,
       `${t('buyDataPage.phoneLabel')}: ${normalizedPhone}`,
       `${t('buyDataPage.chargeLabel')}: ${formatPriceLabel(selectedPlan)}`,
-      `${t('buyDataPage.providerPlanIdLabel')}: ${selectedPlan.plan_id}`,
+      ...(canViewProviderPlanId && selectedPlan.plan_id
+        ? [`${t('buyDataPage.providerPlanIdLabel')}: ${selectedPlan.plan_id}`]
+        : []),
     ].join('\n');
 
     if (!window.confirm(confirmText)) return;
@@ -555,6 +568,7 @@ export default function BuyData() {
               <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {globalResults.slice(0, 20).map((plan) => {
                   const selected = String(selectedPlanId) === String(plan.id);
+                  const isLowestPrice = lowestVisiblePrice !== null && getPlanPriceInfo(plan).value === lowestVisiblePrice;
                   return (
                     <StaggerItem
                       key={plan.id}
@@ -564,7 +578,11 @@ export default function BuyData() {
                         setActiveCategory(plan.category_key);
                       }}
                       className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                        selected ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-primary-200'
+                        selected
+                          ? 'border-primary-500 bg-primary-50'
+                          : isLowestPrice
+                            ? 'border-emerald-300 bg-emerald-50/60 hover:border-emerald-400'
+                            : 'border-gray-200 hover:border-primary-200'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -574,6 +592,9 @@ export default function BuyData() {
                           </div>
                           <div className="font-bold text-gray-900 mt-1">{plan.display_title || plan.name}</div>
                           <div className="text-sm text-gray-600 mt-1">{plan.validity}</div>
+                          {canViewProviderPlanId && plan.plan_id && (
+                            <div className="text-xs text-gray-400 mt-1">{t('buyDataPage.providerPlanIdLabel')}: {plan.plan_id}</div>
+                          )}
                           {plan.bonus_text && <div className="text-xs text-primary-700 mt-1">{plan.bonus_text}</div>}
                           <div className="flex flex-wrap gap-2 mt-3">
                             {plan.badges.map((badge: PlanBadge) => (
@@ -585,6 +606,11 @@ export default function BuyData() {
                           </div>
                         </div>
                         <div className="text-right shrink-0">
+                          {isLowestPrice && (
+                            <div className="mb-2 inline-flex rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                              Best Price
+                            </div>
+                          )}
                           <div className="font-bold text-primary-700">{formatPriceLabel(plan)}</div>
                           {plan.teleco_price > plan.our_price && plan.teleco_price > 0 && !plan.is_free && (
                             <div className="text-xs text-gray-400 line-through">₦{toNumber(plan.teleco_price).toLocaleString()}</div>
@@ -616,19 +642,26 @@ export default function BuyData() {
               <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {categoryPlansToRender.map((plan) => {
                   const selected = String(selectedPlanId) === String(plan.id);
+                  const isLowestPrice = lowestVisiblePrice !== null && getPlanPriceInfo(plan).value === lowestVisiblePrice;
                   return (
                     <StaggerItem
                       key={plan.id}
                       onClick={() => setSelectedPlanId(String(plan.id))}
                       className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                        selected ? 'border-primary-500 bg-primary-50' : 'border-gray-200 hover:border-primary-200'
+                        selected
+                          ? 'border-primary-500 bg-primary-50'
+                          : isLowestPrice
+                            ? 'border-emerald-300 bg-emerald-50/60 hover:border-emerald-400'
+                            : 'border-gray-200 hover:border-primary-200'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="font-bold text-gray-900">{plan.display_title || plan.name}</div>
                           <div className="text-sm text-gray-600 mt-1">{plan.validity}</div>
-                          <div className="text-xs text-gray-400 mt-1">{t('buyDataPage.providerPlanIdLabel')}: {plan.plan_id}</div>
+                          {canViewProviderPlanId && plan.plan_id && (
+                            <div className="text-xs text-gray-400 mt-1">{t('buyDataPage.providerPlanIdLabel')}: {plan.plan_id}</div>
+                          )}
                           {plan.bonus_text && <div className="text-xs text-primary-700 mt-2">{plan.bonus_text}</div>}
                           <div className="flex flex-wrap gap-2 mt-3">
                             {plan.badges.map((badge: PlanBadge) => (
@@ -640,6 +673,11 @@ export default function BuyData() {
                           </div>
                         </div>
                         <div className="text-right shrink-0">
+                          {isLowestPrice && (
+                            <div className="mb-2 inline-flex rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                              Best Price
+                            </div>
+                          )}
                           <div className="font-bold text-primary-700">{formatPriceLabel(plan)}</div>
                           {plan.teleco_price > plan.our_price && plan.teleco_price > 0 && !plan.is_free && (
                             <div className="text-xs text-gray-400 line-through">₦{toNumber(plan.teleco_price).toLocaleString()}</div>

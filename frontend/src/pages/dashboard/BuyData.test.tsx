@@ -33,6 +33,13 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('../../hooks/useTransactionPinGate', () => ({
+  useTransactionPinGate: () => ({
+    ensureTransactionPin: async (callback: () => Promise<void>) => callback(),
+    prompt: null,
+  }),
+}));
+
 describe('BuyData page', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -224,6 +231,8 @@ describe('BuyData page', () => {
         transaction: { reference: 'DATA-REF-001' },
       },
     });
+
+    localStorage.setItem('user', JSON.stringify({ id: 'user-1', role: 'user' }));
   });
 
   it('shows network and category flow, supports global search, and submits the selected plan purchase payload', async () => {
@@ -244,7 +253,8 @@ describe('BuyData page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Gifting \(2\)/i }));
 
-    expect(screen.getByText('1GB')).toBeInTheDocument();
+    expect(screen.getAllByText('1GB').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('110MB').length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByPlaceholderText(/search all plans/i), {
       target: { value: '1GB' },
@@ -253,6 +263,7 @@ describe('BuyData page', () => {
     expect(screen.getByText('Search Results')).toBeInTheDocument();
     expect(screen.getByText('1GB')).toBeInTheDocument();
     expect(screen.queryByText('10 MINS Voice')).not.toBeInTheDocument();
+    expect(screen.queryByText(/buyDataPage\.providerPlanIdLabel/i)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('08012345678'), {
       target: { value: '08031234567' },

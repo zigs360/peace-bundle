@@ -55,6 +55,30 @@ function cleanPlanPayload(plan) {
     return clean;
 }
 
+async function resolveCatalogRequester(req) {
+    const authHeader = req.headers?.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return null;
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (!decoded?.id) return null;
+        return await User.findByPk(decoded.id);
+    } catch (e) {
+        return null;
+    }
+}
+
+function sanitizePlanForRole(plan, { isAdmin = false } = {}) {
+    const clean = cleanPlanPayload(plan);
+    if (!isAdmin) {
+        delete clean.plan_id;
+        delete clean.smeplug_plan_id;
+        delete clean.ogdams_sku;
+    }
+    return clean;
+}
+
 function buildGroupedCatalog(items) {
     const networksMap = new Map();
 
@@ -165,19 +189,7 @@ async function loadCatalogPlans(req) {
         order: [['sort_order', 'ASC'], ['admin_price', 'ASC']]
     });
 
-    let user = null;
-    const authHeader = req.headers?.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (token) {
-        try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            if (decoded?.id) {
-                user = await User.findByPk(decoded.id);
-            }
-        } catch (e) {
-            void e;
-        }
-    }
+    const user = await resolveCatalogRequester(req);
 
     const payload = await Promise.all(
         plans.map(async (plan) => {
@@ -192,7 +204,7 @@ async function loadCatalogPlans(req) {
     );
 
     const normalizedSearch = String(search || '').trim().toLowerCase();
-    return payload
+    const items = payload
         .filter((plan) => {
             const telecoPrice = toFiniteNumber(plan.teleco_price, NaN);
             const ourPrice = toFiniteNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, NaN);
@@ -203,6 +215,12 @@ async function loadCatalogPlans(req) {
             return plan.search_text.includes(normalizedSearch);
         })
         .sort(comparePlans);
+
+    return {
+        items,
+        user,
+        isAdmin: String(user?.role || '').toLowerCase() === 'admin',
+    };
 }
 
 // @desc    Get all data plans
@@ -210,20 +228,20 @@ async function loadCatalogPlans(req) {
 // @access  Public
 const getDataPlans = async (req, res) => {
     try {
-        const filtered = await loadCatalogPlans(req);
-        const legacyVisiblePlans = filtered.filter((plan) => {
+        const { items, isAdmin } = await loadCatalogPlans(req);
+        const legacyVisiblePlans = items.filter((plan) => {
             const telecoPrice = toFiniteNumber(plan.teleco_price, NaN);
             return Number.isFinite(telecoPrice) && telecoPrice > 0;
         });
 
         if (req.query.grouped === 'true' || req.query.view === 'hierarchy') {
             return res.json({
-                items: legacyVisiblePlans.map(cleanPlanPayload),
-                networks: buildGroupedCatalog(legacyVisiblePlans),
+                items: legacyVisiblePlans.map((plan) => sanitizePlanForRole(plan, { isAdmin })),
+                networks: buildGroupedCatalog(legacyVisiblePlans.map((plan) => sanitizePlanForRole(plan, { isAdmin }))),
             });
         }
 
-        res.json(legacyVisiblePlans.map(cleanPlanPayload));
+        res.json(legacyVisiblePlans.map((plan) => sanitizePlanForRole(plan, { isAdmin })));
     } catch (error) {
         logger.error(`[DataPlan] Fetch error: ${error.message}`, { db: error.original?.message || null });
         res.status(500).json({ 
@@ -416,17 +434,32 @@ const deleteDataPlan = async (req, res) => {
 
 const getVtuDataPlanCatalog = async (req, res) => {
     try {
-        const filtered = await loadCatalogPlans(req);
-        const catalogItems = mergeAndDeduplicatePlans(filtered);
+        const { items, isAdmin } = await loadCatalogPlans(req);
+        const catalogItems = mergeAndDeduplicatePlans(items);
         const catalog = buildNestedCatalog(catalogItems);
         return res.json({
-            items: catalogItems.map(cleanCatalogPlan),
+            items: catalogItems.map((plan) => sanitizePlanForRole(cleanCatalogPlan(plan), { isAdmin })),
             networks: CATALOG_NETWORKS.map((network) => ({
                 code: network,
                 name: network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO',
-                categories: catalog[network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO'],
+                categories: Object.fromEntries(
+                    Object.entries(catalog[network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO']).map(([categoryKey, plans]) => [
+                        categoryKey,
+                        Array.isArray(plans) ? plans.map((plan) => sanitizePlanForRole(plan, { isAdmin })) : [],
+                    ])
+                ),
             })),
-            catalog,
+            catalog: Object.fromEntries(
+                Object.entries(catalog).map(([networkKey, categories]) => [
+                    networkKey,
+                    Object.fromEntries(
+                        Object.entries(categories).map(([categoryKey, plans]) => [
+                            categoryKey,
+                            Array.isArray(plans) ? plans.map((plan) => sanitizePlanForRole(plan, { isAdmin })) : [],
+                        ])
+                    ),
+                ])
+            ),
         });
     } catch (error) {
         logger.error(`[DataPlan] VTU catalog error: ${error.message}`, { db: error.original?.message || null });
