@@ -33,6 +33,18 @@ describe('Call sub Airtel purchase flow', () => {
     return user;
   };
 
+  const makeAdminToken = async () => {
+    const admin = await User.create({
+      name: 'Call Sub Admin',
+      email: `callsub_admin_${Date.now()}@test.com`,
+      phone: `0809${Math.floor(Math.random() * 10000000).toString().padStart(7, '0')}`,
+      password: 'password123',
+      role: 'admin',
+      account_status: 'active',
+    });
+    return jwt.sign({ id: admin.id }, process.env.JWT_SECRET);
+  };
+
   it('lists call sub providers', async () => {
     const res = await request(app).get('/api/callplans/call-sub/providers');
     expect(res.statusCode).toBe(200);
@@ -59,6 +71,7 @@ describe('Call sub Airtel purchase flow', () => {
     expect(res.body.data.find((bundle) => Number(bundle.minutes) === 30)?.validityDays).toBe(7);
     expect(res.body.data.find((bundle) => Number(bundle.minutes) === 50)?.validityDays).toBe(14);
     expect(res.body.data.find((bundle) => Number(bundle.minutes) === 150)?.validityDays).toBe(30);
+    expect(res.body.data[0].api_plan_id).toBeUndefined();
   });
 
   it('legacy voice bundle endpoint exposes only unified minute offerings', async () => {
@@ -68,6 +81,61 @@ describe('Call sub Airtel purchase flow', () => {
     expect(res.body).toHaveLength(5);
     expect(res.body.every((bundle) => Number(bundle.minutes) > 0)).toBe(true);
     expect(res.body.some((bundle) => String(bundle.plan_name).toLowerCase().includes('validity'))).toBe(false);
+    expect(res.body[0].api_plan_id).toBeUndefined();
+  });
+
+  it('keeps call sub provider ids hidden for regular users but visible for admins', async () => {
+    const user = await makeUserWithBalance(1000);
+    const userToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    const adminToken = await makeAdminToken();
+
+    const userBundles = await request(app)
+      .get('/api/callplans/call-sub/airtel/bundles')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(userBundles.statusCode).toBe(200);
+    expect(userBundles.body.data[0].api_plan_id).toBeUndefined();
+
+    const adminBundles = await request(app)
+      .get('/api/callplans/call-sub/airtel/bundles')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(adminBundles.statusCode).toBe(200);
+    expect(adminBundles.body.data[0].api_plan_id).toBeTruthy();
+  });
+
+  it('sanitizes generic call plan payloads for regular users while preserving admin visibility', async () => {
+    const user = await makeUserWithBalance(1000);
+    const userToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    const adminToken = await makeAdminToken();
+    const callPlan = await CallPlan.create({
+      name: 'Visible Minutes Bundle',
+      provider: 'airtel',
+      price: 250,
+      minutes: 25,
+      validityDays: 5,
+      status: 'active',
+      type: 'voice',
+      api_plan_id: `ATM-GENERIC-${Date.now()}`,
+    });
+
+    const userList = await request(app)
+      .get('/api/callplans')
+      .query({ provider: 'airtel', status: 'active' })
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(userList.statusCode).toBe(200);
+    const userEntry = userList.body.find((item) => item.id === callPlan.id);
+    expect(userEntry.api_plan_id).toBeUndefined();
+
+    const userSingle = await request(app)
+      .get(`/api/callplans/${callPlan.id}`)
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(userSingle.statusCode).toBe(200);
+    expect(userSingle.body.data.api_plan_id).toBeUndefined();
+
+    const adminSingle = await request(app)
+      .get(`/api/callplans/${callPlan.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(adminSingle.statusCode).toBe(200);
+    expect(adminSingle.body.data.api_plan_id).toBe(callPlan.api_plan_id);
   });
 
   it('purchases an Airtel bundle and records history', async () => {
@@ -95,6 +163,7 @@ describe('Call sub Airtel purchase flow', () => {
     expect(history.body.rows[0].status).toBe('completed');
     expect(history.body.rows[0].bundleCategory).toBe('minute');
     expect(history.body.rows[0].expiresAt).toBeTruthy();
+    expect(history.body.rows[0].apiPlanId).toBeUndefined();
   });
 
   it('rejects invalid phone number', async () => {

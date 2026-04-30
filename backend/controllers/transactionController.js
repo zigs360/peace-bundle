@@ -27,6 +27,7 @@ const {
     normalizePhone,
     toFiniteNumber,
 } = require('../utils/dataPlanUtils');
+const { sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
 
 // Helper for Affiliate Commission
 const processAffiliateCommission = async (user, amount, transaction, t) => {
@@ -299,7 +300,7 @@ const buyData = async (req, res) => {
                     balance: updatedWallet,
                     charged_price: existing ? toFiniteNumber(existing.amount) : cost,
                     transaction_ref: existing?.reference || reference,
-                    transaction: existing,
+                    transaction: sanitizeTransactionForClient(existing, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
                 });
             }
             throw debitError;
@@ -370,7 +371,7 @@ const buyData = async (req, res) => {
             balance: updatedWallet,
             charged_price: cost,
             transaction_ref: newTransaction.reference,
-            transaction: newTransaction
+            transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
         });
     } catch (error) {
         if (t && !t.finished) await t.rollback();

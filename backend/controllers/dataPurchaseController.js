@@ -2,6 +2,7 @@ const { DataPlan, Sim, Wallet } = require('../models');
 const dataPurchaseService = require('../services/dataPurchaseService');
 const transactionLimitService = require('../services/transactionLimitService');
 const logger = require('../utils/logger');
+const { sanitizePlanForClient, sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
 
 class DataPurchaseController {
     
@@ -36,7 +37,8 @@ class DataPurchaseController {
             // Get Wallet Balance
             const wallet = await Wallet.findOne({ where: { userId: user.id } });
 
-            res.json(activePlans);
+            const isAdmin = user.role === 'admin';
+            res.json(activePlans.map((plan) => sanitizePlanForClient(plan, { isAdmin })));
 
         } catch (error) {
             logger.error('DataPurchaseController.index error:', { error: error.message, userId: req.user.id });
@@ -97,7 +99,7 @@ class DataPurchaseController {
             res.json({
                 success: true,
                 message: 'Data purchase initiated successfully!',
-                transaction: transaction
+                transaction: sanitizeTransactionForClient(transaction, { isAdmin: user.role === 'admin' })
             });
 
         } catch (error) {

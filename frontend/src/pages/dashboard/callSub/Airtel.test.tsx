@@ -22,6 +22,17 @@ vi.mock('../../../utils/storage', () => ({
   getStoredUser: () => null,
 }));
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: { count?: number }) => {
+      if (key === 'airtelCallPage.daysValidity') {
+        return `${options?.count} days validity`;
+      }
+      return key;
+    },
+  }),
+}));
+
 describe('Airtel Call Sub page', () => {
   beforeEach(() => {
     apiGet.mockReset();
@@ -31,8 +42,8 @@ describe('Airtel Call Sub page', () => {
         return Promise.resolve({
           data: {
             data: [
-              { id: 'b1', name: 'Airtel Call Sub 10 Minutes', provider: 'airtel', price: 120, minutes: 10, validityDays: 3 },
-              { id: 'b2', name: 'Airtel Call Sub 30 Minutes', provider: 'airtel', price: 330, minutes: 30, validityDays: 7 },
+              { id: 'b1', name: 'Airtel Call Sub 10 Minutes', provider: 'airtel', price: 120, minutes: 10, validityDays: 3, api_plan_id: 'ATM-120-10M' },
+              { id: 'b2', name: 'Airtel Call Sub 30 Minutes', provider: 'airtel', price: 330, minutes: 30, validityDays: 7, api_plan_id: 'ATM-330-30M' },
             ],
           },
         });
@@ -66,7 +77,7 @@ describe('Airtel Call Sub page', () => {
     render(<Airtel />);
 
     await waitFor(() => {
-      expect(screen.getByText('Available Bundles')).toBeInTheDocument();
+      expect(screen.getByText('airtelCallPage.availableBundles')).toBeInTheDocument();
     });
 
     expect(screen.getAllByText('10 mins').length).toBeGreaterThan(0);
@@ -75,5 +86,7 @@ describe('Airtel Call Sub page', () => {
     expect(screen.getByText('7 days validity')).toBeInTheDocument();
     expect(screen.queryByText(/Validity Bundles/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Call bundle validity package/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ATM-120-10M/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ATM-330-30M/i)).not.toBeInTheDocument();
   });
 });

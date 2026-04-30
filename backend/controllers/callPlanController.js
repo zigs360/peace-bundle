@@ -17,6 +17,33 @@ const notificationRealtimeService = require('../services/notificationRealtimeSer
 const { sendEmail, sendSMS } = require('../services/notificationService');
 const sequelize = require('../config/database');
 const jwt = require('jsonwebtoken');
+const {
+  sanitizePlanForClient,
+  sanitizeVoiceBundlePurchaseForClient,
+} = require('../utils/clientPayloadSanitizers');
+
+const resolveRequestUser = async (req) => {
+  if (req.user?.id) {
+    return req.user;
+  }
+
+  const authHeader = req.headers?.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return null;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!decoded?.id) return null;
+    return await User.findByPk(decoded.id);
+  } catch (e) {
+    return null;
+  }
+};
+
+const isAdminRequest = async (req) => {
+  const user = await resolveRequestUser(req);
+  return String(user?.role || '').toLowerCase() === 'admin';
+};
 
 /**
  * @desc    Get voice bundles (TalkMore, etc.)
@@ -25,6 +52,7 @@ const jwt = require('jsonwebtoken');
  */
 const getVoiceBundles = async (req, res) => {
   try {
+    const isAdmin = await isAdminRequest(req);
     const { network, status } = req.query;
     if (!network || String(network).toLowerCase() === 'airtel') {
       const bundles = callSubLifecycleService.getPublicBundles('airtel').map((bundle) => ({
@@ -37,13 +65,13 @@ const getVoiceBundles = async (req, res) => {
         minutes: bundle.minutes,
         is_active: status !== 'inactive',
       }));
-      return res.json(bundles);
+      return res.json(bundles.map((bundle) => sanitizePlanForClient(bundle, { isAdmin })));
     }
 
     const where = { network: network.toLowerCase() };
     if (status !== undefined) where.is_active = status === 'active';
     const bundles = await VoiceBundle.findAll({ where, order: [['amount', 'ASC']] });
-    res.json(bundles);
+    res.json(bundles.map((bundle) => sanitizePlanForClient(bundle, { isAdmin })));
   } catch (error) {
     logger.error(`[CallPlan] Voice bundle fetch error: ${error.message}`);
     res.status(500).json({ 
@@ -109,6 +137,7 @@ const createCallPlan = async (req, res) => {
  */
 const getCallPlans = async (req, res) => {
   try {
+    const isAdmin = await isAdminRequest(req);
     const { provider, status, type } = req.query;
     const where = {};
 
@@ -121,17 +150,7 @@ const getCallPlans = async (req, res) => {
       order: [['price', 'ASC']],
     });
 
-    let user = null;
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        if (decoded?.id) user = await User.findByPk(decoded.id);
-      } catch (e) {
-        void e;
-      }
-    }
+    const user = await resolveRequestUser(req);
 
     const payload = await Promise.all(
       callPlans.map(async (p) => {
@@ -143,7 +162,7 @@ const getCallPlans = async (req, res) => {
           void e;
           json.effective_price = parseFloat(String(p.price));
         }
-        return json;
+        return sanitizePlanForClient(json, { isAdmin });
       }),
     );
 
@@ -158,17 +177,8 @@ const getCallPlans = async (req, res) => {
 };
 
 const resolvePricedPlans = async (plans, req) => {
-  let user = null;
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      if (decoded?.id) user = await User.findByPk(decoded.id);
-    } catch (e) {
-      void e;
-    }
-  }
+  const user = await resolveRequestUser(req);
+  const isAdmin = String(user?.role || '').toLowerCase() === 'admin';
 
   return Promise.all(
     plans.map(async (plan) => {
@@ -180,7 +190,7 @@ const resolvePricedPlans = async (plans, req) => {
         void e;
         json.effective_price = parseFloat(String(plan.price));
       }
-      return json;
+      return sanitizePlanForClient(json, { isAdmin });
     }),
   );
 };
@@ -431,7 +441,7 @@ const getMyCallSubHistory = async (req, res) => {
       success: true,
       count,
       rows: rows.map((row) => {
-        const json = row.toJSON();
+        const json = sanitizeVoiceBundlePurchaseForClient(row);
         return {
           ...json,
           bundleCategory: json.bundleCategory || callSubLifecycleService.inferBundleCategory(json),
@@ -515,6 +525,7 @@ const adminCallSubMonitoring = async (req, res) => {
  */
 const getCallPlanById = async (req, res) => {
   try {
+    const isAdmin = await isAdminRequest(req);
     const callPlan = await CallPlan.findByPk(req.params.id);
 
     if (!callPlan) {
@@ -526,7 +537,7 @@ const getCallPlanById = async (req, res) => {
 
     res.json({
       success: true,
-      data: callPlan,
+      data: sanitizePlanForClient(callPlan, { isAdmin }),
     });
   } catch (error) {
     logger.error(`[CallPlan] Fetch by ID error (${req.params.id}): ${error.message}`);

@@ -10,6 +10,7 @@ const pricingService = require('../services/pricingService');
 const transactionLimitService = require('../services/transactionLimitService');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database');
+const { sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
 
 const networkServices = {
   airtel: { airtime: true, data: true },
@@ -198,7 +199,7 @@ const purchaseUnified = async (req, res) => {
         return res.json({
           success: true,
           message: 'Data purchase successful',
-          transaction: newTransaction
+          transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
         });
       } else {
         if (t) await t.rollback();

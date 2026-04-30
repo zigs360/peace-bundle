@@ -292,7 +292,7 @@ export default function BuyData() {
       }
 
       const res = await api.get('/plans/catalog');
-      const items = Array.isArray(res.data?.items)
+      const items: CatalogPlan[] = Array.isArray(res.data?.items)
         ? sortPlansByAscendingPrice(res.data.items.map((plan: any) => normalizePlan(plan)))
         : [];
       const mappedCatalog = normalizeCatalog(res.data?.catalog);
