@@ -77,6 +77,8 @@ describe('Admin plan management', () => {
       .put(`/api/admin/plans/${plan.id}`)
       .set('Authorization', `Bearer ${token}`)
       .send({
+        name: '1GB Mega',
+        validity: '30 Days',
         your_price: 490,
         wallet_price: 510,
         available_wallet: false,
@@ -84,6 +86,8 @@ describe('Admin plan management', () => {
       });
 
     expect(res.statusCode).toBe(200);
+    expect(res.body.item.name).toBe('1GB Mega');
+    expect(res.body.item.validity).toBe('30 Days');
     expect(res.body.item.your_price).toBe(490);
     expect(res.body.item.wallet_price).toBe(510);
     expect(res.body.item.available_wallet).toBe(false);
@@ -92,8 +96,121 @@ describe('Admin plan management', () => {
       where: { planIdRef: plan.id },
       order: [['changed_at', 'ASC']],
     });
-    expect(history.map((row) => row.field_name)).toEqual(['your_price', 'wallet_price', 'available_wallet']);
+    expect(history.map((row) => row.field_name)).toEqual(['name', 'validity', 'your_price', 'wallet_price', 'available_wallet']);
     expect(history[0].reason).toBe('Vendor adjustment');
+  });
+
+  it('reflects updated name and validity in user-facing plan catalog responses', async () => {
+    const plan = await DataPlan.create({
+      source: 'smeplug',
+      provider: 'mtn',
+      category: 'gifting',
+      name: 'Old Plan Name',
+      size: '1GB',
+      size_mb: 1024,
+      validity: '1 Day',
+      data_size: '1GB',
+      plan_id: '20002',
+      original_price: 500,
+      your_price: 475,
+      wallet_price: 495,
+      admin_price: 475,
+      api_cost: 495,
+      available_sim: true,
+      available_wallet: true,
+      is_active: true,
+    });
+
+    const updateRes = await request(app)
+      .put(`/api/admin/plans/${plan.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Updated Plan Name',
+        validity: '14 Days',
+        reason: 'Catalog cleanup',
+      });
+
+    expect(updateRes.statusCode).toBe(200);
+
+    const catalogRes = await request(app)
+      .get('/api/plans/catalog');
+
+    expect(catalogRes.statusCode).toBe(200);
+    expect(catalogRes.body.items.some((item) => item.name === 'Updated Plan Name' && item.validity === '14 Days')).toBe(true);
+  });
+
+  it('rejects invalid name and validity updates', async () => {
+    const plan = await DataPlan.create({
+      source: 'smeplug',
+      provider: 'mtn',
+      category: 'gifting',
+      name: 'Valid Plan',
+      size: '1GB',
+      size_mb: 1024,
+      validity: '1 Day',
+      data_size: '1GB',
+      plan_id: '20002',
+      original_price: 500,
+      your_price: 475,
+      wallet_price: 495,
+      admin_price: 475,
+      api_cost: 495,
+      available_sim: true,
+      available_wallet: true,
+      is_active: true,
+    });
+
+    const res = await request(app)
+      .put(`/api/admin/plans/${plan.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: '  ',
+        validity: '',
+        reason: 'Broken payload',
+      });
+
+    expect(res.statusCode).toBe(400);
+    expect(String(res.body.message)).toMatch(/plan name is required/i);
+    expect(await PlanPriceHistory.count({ where: { planIdRef: plan.id } })).toBe(0);
+  });
+
+  it('rejects plan updates for non-admin users', async () => {
+    const unique = `${Date.now()}-user-update`;
+    const user = await User.create({
+      name: 'Plans User',
+      email: `plans-user-${unique}@test.com`,
+      password: 'password123',
+      phone: `0804${String(Date.now()).slice(-7)}`,
+      role: 'user',
+    });
+    const userToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const plan = await DataPlan.create({
+      source: 'smeplug',
+      provider: 'mtn',
+      category: 'gifting',
+      name: 'Restricted update plan',
+      size: '1GB',
+      size_mb: 1024,
+      validity: '1 Day',
+      data_size: '1GB',
+      plan_id: '40102',
+      original_price: 500,
+      your_price: 480,
+      wallet_price: 490,
+      admin_price: 480,
+      api_cost: 490,
+      is_active: true,
+    });
+
+    const res = await request(app)
+      .put(`/api/admin/plans/${plan.id}`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ name: 'Should not update', validity: '99 Days' });
+
+    expect(res.statusCode).toBe(403);
+    const existing = await DataPlan.findByPk(plan.id);
+    expect(existing.name).toBe('Restricted update plan');
+    expect(existing.validity).toBe('1 Day');
   });
 
   it('previews and applies a bulk update for filtered plans', async () => {

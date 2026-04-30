@@ -55,6 +55,40 @@ function toBoolean(value, fallback = false) {
   return fallback;
 }
 
+function normalizeText(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function validateEditablePayload(payload = {}) {
+  const errors = [];
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'name')) {
+    const nextName = normalizeText(payload.name);
+    if (!nextName) {
+      errors.push('Plan name is required');
+    } else if (nextName.length < 3) {
+      errors.push('Plan name must be at least 3 characters');
+    } else if (nextName.length > 160) {
+      errors.push('Plan name must not exceed 160 characters');
+    }
+    payload.name = nextName;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'validity')) {
+    const nextValidity = normalizeText(payload.validity);
+    if (!nextValidity) {
+      errors.push('Validity is required');
+    } else if (nextValidity.length < 2) {
+      errors.push('Validity must be at least 2 characters');
+    } else if (nextValidity.length > 80) {
+      errors.push('Validity must not exceed 80 characters');
+    }
+    payload.validity = nextValidity;
+  }
+
+  return errors;
+}
+
 function getChangedBy(req) {
   return req.user?.email || req.user?.id || 'admin';
 }
@@ -387,6 +421,11 @@ const updatePlan = async (req, res) => {
     }
 
     const reason = req.body?.reason ? String(req.body.reason).trim() : null;
+    const validationErrors = validateEditablePayload(req.body || {});
+    if (validationErrors.length) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: validationErrors[0], errors: validationErrors });
+    }
     const changedBy = getChangedBy(req);
     const changedFields = await updatePlanInstance(plan, req.body || {}, {
       changedBy,

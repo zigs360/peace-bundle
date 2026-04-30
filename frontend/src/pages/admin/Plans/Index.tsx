@@ -30,6 +30,11 @@ type Plan = {
   last_updated_by?: string | null;
 };
 
+type PlanValidationResult = {
+  name?: string;
+  validity?: string;
+};
+
 type PlanFilters = {
   source: string;
   network: string;
@@ -55,6 +60,30 @@ const EMPTY_FILTERS: PlanFilters = {
 function money(value: number | string | null | undefined) {
   const parsed = Number(value || 0);
   return `₦${parsed.toLocaleString()}`;
+}
+
+function normalizeText(value: string | number | null | undefined) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function validatePlanTextFields(payload: Partial<Plan>): PlanValidationResult {
+  const errors: PlanValidationResult = {};
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'name')) {
+    const nextName = normalizeText(payload.name);
+    if (!nextName) errors.name = 'Plan name is required';
+    else if (nextName.length < 3) errors.name = 'Plan name must be at least 3 characters';
+    else if (nextName.length > 160) errors.name = 'Plan name must not exceed 160 characters';
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'validity')) {
+    const nextValidity = normalizeText(payload.validity);
+    if (!nextValidity) errors.validity = 'Validity is required';
+    else if (nextValidity.length < 2) errors.validity = 'Validity must be at least 2 characters';
+    else if (nextValidity.length > 80) errors.validity = 'Validity must not exceed 80 characters';
+  }
+
+  return errors;
 }
 
 export default function PlansIndex() {
@@ -85,6 +114,7 @@ export default function PlansIndex() {
   const [bulkPreview, setBulkPreview] = useState<any[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [modalState, setModalState] = useState<Partial<Plan> & { reason?: string }>({});
+  const [modalErrors, setModalErrors] = useState<PlanValidationResult>({});
   const [deleteDialog, setDeleteDialog] = useState<{ plan: Plan; reason: string } | null>(null);
   const [bulkDeleteDialog, setBulkDeleteDialog] = useState<{ count: number; reason: string } | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -162,8 +192,46 @@ export default function PlansIndex() {
     const payload = {
       ...(drafts[plan.id] || {}),
       ...extraUpdates,
-      reason,
+      name: Object.prototype.hasOwnProperty.call({ ...(drafts[plan.id] || {}), ...extraUpdates }, 'name')
+        ? normalizeText((extraUpdates.name ?? (drafts[plan.id] || {}).name) as string)
+        : undefined,
+      validity: Object.prototype.hasOwnProperty.call({ ...(drafts[plan.id] || {}), ...extraUpdates }, 'validity')
+        ? normalizeText((extraUpdates.validity ?? (drafts[plan.id] || {}).validity) as string)
+        : undefined,
+      reason: normalizeText(reason),
     };
+    if (!Object.prototype.hasOwnProperty.call(payload, 'name')) delete payload.name;
+    if (!Object.prototype.hasOwnProperty.call(payload, 'validity')) delete payload.validity;
+
+    const validationErrors = validatePlanTextFields(payload);
+    setModalErrors(validationErrors);
+    const firstError = validationErrors.name || validationErrors.validity;
+    if (firstError) {
+      toast.error(firstError);
+      return;
+    }
+
+    const changedEntries = Object.entries(payload).filter(([key, value]) => key !== 'reason' && value !== undefined && String((plan as any)[key]) !== String(value));
+    if (!changedEntries.length) {
+      toast.error('No changes to save');
+      return;
+    }
+
+    const confirmSummary = changedEntries
+      .map(([key, value]) => `${key}: ${String((plan as any)[key] ?? '')} -> ${String(value ?? '')}`)
+      .join('\n');
+    if (!window.confirm(`Confirm plan update?\n\n${confirmSummary}`)) {
+      return;
+    }
+
+    const optimisticPlan: Plan = {
+      ...plan,
+      ...(payload as Partial<Plan>),
+      name: (payload.name as string | undefined) ?? plan.name,
+      validity: (payload.validity as string | undefined) ?? plan.validity,
+    };
+
+    setPlans((prev) => prev.map((item) => (item.id === plan.id ? optimisticPlan : item)));
     setSavingIds((prev) => [...prev, plan.id]);
     try {
       const res = await api.put(`/admin/plans/${plan.id}`, payload);
@@ -176,9 +244,12 @@ export default function PlansIndex() {
       });
       setSelectedPlan(null);
       setModalState({});
+      setModalErrors({});
       await fetchSidebarData();
+      toast.success(res.data?.message || t('admin.saveChanges'));
     } catch (err) {
       console.error(err);
+      setPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
       toast.error(t('admin.savePlanChangesFailed'));
     } finally {
       setSavingIds((prev) => prev.filter((id) => id !== plan.id));
@@ -322,6 +393,7 @@ export default function PlansIndex() {
       ...plan,
       reason: '',
     });
+    setModalErrors({});
   };
 
   const allVisibleSelected = plans.length > 0 && plans.every((plan) => selectedIds.includes(plan.id));
@@ -588,13 +660,23 @@ export default function PlansIndex() {
                     <td className="px-4 py-4 text-sm font-medium text-gray-900 uppercase">{plan.source}</td>
                     <td className="px-4 py-4 text-sm text-gray-700 uppercase">{plan.network}</td>
                     <td className="px-4 py-4 text-sm text-gray-700">
-                      <div className="font-medium text-gray-900">{plan.name}</div>
+                      <input
+                        value={String(getPlanValue(plan, 'name') ?? '')}
+                        onChange={(e) => updateDraft(plan.id, { name: e.target.value })}
+                        className="w-full min-w-[220px] rounded-md border border-gray-300 px-2 py-1 text-sm font-medium text-gray-900"
+                      />
                       {plan.category_name && <div className="text-xs text-primary-700">{plan.category_name}</div>}
                       {plan.subcategory_name && <div className="text-xs text-gray-500">{plan.subcategory_name}</div>}
                       <div className="text-xs text-gray-500">{t('admin.planIdLabel')}: {plan.plan_id}</div>
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-700">{plan.data_size}</td>
-                    <td className="px-4 py-4 text-sm text-gray-700">{plan.validity}</td>
+                    <td className="px-4 py-4">
+                      <input
+                        value={String(getPlanValue(plan, 'validity') ?? '')}
+                        onChange={(e) => updateDraft(plan.id, { validity: e.target.value })}
+                        className="w-28 rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-700"
+                      />
+                    </td>
                     <td className="px-4 py-4">
                       <input
                         value={String(getPlanValue(plan, 'your_price') ?? '')}
@@ -707,6 +789,24 @@ export default function PlansIndex() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <TextField
+                label={t('admin.tablePlanName')}
+                value={String(modalState.name ?? selectedPlan.name ?? '')}
+                onChange={(value) => {
+                  setModalState((prev) => ({ ...prev, name: value }));
+                  setModalErrors((prev) => ({ ...prev, name: undefined }));
+                }}
+                error={modalErrors.name}
+              />
+              <TextField
+                label={t('admin.tableValidity')}
+                value={String(modalState.validity ?? selectedPlan.validity ?? '')}
+                onChange={(value) => {
+                  setModalState((prev) => ({ ...prev, validity: value }));
+                  setModalErrors((prev) => ({ ...prev, validity: undefined }));
+                }}
+                error={modalErrors.validity}
+              />
               <ReadOnlyField label={t('admin.planIdLabel')} value={selectedPlan.plan_id} />
               <ReadOnlyField label={t('admin.networkPrice')} value={money(selectedPlan.original_price)} />
               <EditableField label={t('admin.yourPrice')} value={modalState.your_price ?? selectedPlan.your_price} onChange={(value) => setModalState((prev) => ({ ...prev, your_price: Number(value) }))} />
@@ -730,7 +830,7 @@ export default function PlansIndex() {
             </label>
 
             <div className="flex justify-end gap-3">
-              <button onClick={() => { setSelectedPlan(null); setModalState({}); }} className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">{t('common.cancel')}</button>
+              <button onClick={() => { setSelectedPlan(null); setModalState({}); setModalErrors({}); }} className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">{t('common.cancel')}</button>
               <button
                 onClick={() => void savePlan(selectedPlan, modalState, modalState.reason || '')}
                 className="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700"
@@ -947,6 +1047,20 @@ function EditableField({ label, value, onChange }: { label: string; value: numbe
     <label className="block">
       <span className="text-sm font-medium text-gray-700">{label}</span>
       <input value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2" />
+    </label>
+  );
+}
+
+function TextField({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string }) {
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`mt-1 w-full rounded-lg border px-3 py-2 ${error ? 'border-red-400 focus:border-red-500' : 'border-gray-300'}`}
+      />
+      {error && <div className="mt-1 text-xs text-red-600">{error}</div>}
     </label>
   );
 }

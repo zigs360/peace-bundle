@@ -15,10 +15,28 @@ vi.mock('../../../services/api', () => ({
   },
 }));
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: Record<string, any>) => {
+      const translations: Record<string, string> = {
+        'admin.plansManagementTitle': 'Plans Management',
+        'admin.applyFilters': 'Apply Filters',
+        'admin.editPlanTitle': `Edit Plan: ${options?.name ?? ''}`,
+        'admin.saveChanges': 'Save Changes',
+        'admin.importCsv': 'Import CSV',
+        'admin.importPlansTitle': 'Import Plans',
+        'admin.importPlansAction': 'Import Plans',
+      };
+      return translations[key] || key;
+    },
+  }),
+}));
+
 describe('PlansIndex', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('alert', vi.fn());
+    vi.stubGlobal('confirm', vi.fn(() => true));
 
     apiGet.mockImplementation(async (url: string, config?: any) => {
       if (url === '/admin/plans') {
@@ -111,9 +129,9 @@ describe('PlansIndex', () => {
           category_slug: 'gifting-plans',
           subcategory_name: 'Daily Plans',
           subcategory_slug: 'daily-plans',
-          name: '1GB [GIFTING]',
+          name: '1GB Mega',
           plan_id: '20002',
-          validity: '1 Day',
+          validity: '30 Days',
           data_size: '1GB',
           original_price: 500,
           your_price: 490,
@@ -127,7 +145,7 @@ describe('PlansIndex', () => {
     });
   });
 
-  it('loads plans, applies filters, and saves modal edits', async () => {
+  it('loads plans, applies filters, and saves modal edits for name, validity, and price fields', async () => {
     const { container } = render(
       <MemoryRouter>
         <PlansIndex />
@@ -168,6 +186,8 @@ describe('PlansIndex', () => {
     fireEvent.click(screen.getByText('Edit'));
 
     expect(await screen.findByText('Edit Plan: 1GB [GIFTING]')).toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue('1GB [GIFTING]'), { target: { value: '1GB Mega' } });
+    fireEvent.change(screen.getByDisplayValue('1 Day'), { target: { value: '30 Days' } });
     const priceInputs = screen.getAllByDisplayValue('475');
     fireEvent.change(priceInputs[priceInputs.length - 1], { target: { value: '490' } });
     const reasonBox = container.querySelector('textarea');
@@ -179,12 +199,33 @@ describe('PlansIndex', () => {
       expect(apiPut).toHaveBeenCalledWith(
         '/admin/plans/1',
         expect.objectContaining({
+          name: '1GB Mega',
+          validity: '30 Days',
           your_price: 490,
           reason: 'Vendor update',
           plan_id: '20002',
         }),
       );
     });
+  });
+
+  it('validates required name and validity before saving', async () => {
+    render(
+      <MemoryRouter>
+        <PlansIndex />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Plans Management')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(screen.getByDisplayValue('1GB [GIFTING]'), { target: { value: '' } });
+    fireEvent.change(screen.getByDisplayValue('1 Day'), { target: { value: '' } });
+    fireEvent.click(screen.getByText('Save Changes'));
+
+    await waitFor(() => {
+      expect(apiPut).not.toHaveBeenCalled();
+    });
+    expect(screen.getByText('Plan name is required')).toBeInTheDocument();
   });
 
   it('opens the import modal and uploads a csv file', async () => {
