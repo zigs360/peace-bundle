@@ -289,4 +289,26 @@ describe('BuyData page', () => {
       expect(screen.getByText(/purchase successful/i)).toBeInTheDocument();
     });
   });
+
+  it('does not render provider plan ids in the buy-data flow even for authenticated admin sessions', async () => {
+    localStorage.setItem('user', JSON.stringify({ id: 'admin-1', role: 'admin' }));
+
+    render(<BuyData />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /MTN \(merged\)/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /MTN/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Gifting \(2\)/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Gifting \(2\)/i }));
+
+    expect(screen.queryByText(/buyDataPage\.providerPlanIdLabel/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('20001')).not.toBeInTheDocument();
+    expect(screen.queryByText('20002')).not.toBeInTheDocument();
+  });
 });

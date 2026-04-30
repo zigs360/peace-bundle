@@ -166,6 +166,13 @@ describe('Data plan catalog and purchase flow', () => {
     expect(res.body[0].our_price).toBeGreaterThan(0);
     expect(res.body.some((plan) => plan.name === 'Broken Plan')).toBe(false);
     expect(res.body.some((plan) => plan.name === 'NaN Plan')).toBe(false);
+
+    const adminRes = await request(app)
+      .get('/api/plans')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(adminRes.statusCode).toBe(200);
+    expect(adminRes.body[0].plan_id).toBeUndefined();
   });
 
   it('GET /api/plans/catalog merges MTN plans, classifies categories, and returns nested catalog data', async () => {
@@ -249,14 +256,14 @@ describe('Data plan catalog and purchase flow', () => {
     expect(Array.isArray(res.body.networks)).toBe(true);
     expect(res.body.networks[0].code).toBe('mtn');
     expect(res.body.catalog.MTN.GIFTING).toHaveLength(1);
-    expect(res.body.catalog.MTN.GIFTING[0].plan_id).toBe('MTN-GIFT-1GB-A');
+    expect(res.body.catalog.MTN.GIFTING[0].plan_id).toBeUndefined();
     expect(res.body.catalog.MTN.GIFTING[0].bonus_text).toMatch(/\+ 25 min/i);
-    expect(res.body.catalog.Airtel.SOCIAL[0].plan_id).toBe('AIRTEL-SOCIAL-1GB');
+    expect(res.body.catalog.Airtel.SOCIAL[0].plan_id).toBeUndefined();
     expect(res.body.catalog.GLO.VOICE_COMBO[0].display_title).toBe('10 MINS Voice');
     expect(res.body.items.some((plan) => plan.plan_id === 'MTN-GIFT-1GB-B')).toBe(false);
   });
 
-  it('GET /api/plans/catalog hides provider plan ids from regular users but keeps them for admins', async () => {
+  it('GET /api/plans/catalog hides provider plan ids for authenticated users in the buy-data flow', async () => {
     await DataPlan.bulkCreate([
       {
         source: 'smeplug',
@@ -308,8 +315,15 @@ describe('Data plan catalog and purchase flow', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(adminRes.statusCode).toBe(200);
-    expect(adminRes.body.items[0].plan_id).toBe('MTN-CHEAP');
-    expect(adminRes.body.catalog.MTN.GIFTING[0].plan_id).toBe('MTN-CHEAP');
+    expect(adminRes.body.items[0].plan_id).toBeUndefined();
+    expect(adminRes.body.catalog.MTN.GIFTING[0].plan_id).toBeUndefined();
+
+    const adminPlansRes = await request(app)
+      .get('/api/admin/plans')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(adminPlansRes.statusCode).toBe(200);
+    expect(adminPlansRes.body.items.some((plan) => plan.plan_id === 'MTN-CHEAP')).toBe(true);
   });
 
   it('POST /api/transactions/data rejects phone numbers with the wrong network prefix', async () => {
@@ -382,6 +396,8 @@ describe('Data plan catalog and purchase flow', () => {
     expect(second.statusCode).toBe(200);
     expect(first.body.transaction.reference).toBe(payload.reference);
     expect(second.body.transaction.reference).toBe(payload.reference);
+    expect(first.body.transaction.metadata?.provider_plan_id).toBeUndefined();
+    expect(second.body.transaction.metadata?.provider_plan_id).toBeUndefined();
     expect(second.body.message).toMatch(/duplicate request/i);
     expect(smeplugService.purchaseData).toHaveBeenCalledTimes(1);
   });

@@ -68,8 +68,8 @@ export default function OgdamsDataPurchase() {
   };
 
   const refreshPlans = async () => {
-    const res = await api.get('/plans');
-    setPlans(res.data?.data || res.data || []);
+    const res = await api.get('/admin/plans', { params: { limit: 500, source: 'ogdams' } });
+    setPlans(res.data?.items || []);
   };
 
   useEffect(() => {
@@ -327,4 +327,3 @@ export default function OgdamsDataPurchase() {
     </div>
   );
 }
-

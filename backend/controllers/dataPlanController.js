@@ -55,6 +55,14 @@ function cleanPlanPayload(plan) {
     return clean;
 }
 
+function sanitizePlanForClient(plan) {
+    const clean = cleanPlanPayload(plan);
+    delete clean.plan_id;
+    delete clean.smeplug_plan_id;
+    delete clean.ogdams_sku;
+    return clean;
+}
+
 async function resolveCatalogRequester(req) {
     const authHeader = req.headers?.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -67,16 +75,6 @@ async function resolveCatalogRequester(req) {
     } catch (e) {
         return null;
     }
-}
-
-function sanitizePlanForRole(plan, { isAdmin = false } = {}) {
-    const clean = cleanPlanPayload(plan);
-    if (!isAdmin) {
-        delete clean.plan_id;
-        delete clean.smeplug_plan_id;
-        delete clean.ogdams_sku;
-    }
-    return clean;
 }
 
 function buildGroupedCatalog(items) {
@@ -218,8 +216,6 @@ async function loadCatalogPlans(req) {
 
     return {
         items,
-        user,
-        isAdmin: String(user?.role || '').toLowerCase() === 'admin',
     };
 }
 
@@ -228,7 +224,7 @@ async function loadCatalogPlans(req) {
 // @access  Public
 const getDataPlans = async (req, res) => {
     try {
-        const { items, isAdmin } = await loadCatalogPlans(req);
+        const { items } = await loadCatalogPlans(req);
         const legacyVisiblePlans = items.filter((plan) => {
             const telecoPrice = toFiniteNumber(plan.teleco_price, NaN);
             return Number.isFinite(telecoPrice) && telecoPrice > 0;
@@ -236,12 +232,12 @@ const getDataPlans = async (req, res) => {
 
         if (req.query.grouped === 'true' || req.query.view === 'hierarchy') {
             return res.json({
-                items: legacyVisiblePlans.map((plan) => sanitizePlanForRole(plan, { isAdmin })),
-                networks: buildGroupedCatalog(legacyVisiblePlans.map((plan) => sanitizePlanForRole(plan, { isAdmin }))),
+                items: legacyVisiblePlans.map((plan) => sanitizePlanForClient(plan)),
+                networks: buildGroupedCatalog(legacyVisiblePlans.map((plan) => sanitizePlanForClient(plan))),
             });
         }
 
-        res.json(legacyVisiblePlans.map((plan) => sanitizePlanForRole(plan, { isAdmin })));
+        res.json(legacyVisiblePlans.map((plan) => sanitizePlanForClient(plan)));
     } catch (error) {
         logger.error(`[DataPlan] Fetch error: ${error.message}`, { db: error.original?.message || null });
         res.status(500).json({ 
@@ -434,18 +430,18 @@ const deleteDataPlan = async (req, res) => {
 
 const getVtuDataPlanCatalog = async (req, res) => {
     try {
-        const { items, isAdmin } = await loadCatalogPlans(req);
+        const { items } = await loadCatalogPlans(req);
         const catalogItems = mergeAndDeduplicatePlans(items);
         const catalog = buildNestedCatalog(catalogItems);
         return res.json({
-            items: catalogItems.map((plan) => sanitizePlanForRole(cleanCatalogPlan(plan), { isAdmin })),
+            items: catalogItems.map((plan) => sanitizePlanForClient(cleanCatalogPlan(plan))),
             networks: CATALOG_NETWORKS.map((network) => ({
                 code: network,
                 name: network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO',
                 categories: Object.fromEntries(
                     Object.entries(catalog[network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO']).map(([categoryKey, plans]) => [
                         categoryKey,
-                        Array.isArray(plans) ? plans.map((plan) => sanitizePlanForRole(plan, { isAdmin })) : [],
+                        Array.isArray(plans) ? plans.map((plan) => sanitizePlanForClient(plan)) : [],
                     ])
                 ),
             })),
@@ -455,7 +451,7 @@ const getVtuDataPlanCatalog = async (req, res) => {
                     Object.fromEntries(
                         Object.entries(categories).map(([categoryKey, plans]) => [
                             categoryKey,
-                            Array.isArray(plans) ? plans.map((plan) => sanitizePlanForRole(plan, { isAdmin })) : [],
+                            Array.isArray(plans) ? plans.map((plan) => sanitizePlanForClient(plan)) : [],
                         ])
                     ),
                 ])

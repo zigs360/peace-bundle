@@ -5,7 +5,6 @@ import { FadeIn, HoverCard, SlideUp, StaggerContainer, StaggerItem } from '../..
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from 'react-i18next';
 import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
-import { getStoredUser } from '../../utils/storage';
 import { formatPlanCurrency, getLowestValidPlanPrice, getPlanPriceInfo, sortPlansByAscendingPrice } from '../../utils/planPriceSort';
 
 const NETWORK_KEYS = ['mtn', 'airtel', 'glo'] as const;
@@ -262,8 +261,6 @@ function getBadgeClasses(key: string) {
 
 export default function BuyData() {
   const { t } = useTranslation();
-  const viewer = getStoredUser<{ role?: string }>();
-  const canViewProviderPlanId = viewer?.role === 'admin';
   const [plans, setPlans] = useState<CatalogPlan[]>([]);
   const [catalog, setCatalog] = useState<NestedCatalog>({ MTN: {}, Airtel: {}, GLO: {} } as NestedCatalog);
   const [selectedPlanId, setSelectedPlanId] = useState('');
@@ -406,9 +403,6 @@ export default function BuyData() {
       `${t('buyDataPage.validityLabel')}: ${selectedPlan.validity}`,
       `${t('buyDataPage.phoneLabel')}: ${normalizedPhone}`,
       `${t('buyDataPage.chargeLabel')}: ${formatPriceLabel(selectedPlan)}`,
-      ...(canViewProviderPlanId && selectedPlan.plan_id
-        ? [`${t('buyDataPage.providerPlanIdLabel')}: ${selectedPlan.plan_id}`]
-        : []),
     ].join('\n');
 
     if (!window.confirm(confirmText)) return;
@@ -592,9 +586,6 @@ export default function BuyData() {
                           </div>
                           <div className="font-bold text-gray-900 mt-1">{plan.display_title || plan.name}</div>
                           <div className="text-sm text-gray-600 mt-1">{plan.validity}</div>
-                          {canViewProviderPlanId && plan.plan_id && (
-                            <div className="text-xs text-gray-400 mt-1">{t('buyDataPage.providerPlanIdLabel')}: {plan.plan_id}</div>
-                          )}
                           {plan.bonus_text && <div className="text-xs text-primary-700 mt-1">{plan.bonus_text}</div>}
                           <div className="flex flex-wrap gap-2 mt-3">
                             {plan.badges.map((badge: PlanBadge) => (
@@ -659,9 +650,6 @@ export default function BuyData() {
                         <div className="min-w-0">
                           <div className="font-bold text-gray-900">{plan.display_title || plan.name}</div>
                           <div className="text-sm text-gray-600 mt-1">{plan.validity}</div>
-                          {canViewProviderPlanId && plan.plan_id && (
-                            <div className="text-xs text-gray-400 mt-1">{t('buyDataPage.providerPlanIdLabel')}: {plan.plan_id}</div>
-                          )}
                           {plan.bonus_text && <div className="text-xs text-primary-700 mt-2">{plan.bonus_text}</div>}
                           <div className="flex flex-wrap gap-2 mt-3">
                             {plan.badges.map((badge: PlanBadge) => (
