@@ -242,12 +242,24 @@ const connectDB = async () => {
 
       const qi = sequelize.getQueryInterface();
       const dialect = sequelize.getDialect();
+      const isProduction = process.env.NODE_ENV === 'production';
+      const runtimeSchemaEnsureMode = String(
+        process.env.DB_RUNTIME_SCHEMA_ENSURE || (isProduction ? 'false' : 'true'),
+      ).toLowerCase();
+      const shouldRunRuntimeSchemaEnsure = ['1', 'true', 'yes', 'on'].includes(runtimeSchemaEnsureMode);
       const normalizeTableName = (tableName) => {
         if (typeof tableName === 'string') return tableName;
         if (tableName && typeof tableName === 'object') {
           return tableName.tableName || tableName.table || tableName;
         }
         return tableName;
+      };
+      const runRuntimeSchemaEnsure = async (label, work) => {
+        if (!shouldRunRuntimeSchemaEnsure) {
+          console.log(`[DB] Skipping runtime schema ensure for ${label}; relying on migrations`);
+          return;
+        }
+        await work();
       };
       const tableExists = async (tableName) => {
         try {
@@ -433,6 +445,65 @@ const connectDB = async () => {
       };
 
       if (process.env.NODE_ENV !== 'test') {
+        await runRuntimeSchemaEnsure('pre-sync compatibility bootstrap', async () => {
+          await Promise.all([
+            ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'source', { type: DataTypes.STRING, allowNull: false, defaultValue: 'smeplug' }),
+            ensureColumn(dataPlansTable, 'plan_id', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'service_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'Data Plans' }),
+            ensureColumn(dataPlansTable, 'service_slug', { type: DataTypes.STRING, allowNull: false, defaultValue: 'data-plans' }),
+            ensureColumn(dataPlansTable, 'category_name', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'category_slug', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'subcategory_name', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'subcategory_slug', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'network_display_name', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'network_color', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'network_icon', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'data_size', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'original_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+            ensureColumn(dataPlansTable, 'your_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+            ensureColumn(dataPlansTable, 'wallet_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+            ensureColumn(dataPlansTable, 'available_sim', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
+            ensureColumn(dataPlansTable, 'available_wallet', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
+            ensureColumn(dataPlansTable, 'last_updated_by', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'deletedAt', { type: DataTypes.DATE, allowNull: true }),
+            ensureColumn(dataPlansTable, 'deleted_by', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'deletion_reason', { type: DataTypes.TEXT, allowNull: true }),
+            ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
+            ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
+            ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
+            ensureTransactionIntegrityColumns(),
+            ensureCallPlanColumns(),
+            ensureVoiceBundlePurchaseColumns(),
+          ]);
+          await ensureTransactionPinColumns();
+          await ensurePlanDeletionAuditCompatibility();
+        });
+      }
+
+      if (process.env.NODE_ENV === 'test') {
+        if (!globalState.isSyncDone) {
+          console.log('Syncing models (test mode)...');
+          await sequelize.sync({ force: true });
+          console.log('Models synced');
+          globalState.isSyncDone = true;
+        }
+      } else {
+        const syncMode = String(
+          process.env.DB_SYNC || (process.env.NODE_ENV === 'production' ? 'safe' : 'alter'),
+        ).toLowerCase();
+
+        if (syncMode === 'alter') {
+          await sequelize.sync({ alter: true });
+        } else if (syncMode === 'safe') {
+          await sequelize.sync();
+        } else if (syncMode !== 'none') {
+          throw new Error(`Invalid DB_SYNC mode: ${syncMode}`);
+        }
+      }
+
+      await runRuntimeSchemaEnsure('post-sync compatibility bootstrap', async () => {
         await Promise.all([
           ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
           ensureColumn(dataPlansTable, 'source', { type: DataTypes.STRING, allowNull: false, defaultValue: 'smeplug' }),
@@ -462,81 +533,30 @@ const connectDB = async () => {
           ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
           ensureTransactionIntegrityColumns(),
           ensureCallPlanColumns(),
-          ensureVoiceBundlePurchaseColumns(),
         ]);
         await ensureTransactionPinColumns();
-        await ensurePlanDeletionAuditCompatibility();
-      }
-
-      if (process.env.NODE_ENV === 'test') {
-        if (!globalState.isSyncDone) {
-          console.log('Syncing models (test mode)...');
-          await sequelize.sync({ force: true });
-          console.log('Models synced');
-          globalState.isSyncDone = true;
-        }
-      } else {
-        const syncMode = String(
-          process.env.DB_SYNC || (process.env.NODE_ENV === 'production' ? 'safe' : 'alter'),
-        ).toLowerCase();
-
-        if (syncMode === 'alter') {
-          await sequelize.sync({ alter: true });
-        } else if (syncMode === 'safe') {
-          await sequelize.sync();
-        } else if (syncMode !== 'none') {
-          throw new Error(`Invalid DB_SYNC mode: ${syncMode}`);
-        }
-      }
-
-      await Promise.all([
-        ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'source', { type: DataTypes.STRING, allowNull: false, defaultValue: 'smeplug' }),
-        ensureColumn(dataPlansTable, 'plan_id', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'service_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'Data Plans' }),
-        ensureColumn(dataPlansTable, 'service_slug', { type: DataTypes.STRING, allowNull: false, defaultValue: 'data-plans' }),
-        ensureColumn(dataPlansTable, 'category_name', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'category_slug', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'subcategory_name', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'subcategory_slug', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'network_display_name', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'network_color', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'network_icon', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'data_size', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'original_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
-        ensureColumn(dataPlansTable, 'your_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
-        ensureColumn(dataPlansTable, 'wallet_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
-        ensureColumn(dataPlansTable, 'available_sim', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
-        ensureColumn(dataPlansTable, 'available_wallet', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
-        ensureColumn(dataPlansTable, 'last_updated_by', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'deletedAt', { type: DataTypes.DATE, allowNull: true }),
-        ensureColumn(dataPlansTable, 'deleted_by', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(dataPlansTable, 'deletion_reason', { type: DataTypes.TEXT, allowNull: true }),
-        ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
-        ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
-        ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
-        ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
-        ensureTransactionIntegrityColumns(),
-        ensureCallPlanColumns(),
-      ]);
-      await ensureTransactionPinColumns();
+      });
 
       try {
         await PlanPriceHistory.sync();
-        await ensureColumn(planPriceHistoryTable, 'field_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'your_price' });
-        await ensureColumn(planPriceHistoryTable, 'old_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
-        await ensureColumn(planPriceHistoryTable, 'new_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
-        await ensureColumn(planPriceHistoryTable, 'old_value', { type: DataTypes.STRING, allowNull: true });
-        await ensureColumn(planPriceHistoryTable, 'new_value', { type: DataTypes.STRING, allowNull: true });
-        await ensureColumn(planPriceHistoryTable, 'changed_by', { type: DataTypes.STRING, allowNull: false, defaultValue: 'system' });
-        await ensureColumn(planPriceHistoryTable, 'reason', { type: DataTypes.TEXT, allowNull: true });
-        await ensureColumn(planPriceHistoryTable, 'source', { type: DataTypes.STRING, allowNull: true });
+        await runRuntimeSchemaEnsure('plan price history compatibility', async () => {
+          await ensureColumn(planPriceHistoryTable, 'field_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'your_price' });
+          await ensureColumn(planPriceHistoryTable, 'old_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
+          await ensureColumn(planPriceHistoryTable, 'new_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
+          await ensureColumn(planPriceHistoryTable, 'old_value', { type: DataTypes.STRING, allowNull: true });
+          await ensureColumn(planPriceHistoryTable, 'new_value', { type: DataTypes.STRING, allowNull: true });
+          await ensureColumn(planPriceHistoryTable, 'changed_by', { type: DataTypes.STRING, allowNull: false, defaultValue: 'system' });
+          await ensureColumn(planPriceHistoryTable, 'reason', { type: DataTypes.TEXT, allowNull: true });
+          await ensureColumn(planPriceHistoryTable, 'source', { type: DataTypes.STRING, allowNull: true });
+        });
       } catch (e) {
         console.error('Plan price history table sync failed:', e.message);
       }
 
       try {
-        await ensurePlanDeletionAuditCompatibility();
+        await runRuntimeSchemaEnsure('plan deletion audit compatibility', async () => {
+          await ensurePlanDeletionAuditCompatibility();
+        });
         await PlanDeletionAudit.sync();
       } catch (e) {
         console.error('Plan deletion audit table sync failed:', e.message);
@@ -552,7 +572,9 @@ const connectDB = async () => {
       try {
         await VoiceBundlePurchase.sync();
         await VoiceBundlePurchaseAudit.sync();
-        await ensureVoiceBundlePurchaseColumns();
+        await runRuntimeSchemaEnsure('voice bundle purchase compatibility', async () => {
+          await ensureVoiceBundlePurchaseColumns();
+        });
       } catch (e) {
         console.error('Voice bundle purchase tables sync failed:', e.message);
       }
@@ -565,13 +587,15 @@ const connectDB = async () => {
 
       try {
         await TransactionIntegrityAudit.sync();
-        await ensureColumn(transactionIntegrityAuditTable, 'transaction_id', { type: DataTypes.UUID, allowNull: false });
-        await ensureColumn(transactionIntegrityAuditTable, 'user_id', { type: DataTypes.UUID, allowNull: true });
-        await ensureColumn(transactionIntegrityAuditTable, 'event_type', { type: DataTypes.STRING, allowNull: false });
-        await ensureColumn(transactionIntegrityAuditTable, 'severity', { type: DataTypes.STRING, allowNull: false, defaultValue: 'info' });
-        await ensureColumn(transactionIntegrityAuditTable, 'status', { type: DataTypes.STRING, allowNull: false, defaultValue: 'open' });
-        await ensureColumn(transactionIntegrityAuditTable, 'details', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
-        await ensureColumn(transactionIntegrityAuditTable, 'resolved_at', { type: DataTypes.DATE, allowNull: true });
+        await runRuntimeSchemaEnsure('transaction integrity audit compatibility', async () => {
+          await ensureColumn(transactionIntegrityAuditTable, 'transaction_id', { type: DataTypes.UUID, allowNull: false });
+          await ensureColumn(transactionIntegrityAuditTable, 'user_id', { type: DataTypes.UUID, allowNull: true });
+          await ensureColumn(transactionIntegrityAuditTable, 'event_type', { type: DataTypes.STRING, allowNull: false });
+          await ensureColumn(transactionIntegrityAuditTable, 'severity', { type: DataTypes.STRING, allowNull: false, defaultValue: 'info' });
+          await ensureColumn(transactionIntegrityAuditTable, 'status', { type: DataTypes.STRING, allowNull: false, defaultValue: 'open' });
+          await ensureColumn(transactionIntegrityAuditTable, 'details', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
+          await ensureColumn(transactionIntegrityAuditTable, 'resolved_at', { type: DataTypes.DATE, allowNull: true });
+        });
       } catch (e) {
         console.error('Transaction integrity audit table sync failed:', e.message);
       }
