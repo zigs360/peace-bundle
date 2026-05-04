@@ -491,7 +491,7 @@ const connectDB = async () => {
         }
       } else {
         const syncMode = String(
-          process.env.DB_SYNC || (process.env.NODE_ENV === 'production' ? 'safe' : 'alter'),
+          process.env.DB_SYNC || (process.env.NODE_ENV === 'production' ? 'none' : 'alter'),
         ).toLowerCase();
 
         if (syncMode === 'alter') {
