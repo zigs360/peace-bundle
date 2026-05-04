@@ -7,6 +7,7 @@ const TransactionModel = require('../models/Transaction');
 const DataPlan = require('../models/DataPlan');
 const User = require('../models/User');
 const notificationRealtimeService = require('./notificationRealtimeService');
+const { getReadableTransactionAttributes } = require('./transactionSchemaCompatibilityService');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 
@@ -272,7 +273,9 @@ class TreasuryService {
 
   async collectRevenueCandidates({ since, until, transaction }) {
     const dialect = sequelize.getDialect ? sequelize.getDialect() : null;
+    const readableAttributes = await getReadableTransactionAttributes();
     const candidates = await TransactionModel.findAll({
+      ...(readableAttributes ? { attributes: readableAttributes } : {}),
       where: {
         status: 'completed',
         [Op.and]: [

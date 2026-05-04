@@ -6,6 +6,7 @@ const AdminWalletDeduction = require('../models/AdminWalletDeduction');
 const Notification = require('../models/Notification');
 const SystemSetting = require('../models/SystemSetting');
 const notificationRealtimeService = require('./notificationRealtimeService');
+const { getReadableTransactionAttributes } = require('./transactionSchemaCompatibilityService');
 const logger = require('../utils/logger');
 
 const MAIN_BALANCE_SOURCES = new Set([
@@ -76,10 +77,12 @@ class WalletReconciliationService {
   }
 
   async buildUserReport(userId, { includeTransactions = false, transactionLimit = 100 } = {}) {
+    const readableAttributes = await getReadableTransactionAttributes();
     const [user, wallet, allUserTransactions, deductions] = await Promise.all([
       User.findByPk(userId, { attributes: ['id', 'name', 'email', 'phone', 'role'] }),
       Wallet.findOne({ where: { userId } }),
       Transaction.findAll({
+        ...(readableAttributes ? { attributes: readableAttributes } : {}),
         where: { userId },
         order: [['createdAt', 'ASC'], ['id', 'ASC']],
       }),

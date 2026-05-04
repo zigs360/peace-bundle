@@ -25,6 +25,10 @@ const { sendEmail, sendSMS } = require('../services/notificationService');
 const sequelize = require('../config/database');
 const jwt = require('jsonwebtoken');
 const {
+  getReadableCallPlanAttributes,
+  getCallPlanSchemaCompatibility,
+} = require('../services/callPlanSchemaCompatibilityService');
+const {
   sanitizePlanForClient,
   sanitizeVoiceBundlePurchaseForClient,
 } = require('../utils/clientPayloadSanitizers');
@@ -74,6 +78,20 @@ const normalizeManagedCallPlan = (plan) => {
     validityLocked: String(json.bundleClass ?? json.bundle_class ?? '').toLowerCase() === TALKMORE_GIFTING_BUNDLE_CLASS,
     ussdMapping: json.metadata?.ussdMapping || (json.shortCode || json.short_code ? `*312*${json.shortCode || json.short_code}#` : null),
   };
+};
+
+const withSafeCallPlanReadAttributes = async (options = {}) => {
+  const readableAttributes = await getReadableCallPlanAttributes();
+  if (!readableAttributes || options.attributes) return options;
+  return {
+    ...options,
+    attributes: readableAttributes,
+  };
+};
+
+const canUseManagedCallPlanColumns = async () => {
+  const compatibility = await getCallPlanSchemaCompatibility();
+  return compatibility.managedColumnsAvailable;
 };
 
 /**
@@ -184,10 +202,10 @@ const getCallPlans = async (req, res) => {
     if (status) where.status = status;
     if (type) where.type = type;
 
-    const callPlans = await CallPlan.findAll({
+    const callPlans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
       where,
       order: [['price', 'ASC']],
-    });
+    }));
 
     const user = await resolveRequestUser(req);
 
@@ -258,18 +276,24 @@ const getCallSubBundles = async (req, res) => {
   try {
     const provider = resolveCallSubProvider(req.params.provider);
     const portfolio = String(req.query.portfolio || '').trim().toLowerCase();
+    const managedColumnsAvailable = await canUseManagedCallPlanColumns();
     const where = {
       provider: provider.key,
       status: 'active',
       type: 'voice',
     };
     if (portfolio === 'talkmore') {
+      if (!managedColumnsAvailable) {
+        return res.json({ success: true, data: [] });
+      }
       where.bundleClass = TALKMORE_GIFTING_BUNDLE_CLASS;
     } else {
       where.api_plan_id = { [Op.like]: `${provider.apiPlanPrefix}%` };
-      where.bundleClass = { [Op.ne]: TALKMORE_GIFTING_BUNDLE_CLASS };
+      if (managedColumnsAvailable) {
+        where.bundleClass = { [Op.ne]: TALKMORE_GIFTING_BUNDLE_CLASS };
+      }
     }
-    const plans = await CallPlan.findAll({ where, order: [['price', 'ASC']] });
+    const plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({ where, order: [['price', 'ASC']] }));
     const payload = await resolvePricedPlans(plans, req);
     res.json({ success: true, data: payload });
   } catch (error) {
@@ -294,7 +318,7 @@ const purchaseCallSubBundle = async (req, res) => {
     const user = await User.findByPk(userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const callPlan = await CallPlan.findByPk(callPlanId);
+    const callPlan = await CallPlan.findByPk(callPlanId, await withSafeCallPlanReadAttributes());
     if (!callPlan || callPlan.provider !== provider.key) {
       return res.status(404).json({ success: false, message: 'Selected bundle no longer exists' });
     }
@@ -548,7 +572,7 @@ const adminCallSubAnalytics = async (req, res) => {
     const since = req.query.since ? new Date(String(req.query.since)) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const where = { provider: provider.key, createdAt: { [Op.gte]: since } };
     const rows = await VoiceBundlePurchase.findAll({ where });
-    const plans = await CallPlan.findAll({ where: { provider: provider.key }, order: [['internalSequenceNumber', 'ASC'], ['price', 'ASC']] });
+    const plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({ where: { provider: provider.key }, order: [['price', 'ASC']] }));
     const planMap = new Map(plans.map((plan) => [String(plan.id), normalizeManagedCallPlan(plan)]));
     const planCodeMap = new Map(plans.map((plan) => [String(plan.api_plan_id || plan.shortCode || ''), normalizeManagedCallPlan(plan)]));
 
@@ -630,7 +654,7 @@ const adminCallSubMonitoring = async (req, res) => {
 const getCallPlanById = async (req, res) => {
   try {
     const isAdmin = await isAdminRequest(req);
-    const callPlan = await CallPlan.findByPk(req.params.id);
+    const callPlan = await CallPlan.findByPk(req.params.id, await withSafeCallPlanReadAttributes());
 
     if (!callPlan) {
       return res.status(404).json({ 
@@ -661,7 +685,7 @@ const updateCallPlan = async (req, res) => {
   try {
     const payload = normalizeCallPlanPayload(req.body || {});
 
-    const callPlan = await CallPlan.findByPk(req.params.id);
+    const callPlan = await CallPlan.findByPk(req.params.id, await withSafeCallPlanReadAttributes());
 
     if (!callPlan) {
       return res.status(404).json({ 
@@ -712,7 +736,7 @@ const updateCallPlan = async (req, res) => {
  */
 const deleteCallPlan = async (req, res) => {
   try {
-    const callPlan = await CallPlan.findByPk(req.params.id);
+    const callPlan = await CallPlan.findByPk(req.params.id, await withSafeCallPlanReadAttributes());
 
     if (!callPlan) {
       return res.status(404).json({ 
@@ -741,12 +765,16 @@ const listManagedCallSubPlans = async (req, res) => {
   try {
     const provider = resolveCallSubProvider(req.params.provider);
     const portfolio = String(req.query.portfolio || '').trim().toLowerCase();
+    const managedColumnsAvailable = await canUseManagedCallPlanColumns();
+    if (portfolio && !managedColumnsAvailable) {
+      return res.json({ success: true, items: [] });
+    }
     const where = { provider: provider.key };
     if (portfolio) where.portfolio = portfolio;
-    const plans = await CallPlan.findAll({
+    const plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
       where,
-      order: [['internalSequenceNumber', 'ASC'], ['customerPrice', 'ASC'], ['createdAt', 'ASC']],
-    });
+      order: [['price', 'ASC'], ['createdAt', 'ASC']],
+    }));
     return res.json({ success: true, items: plans.map((plan) => normalizeManagedCallPlan(plan)) });
   } catch (error) {
     const statusCode = error.statusCode || 500;
@@ -758,10 +786,14 @@ const listManagedCallSubPlans = async (req, res) => {
 const getCallSubStock = async (req, res) => {
   try {
     const provider = resolveCallSubProvider(req.params.provider);
-    const plans = await CallPlan.findAll({
+    const managedColumnsAvailable = await canUseManagedCallPlanColumns();
+    if (!managedColumnsAvailable) {
+      return res.json({ success: true, provider: provider.key, items: [] });
+    }
+    const plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
       where: { provider: provider.key },
-      order: [['internalSequenceNumber', 'ASC'], ['customerPrice', 'ASC']],
-    });
+      order: [['price', 'ASC']],
+    }));
     const items = plans.map((plan) => normalizeManagedCallPlan(plan)).map((plan) => ({
       id: plan.id,
       name: plan.name,
@@ -787,7 +819,7 @@ const calculateCallSubCommission = async (req, res) => {
     const { planId, activationDate, customerPrice, dealerCommission, cycleDays } = req.body || {};
     let plan = null;
     if (planId) {
-      plan = await CallPlan.findOne({ where: { id: planId, provider: provider.key } });
+      plan = await CallPlan.findOne(await withSafeCallPlanReadAttributes({ where: { id: planId, provider: provider.key } }));
       if (!plan) {
         return res.status(404).json({ success: false, message: 'Call plan not found' });
       }
@@ -830,7 +862,7 @@ const purchaseCallPlan = async (req, res) => {
       });
     }
 
-    const callPlan = await CallPlan.findByPk(callPlanId);
+    const callPlan = await CallPlan.findByPk(callPlanId, await withSafeCallPlanReadAttributes());
     if (!callPlan) {
       return res.status(404).json({ 
         success: false, 
