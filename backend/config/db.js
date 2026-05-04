@@ -455,6 +455,36 @@ const connectDB = async () => {
         await ensureColumn(planDeletionAuditTable, 'related_counts', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
         await ensureColumn(planDeletionAuditTable, 'plan_snapshot', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
       };
+      const getCallPlanSchemaCompatibility = async () => {
+        const result = {
+          checked: false,
+          tableExists: false,
+          missingColumns: [],
+        };
+
+        try {
+          const desc = await qi.describeTable(normalizeTableName(callPlansTable));
+          result.checked = true;
+          result.tableExists = true;
+          const requiredColumns = [
+            'customer_price',
+            'dealer_commission',
+            'short_code',
+            'internal_sequence_number',
+            'portfolio',
+            'bundle_class',
+          ];
+          result.missingColumns = requiredColumns.filter(
+            (columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName),
+          );
+        } catch (error) {
+          result.checked = true;
+          result.tableExists = false;
+          result.error = error;
+        }
+
+        return result;
+      };
 
       if (process.env.NODE_ENV !== 'test') {
         await runRuntimeSchemaEnsure('pre-sync compatibility bootstrap', async () => {
@@ -625,57 +655,66 @@ const connectDB = async () => {
       try {
         const { getAllCallSubProviders } = require('../services/callSubCatalog');
         const { syncTalkMorePortfolio } = require('../services/callSubscriptionPortfolioService');
-        const providers = Object.values(getAllCallSubProviders());
-        await Promise.all(
-          providers.flatMap((provider) =>
-            (provider.bundles || []).map(async (bundle) => {
-              const existing = await CallPlan.findOne({ where: { provider: provider.key, api_plan_id: bundle.code } });
-              if (existing) {
-                existing.name = bundle.name;
-                existing.price = bundle.price;
-                existing.customerPrice = bundle.price;
-                existing.shortCode = bundle.code;
-                existing.minutes = bundle.minutes;
-                existing.validityDays = bundle.validityDays;
-                existing.status = 'active';
-                existing.type = 'voice';
-                await existing.save();
-                return;
-              }
-              await CallPlan.create({
-                name: bundle.name,
-                provider: provider.key,
-                price: bundle.price,
-                customerPrice: bundle.price,
-                minutes: bundle.minutes,
-                validityDays: bundle.validityDays,
-                status: 'active',
-                type: 'voice',
-                api_plan_id: bundle.code,
-                shortCode: bundle.code,
-              });
-            }),
-          ),
-        );
-        await Promise.all(
-          providers.map(async (provider) => {
-            const activeCodes = (provider.bundles || []).map((bundle) => bundle.code);
-            await CallPlan.update(
-              { status: 'inactive' },
-              {
-                where: {
+        const callPlanCompatibility = await getCallPlanSchemaCompatibility();
+        if (!callPlanCompatibility.tableExists || callPlanCompatibility.missingColumns.length > 0) {
+          console.log(
+            `[DB] Skipping call subscription seed; pending migration for columns: ${
+              callPlanCompatibility.missingColumns.join(', ') || 'CallPlans table unavailable'
+            }`,
+          );
+        } else {
+          const providers = Object.values(getAllCallSubProviders());
+          await Promise.all(
+            providers.flatMap((provider) =>
+              (provider.bundles || []).map(async (bundle) => {
+                const existing = await CallPlan.findOne({ where: { provider: provider.key, api_plan_id: bundle.code } });
+                if (existing) {
+                  existing.name = bundle.name;
+                  existing.price = bundle.price;
+                  existing.customerPrice = bundle.price;
+                  existing.shortCode = bundle.code;
+                  existing.minutes = bundle.minutes;
+                  existing.validityDays = bundle.validityDays;
+                  existing.status = 'active';
+                  existing.type = 'voice';
+                  await existing.save();
+                  return;
+                }
+                await CallPlan.create({
+                  name: bundle.name,
                   provider: provider.key,
+                  price: bundle.price,
+                  customerPrice: bundle.price,
+                  minutes: bundle.minutes,
+                  validityDays: bundle.validityDays,
+                  status: 'active',
                   type: 'voice',
-                  api_plan_id: {
-                    [Op.like]: `${provider.apiPlanPrefix}%`,
-                    [Op.notIn]: activeCodes,
+                  api_plan_id: bundle.code,
+                  shortCode: bundle.code,
+                });
+              }),
+            ),
+          );
+          await Promise.all(
+            providers.map(async (provider) => {
+              const activeCodes = (provider.bundles || []).map((bundle) => bundle.code);
+              await CallPlan.update(
+                { status: 'inactive' },
+                {
+                  where: {
+                    provider: provider.key,
+                    type: 'voice',
+                    api_plan_id: {
+                      [Op.like]: `${provider.apiPlanPrefix}%`,
+                      [Op.notIn]: activeCodes,
+                    },
                   },
                 },
-              },
-            );
-          }),
-        );
-        await syncTalkMorePortfolio(CallPlan);
+              );
+            }),
+          );
+          await syncTalkMorePortfolio(CallPlan);
+        }
       } catch (e) {
         console.error('Call Sub seed failed:', e.message);
       }
