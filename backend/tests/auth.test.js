@@ -3,6 +3,7 @@ const app = require('../server');
 const { sequelize, connectDB } = require('../config/db');
 const { Op } = require('sequelize');
 const User = require('../models/User');
+const Wallet = require('../models/Wallet');
 
 describe('Auth Endpoints', () => {
   beforeAll(async () => {
@@ -81,6 +82,33 @@ describe('Auth Endpoints', () => {
 
     expect(res.statusCode).toEqual(200);
     expect(res.body).toHaveProperty('email', meUser.email);
+  });
+
+  it('POST /api/auth/login - recreates a missing wallet for an existing user', async () => {
+    const walletUser = {
+      name: 'Wallet Recovery User',
+      email: `wallet-recovery${Date.now()}@test.com`,
+      password: 'password123',
+      phone: `083${Date.now().toString().slice(-8)}`
+    };
+
+    await request(app).post('/api/auth/register').send(walletUser);
+    const createdUser = await User.findOne({ where: { email: walletUser.email } });
+    await Wallet.destroy({ where: { userId: createdUser.id } });
+
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({
+        emailOrPhone: walletUser.email,
+        password: walletUser.password
+      });
+
+    expect(res.statusCode).toEqual(200);
+    expect(res.body).toHaveProperty('token');
+    expect(Number(res.body.user.balance)).toEqual(0);
+
+    const recreatedWallet = await Wallet.findOne({ where: { userId: createdUser.id } });
+    expect(recreatedWallet).toBeTruthy();
   });
 
   it('POST /api/auth/login - should fail with invalid credentials', async () => {

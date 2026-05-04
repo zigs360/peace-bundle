@@ -17,6 +17,66 @@ class WalletService {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  async inferOpeningBalance(user, transaction = null) {
+    const latestTransaction = await Transaction.findOne({
+      where: {
+        userId: user.id,
+        balance_after: {
+          [Op.ne]: null,
+        },
+      },
+      order: [
+        ['completed_at', 'DESC'],
+        ['createdAt', 'DESC'],
+      ],
+      transaction,
+    });
+
+    const inferredBalance = this.toFiniteNumber(latestTransaction?.balance_after);
+    return inferredBalance ?? 0;
+  }
+
+  async ensureWallet(user, transaction = null, { lock = false } = {}) {
+    const findOptions = {
+      where: { userId: user.id },
+      transaction,
+    };
+
+    if (lock && transaction) {
+      findOptions.lock = true;
+    }
+
+    let wallet = await Wallet.findOne(findOptions);
+    if (wallet) return wallet;
+
+    const openingBalance = await this.inferOpeningBalance(user, transaction);
+
+    try {
+      wallet = await Wallet.create(
+        {
+          userId: user.id,
+          balance: openingBalance,
+        },
+        { transaction }
+      );
+      logger.warn('[WalletService] Recreated missing wallet for user', {
+        userId: user.id,
+        openingBalance,
+      });
+      return wallet;
+    } catch (error) {
+      const isUniqueConstraint =
+        error?.name === 'SequelizeUniqueConstraintError' || error?.original?.code === '23505';
+      if (!isUniqueConstraint) {
+        throw error;
+      }
+
+      wallet = await Wallet.findOne(findOptions);
+      if (wallet) return wallet;
+      throw error;
+    }
+  }
+
   normalizeTransactionSource(source) {
     const raw = String(source || '').trim();
     const normalized = LEGACY_TRANSACTION_SOURCE_MAP[raw] || raw;
@@ -39,15 +99,7 @@ class WalletService {
   async credit(user, amount, source, description = null, metadata = {}, t = null) {
     const work = async (transaction) => {
       // Fetch wallet directly using userId to ensure we have the latest instance
-      const wallet = await Wallet.findOne({ 
-        where: { userId: user.id },
-        transaction: transaction,
-        lock: true // Pessimistic lock to prevent race conditions
-      });
-
-      if (!wallet) {
-        throw new Error('Wallet not found');
-      }
+      const wallet = await this.ensureWallet(user, transaction, { lock: true });
 
       const balanceBefore = parseFloat(wallet.balance);
       const amountNum = parseFloat(amount);
@@ -88,13 +140,7 @@ class WalletService {
     const isMockUser = mockAllowed && user?.metadata?.mock_bvn_status === 'mock';
 
     const work = async (transaction) => {
-      const wallet = await Wallet.findOne({
-        where: { userId: user.id },
-        transaction: transaction,
-        lock: true
-      });
-
-      if (!wallet) throw new Error('Wallet not found');
+      const wallet = await this.ensureWallet(user, transaction, { lock: true });
 
       const balanceBefore = parseFloat(wallet.balance);
       const amountNum = parseFloat(amount);
@@ -198,15 +244,7 @@ class WalletService {
    */
   async debit(user, amount, source, description = null, metadata = {}, t = null) {
     const work = async (transaction) => {
-      const wallet = await Wallet.findOne({ 
-        where: { userId: user.id },
-        transaction: transaction,
-        lock: true 
-      });
-
-      if (!wallet) {
-        throw new Error('Wallet not found');
-      }
+      const wallet = await this.ensureWallet(user, transaction, { lock: true });
 
       // Fraud & Compliance Checks
       if (wallet.status !== 'active') {
@@ -269,13 +307,7 @@ class WalletService {
 
   async adminAdjust(user, deltaAmount, source, description = null, metadata = {}, t = null) {
     const work = async (transaction) => {
-      const wallet = await Wallet.findOne({
-        where: { userId: user.id },
-        transaction,
-        lock: true,
-      });
-
-      if (!wallet) throw new Error('Wallet not found');
+      const wallet = await this.ensureWallet(user, transaction, { lock: true });
       if (wallet.status !== 'active') {
         throw new Error(`Wallet is ${wallet.status}. Please contact support.`);
       }
@@ -337,13 +369,7 @@ class WalletService {
   async transfer(sender, recipient, amount, description = null, t = null) {
     const work = async (transaction) => {
       // 1. Debit Sender
-      const senderWallet = await Wallet.findOne({ 
-        where: { userId: sender.id },
-        transaction: transaction,
-        lock: true 
-      });
-
-      if (!senderWallet) throw new Error('Sender wallet not found');
+      const senderWallet = await this.ensureWallet(sender, transaction, { lock: true });
       if (parseFloat(senderWallet.balance) < parseFloat(amount)) throw new Error('Insufficient wallet balance');
 
       const senderBalanceBefore = parseFloat(senderWallet.balance);
@@ -367,13 +393,7 @@ class WalletService {
       }, { transaction: transaction, returning: false });
 
       // 2. Credit Recipient
-      const recipientWallet = await Wallet.findOne({ 
-        where: { userId: recipient.id },
-        transaction: transaction,
-        lock: true 
-      });
-
-      if (!recipientWallet) throw new Error('Recipient wallet not found');
+      const recipientWallet = await this.ensureWallet(recipient, transaction, { lock: true });
 
       const recipientBalanceBefore = parseFloat(recipientWallet.balance);
       const recipientBalanceAfter = recipientBalanceBefore + parseFloat(amount);
@@ -412,7 +432,7 @@ class WalletService {
    * @returns {Promise<boolean>}
    */
   async hasSufficientBalance(user, amount) {
-    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    const wallet = await this.ensureWallet(user);
     return wallet && parseFloat(wallet.balance) >= parseFloat(amount);
   }
 
@@ -422,7 +442,7 @@ class WalletService {
    * @returns {Promise<number>}
    */
   async getBalance(user) {
-    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    const wallet = await this.ensureWallet(user);
     return wallet ? parseFloat(wallet.balance) : 0.00;
   }
 
@@ -444,15 +464,7 @@ class WalletService {
    */
   async creditCommission(user, amount, description = null, t = null) {
     const work = async (transaction) => {
-      const wallet = await Wallet.findOne({ 
-        where: { userId: user.id },
-        transaction: transaction,
-        lock: true 
-      });
-
-      if (!wallet) {
-        throw new Error('Wallet not found');
-      }
+      const wallet = await this.ensureWallet(user, transaction, { lock: true });
 
       const balanceBefore = parseFloat(wallet.commission_balance);
       const newBalance = balanceBefore + parseFloat(amount);
@@ -487,13 +499,7 @@ class WalletService {
    */
   async transferCommissionToBalance(user, t = null) {
     const work = async (transaction) => {
-      const wallet = await Wallet.findOne({ 
-        where: { userId: user.id },
-        transaction: transaction,
-        lock: true 
-      });
-
-      if (!wallet) throw new Error('Wallet not found');
+      const wallet = await this.ensureWallet(user, transaction, { lock: true });
       
       const commissionAmount = parseFloat(wallet.commission_balance);
       if (commissionAmount <= 0) {

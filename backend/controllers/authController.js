@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { encrypt } = require('../utils/cryptoUtils');
 const logger = require('../utils/logger');
+const walletService = require('../services/walletService');
 
 const SENSITIVE_USER_FIELDS = [
     'password',
@@ -38,6 +39,15 @@ const mapUserForClient = (user) => ({
     avatar: user.avatar || null,
     hasTransactionPin: Boolean(user.transaction_pin_hash),
 });
+
+const attachRecoveredWallet = async (user) => {
+    if (!user) return null;
+    if (user.wallet) return user.wallet;
+
+    const wallet = await walletService.ensureWallet(user);
+    user.wallet = wallet;
+    return wallet;
+};
 
 // Generate JWT
 const generateToken = (id) => {
@@ -178,6 +188,8 @@ const loginUser = async (req, res) => {
             });
         }
 
+        await attachRecoveredWallet(user);
+
         // Check for lockout
         if (user.lockout_until && user.lockout_until > new Date()) {
             const minutesLeft = Math.ceil((user.lockout_until - new Date()) / 60000);
@@ -255,6 +267,8 @@ const getMe = async (req, res) => {
             });
         }
 
+        await attachRecoveredWallet(user);
+
         // Auto-assign virtual account if missing (for existing users)
         if (!user.virtual_account_number) {
             try {
@@ -294,6 +308,7 @@ const getAllUsers = async (req, res) => {
             include: [{ model: Wallet, as: 'wallet' }],
             order: [['createdAt', 'DESC']]
         });
+        await Promise.all(users.map((user) => attachRecoveredWallet(user)));
         
         const formattedUsers = users.map(user => ({
             id: user.id,
@@ -336,6 +351,8 @@ const updateProfile = async (req, res) => {
             });
         }
 
+        await attachRecoveredWallet(user);
+
         user.name = req.body.fullName || user.name;
         user.email = req.body.email || user.email;
         user.phone = req.body.phone || user.phone;
@@ -345,6 +362,7 @@ const updateProfile = async (req, res) => {
         }
         
         const updatedUser = await user.save();
+        await attachRecoveredWallet(updatedUser);
         logger.info(`[Auth] Profile updated for user ${user.id}`);
 
         res.json({
