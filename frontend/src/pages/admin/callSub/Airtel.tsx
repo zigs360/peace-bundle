@@ -95,14 +95,8 @@ export default function Airtel() {
       validityDays: Number(draft.validityDays ?? plan.validityDays),
       shortCode: String(draft.shortCode ?? plan.shortCode),
       internalSequenceNumber: Number(draft.internalSequenceNumber ?? plan.internalSequenceNumber),
-      stockLimit:
-        draft.stockLimit === '' || draft.stockLimit === null
-          ? null
-          : Number(draft.stockLimit ?? plan.stockLimit),
-      stockRemaining:
-        draft.stockRemaining === '' || draft.stockRemaining === null
-          ? null
-          : Number(draft.stockRemaining ?? plan.stockRemaining),
+      stockLimit: draft.stockLimit == null ? null : Number(draft.stockLimit ?? plan.stockLimit),
+      stockRemaining: draft.stockRemaining == null ? null : Number(draft.stockRemaining ?? plan.stockRemaining),
       status: draft.status ?? plan.status,
       bundleClass: plan.bundleClass,
       portfolio: plan.portfolio,

@@ -16,6 +16,8 @@ const { startAirtimeReconcileJob } = require('./jobs/airtimeReconcileJob');
 const { startWebhookAlertJob } = require('./jobs/webhookAlertJob');
 const { startWalletReconciliationJob } = require('./jobs/walletReconciliationJob');
 const { startTransactionIntegrityJob } = require('./jobs/transactionIntegrityJob');
+const { startDatabaseHealthMonitorJob } = require('./jobs/databaseHealthMonitorJob');
+const databaseDiagnosticsService = require('./services/databaseDiagnosticsService');
 
 const path = require('path');
 const fs = require('fs');
@@ -113,6 +115,35 @@ app.get('/api/meta', (req, res) => {
     env: process.env.NODE_ENV || 'development',
     commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
     time: new Date().toISOString(),
+  });
+});
+
+app.get('/api/health', async (req, res) => {
+  const includeSchema = String(req.query.schema || '').toLowerCase() === 'true';
+  const diagnostics = await databaseDiagnosticsService.getDiagnostics({ includeSchema });
+  const ok = diagnostics.status === 'up';
+  res.status(ok ? 200 : 503).json({
+    success: ok,
+    service: 'peace-bundle-backend',
+    diagnostics,
+  });
+});
+
+app.get('/api/ready', async (req, res) => {
+  const diagnostics = await databaseDiagnosticsService.getDiagnostics({ includeSchema: false });
+  const ok = diagnostics.status === 'up';
+  res.status(ok ? 200 : 503).json({
+    success: ok,
+    ready: ok,
+    checkedAt: diagnostics.checkedAt,
+    latencyMs: diagnostics.latencyMs,
+    database: {
+      status: diagnostics.status,
+      host: diagnostics.connection?.host || null,
+      database: diagnostics.connection?.database || null,
+      pool: diagnostics.pool,
+      lastError: diagnostics.lastError,
+    },
   });
 });
 
@@ -223,6 +254,7 @@ if (require.main === module) {
       startWebhookAlertJob();
       startWalletReconciliationJob();
       startTransactionIntegrityJob();
+      startDatabaseHealthMonitorJob();
     });
   })();
 }

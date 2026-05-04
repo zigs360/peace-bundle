@@ -261,6 +261,18 @@ const connectDB = async () => {
         }
         await work();
       };
+      const syncMode =
+        process.env.NODE_ENV === 'test'
+          ? 'force'
+          : String(process.env.DB_SYNC || (process.env.NODE_ENV === 'production' ? 'none' : 'alter')).toLowerCase();
+      const shouldRunModelSync = process.env.NODE_ENV === 'test' || syncMode !== 'none';
+      const runModelSync = async (label, work) => {
+        if (!shouldRunModelSync) {
+          console.log(`[DB] Skipping model sync for ${label}; relying on migrations`);
+          return;
+        }
+        await work();
+      };
       const tableExists = async (tableName) => {
         try {
           await qi.describeTable(normalizeTableName(tableName));
@@ -490,10 +502,6 @@ const connectDB = async () => {
           globalState.isSyncDone = true;
         }
       } else {
-        const syncMode = String(
-          process.env.DB_SYNC || (process.env.NODE_ENV === 'production' ? 'none' : 'alter'),
-        ).toLowerCase();
-
         if (syncMode === 'alter') {
           await sequelize.sync({ alter: true });
         } else if (syncMode === 'safe') {
@@ -538,7 +546,9 @@ const connectDB = async () => {
       });
 
       try {
-        await PlanPriceHistory.sync();
+        await runModelSync('plan price history', async () => {
+          await PlanPriceHistory.sync();
+        });
         await runRuntimeSchemaEnsure('plan price history compatibility', async () => {
           await ensureColumn(planPriceHistoryTable, 'field_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'your_price' });
           await ensureColumn(planPriceHistoryTable, 'old_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
@@ -557,21 +567,27 @@ const connectDB = async () => {
         await runRuntimeSchemaEnsure('plan deletion audit compatibility', async () => {
           await ensurePlanDeletionAuditCompatibility();
         });
-        await PlanDeletionAudit.sync();
+        await runModelSync('plan deletion audit', async () => {
+          await PlanDeletionAudit.sync();
+        });
       } catch (e) {
         console.error('Plan deletion audit table sync failed:', e.message);
       }
 
       try {
-        await AdminWalletDeduction.sync();
-        await AdminWalletDeductionAudit.sync();
+        await runModelSync('admin wallet deduction', async () => {
+          await AdminWalletDeduction.sync();
+          await AdminWalletDeductionAudit.sync();
+        });
       } catch (e) {
         console.error('Admin wallet deduction tables sync failed:', e.message);
       }
 
       try {
-        await VoiceBundlePurchase.sync();
-        await VoiceBundlePurchaseAudit.sync();
+        await runModelSync('voice bundle purchase', async () => {
+          await VoiceBundlePurchase.sync();
+          await VoiceBundlePurchaseAudit.sync();
+        });
         await runRuntimeSchemaEnsure('voice bundle purchase compatibility', async () => {
           await ensureVoiceBundlePurchaseColumns();
         });
@@ -580,13 +596,17 @@ const connectDB = async () => {
       }
 
       try {
-        await TransactionPinSecurityEvent.sync();
+        await runModelSync('transaction pin security event', async () => {
+          await TransactionPinSecurityEvent.sync();
+        });
       } catch (e) {
         console.error('Transaction PIN security event table sync failed:', e.message);
       }
 
       try {
-        await TransactionIntegrityAudit.sync();
+        await runModelSync('transaction integrity audit', async () => {
+          await TransactionIntegrityAudit.sync();
+        });
         await runRuntimeSchemaEnsure('transaction integrity audit compatibility', async () => {
           await ensureColumn(transactionIntegrityAuditTable, 'transaction_id', { type: DataTypes.UUID, allowNull: false });
           await ensureColumn(transactionIntegrityAuditTable, 'user_id', { type: DataTypes.UUID, allowNull: true });
