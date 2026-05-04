@@ -7,6 +7,7 @@ const User = require('../models/User');
 const TransactionIntegrityAudit = require('../models/TransactionIntegrityAudit');
 const SystemSetting = require('../models/SystemSetting');
 const walletService = require('./walletService');
+const { getTransactionSchemaCompatibility } = require('./transactionSchemaCompatibilityService');
 const logger = require('../utils/logger');
 
 const PURCHASE_SOURCES = new Set(['airtime_purchase', 'data_purchase']);
@@ -381,6 +382,21 @@ class TransactionIntegrityService {
   }
 
   async monitorAndRepair({ limit = 100 } = {}) {
+    const compatibility = await getTransactionSchemaCompatibility();
+    if (!compatibility.integrityColumnsAvailable) {
+      logger.warn('[TransactionIntegrity] Skipping monitor pass because transaction integrity columns are missing', {
+        missingIntegrityColumns: compatibility.missingIntegrityColumns,
+      });
+      return {
+        duplicateRefunds: 0,
+        failedRefundsRecovered: 0,
+        staleTransactionsResolved: 0,
+        scanned: 0,
+        skipped: true,
+        missingIntegrityColumns: compatibility.missingIntegrityColumns,
+      };
+    }
+
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const summary = {
       duplicateRefunds: 0,

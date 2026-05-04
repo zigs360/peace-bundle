@@ -23,6 +23,7 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const logger = require('../utils/logger');
 const Joi = require('joi');
+const { getReadableTransactionAttributes } = require('../services/transactionSchemaCompatibilityService');
 const {
     getPhoneValidationError,
     normalizePhone,
@@ -63,6 +64,23 @@ const processAffiliateCommission = async (user, amount, transaction, t) => {
         console.error('Affiliate Commission Error:', error);
         // Don't fail the main transaction if commission fails
     }
+};
+
+const withSafeTransactionReadAttributes = async (options = {}) => {
+    const readableAttributes = await getReadableTransactionAttributes();
+    if (!readableAttributes || options.attributes) return options;
+    return {
+        ...options,
+        attributes: readableAttributes,
+    };
+};
+
+const ensureWalletOnUser = async (user) => {
+    if (!user) return null;
+    if (user.wallet) return user.wallet;
+    const wallet = await walletService.ensureWallet(user);
+    user.wallet = wallet;
+    return wallet;
 };
 
 const buildAutoReversalMessage = (transaction, fallback) => {
@@ -1037,14 +1055,14 @@ const sendBulkSMS = async (req, res) => {
 // @access  Private (Admin)
 const getAllTransactions = async (req, res) => {
     try {
-        const transactions = await Transaction.findAll({
+        const transactions = await Transaction.findAll(await withSafeTransactionReadAttributes({
             order: [['createdAt', 'DESC']],
             include: [{ 
                 model: Wallet, 
                 as: 'wallet', 
                 include: [{ model: User, as: 'user', attributes: ['name', 'email'] }] 
             }]
-        });
+        }));
         res.json(transactions);
     } catch (error) {
         console.error(error);
@@ -1067,6 +1085,7 @@ const index = async (req, res) => {
         };
 
         const user = await User.findByPk(req.user.id, { include: [{ model: Wallet, as: 'wallet' }] });
+        await ensureWalletOnUser(user);
         if (!user || !user.wallet) {
             return res.json([]);
         }
@@ -1095,7 +1114,7 @@ const index = async (req, res) => {
             }
         }
 
-        const { count, rows } = await Transaction.findAndCountAll({
+        const { count, rows } = await Transaction.findAndCountAll(await withSafeTransactionReadAttributes({
             where,
             include: [
                 { model: DataPlan, as: 'dataPlan' }, 
@@ -1104,7 +1123,7 @@ const index = async (req, res) => {
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset)
-        });
+        }));
 
         res.json(rows);
     } catch (error) {
@@ -1119,19 +1138,20 @@ const index = async (req, res) => {
 const exportTransactions = async (req, res) => {
     try {
         const user = await User.findByPk(req.user.id, { include: [{ model: Wallet, as: 'wallet' }] });
+        await ensureWalletOnUser(user);
         if (!user || !user.wallet) {
             return res.status(404).json({ message: 'User wallet not found' });
         }
 
         // Fetch all transactions for export (no pagination, latest first)
-        const transactions = await Transaction.findAll({
+        const transactions = await Transaction.findAll(await withSafeTransactionReadAttributes({
             where: { walletId: user.wallet.id },
             include: [
                 { model: DataPlan, as: 'dataPlan' }, 
                 { model: Sim, as: 'sim' }
             ],
             order: [['createdAt', 'DESC']]
-        });
+        }));
 
         // Create PDF
         const doc = new PDFDocument();
@@ -1207,14 +1227,15 @@ const getTransactions = async (req, res) => {
     
     try {
         const user = await User.findByPk(userId, { include: [{ model: Wallet, as: 'wallet' }] });
+        await ensureWalletOnUser(user);
         if (!user || !user.wallet) {
             return res.status(404).json({ message: 'User or wallet not found' });
         }
 
-        const transactions = await Transaction.findAll({
+        const transactions = await Transaction.findAll(await withSafeTransactionReadAttributes({
             where: { walletId: user.wallet.id },
             order: [['createdAt', 'DESC']]
-        });
+        }));
         res.json(transactions);
     } catch (error) {
         console.error(error);
@@ -1233,6 +1254,7 @@ const getDashboardStats = async (req, res) => {
 
     try {
         const user = await User.findByPk(userId, { include: [{ model: Wallet, as: 'wallet' }] });
+        await ensureWalletOnUser(user);
         if (!user || !user.wallet) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -1242,11 +1264,11 @@ const getDashboardStats = async (req, res) => {
         });
 
         // Get recent transactions for dashboard
-        const recentTransactions = await Transaction.findAll({
+        const recentTransactions = await Transaction.findAll(await withSafeTransactionReadAttributes({
             where: { walletId: user.wallet.id },
             order: [['createdAt', 'DESC']],
             limit: 5
-        });
+        }));
 
         res.json({
             transactionsCount,

@@ -1,6 +1,10 @@
 const logger = require('../utils/logger');
 const Transaction = require('../models/Transaction');
 const dataPurchaseService = require('../services/dataPurchaseService');
+const {
+  getTransactionSchemaCompatibility,
+  getReadableTransactionAttributes,
+} = require('../services/transactionSchemaCompatibilityService');
 
 let isRunning = false;
 
@@ -22,9 +26,19 @@ const runAirtimeReconcileOnce = async () => {
   if (isRunning) return null;
   isRunning = true;
   try {
+    const compatibility = await getTransactionSchemaCompatibility();
+    if (!compatibility.integrityColumnsAvailable) {
+      logger.warn('[AirtimeReconcileJob] Skipping pass because transaction integrity columns are missing', {
+        missingIntegrityColumns: compatibility.missingIntegrityColumns,
+      });
+      return { processed: 0, skipped: true, missingIntegrityColumns: compatibility.missingIntegrityColumns };
+    }
+
     const batchSize = parseIntSafe(process.env.AIRTIME_RECONCILE_BATCH_SIZE, 50);
+    const readableAttributes = await getReadableTransactionAttributes();
 
     const queued = await Transaction.findAll({
+      ...(readableAttributes ? { attributes: readableAttributes } : {}),
       where: { source: 'airtime_purchase', status: 'queued' },
       order: [['updatedAt', 'ASC']],
       limit: batchSize,
@@ -85,4 +99,3 @@ const startAirtimeReconcileJob = () => {
 };
 
 module.exports = { startAirtimeReconcileJob, runAirtimeReconcileOnce };
-
