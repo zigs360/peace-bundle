@@ -1,0 +1,270 @@
+openapi: 3.0.3
+info:
+  title: Peace Bundle Airtel Call Subscription API
+  version: 1.0.0
+  description: |
+    REST API for Airtel TalkMore call subscription management.
+    Includes TalkMore gifting bundle CRUD, stock checks, commission proration, analytics, and RBAC-secured admin operations.
+servers:
+  - url: /api
+tags:
+  - name: Call Subscriptions
+  - name: Call Subscription Admin
+paths:
+  /callplans:
+    post:
+      tags: [Call Subscription Admin]
+      summary: Create a call subscription plan
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallPlanUpsert'
+      responses:
+        '201':
+          description: Call plan created
+        '400':
+          description: Validation error
+        '403':
+          description: Admin role required
+  /callplans/{id}:
+    put:
+      tags: [Call Subscription Admin]
+      summary: Update a call subscription plan
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallPlanUpsert'
+      responses:
+        '200':
+          description: Call plan updated
+        '400':
+          description: Validation error
+        '403':
+          description: Admin role required
+        '404':
+          description: Plan not found
+    delete:
+      tags: [Call Subscription Admin]
+      summary: Delete a call subscription plan
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Call plan deleted
+        '403':
+          description: Admin role required
+        '404':
+          description: Plan not found
+  /callplans/call-sub/{provider}/bundles:
+    get:
+      tags: [Call Subscriptions]
+      summary: List call subscription bundles by provider
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+            example: airtel
+        - in: query
+          name: portfolio
+          schema:
+            type: string
+            example: talkmore
+      responses:
+        '200':
+          description: Bundle list
+  /callplans/call-sub/{provider}/{id}/purchase:
+    post:
+      tags: [Call Subscriptions]
+      summary: Purchase and provision a call subscription bundle
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recipientPhoneNumber]
+              properties:
+                recipientPhoneNumber:
+                  type: string
+                  example: 08081234567
+      responses:
+        '200':
+          description: Bundle provisioned
+        '400':
+          description: Invalid request
+        '409':
+          description: Out of stock
+  /callplans/admin/call-sub/{provider}/plans:
+    get:
+      tags: [Call Subscription Admin]
+      summary: List managed call subscription plans for a provider
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: portfolio
+          schema:
+            type: string
+            example: talkmore
+      responses:
+        '200':
+          description: Managed plan list
+        '403':
+          description: Admin role required
+  /callplans/admin/call-sub/{provider}/stock:
+    get:
+      tags: [Call Subscription Admin]
+      summary: Check stock levels for provider bundles
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current stock snapshot
+  /callplans/admin/call-sub/{provider}/commission/calculate:
+    post:
+      tags: [Call Subscription Admin]
+      summary: Calculate prorated dealer commission for a partial-month activation
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                planId:
+                  type: string
+                activationDate:
+                  type: string
+                  format: date
+                customerPrice:
+                  type: number
+                dealerCommission:
+                  type: number
+                cycleDays:
+                  type: integer
+      responses:
+        '200':
+          description: Commission calculation result
+  /callplans/admin/call-sub/{provider}/analytics:
+    get:
+      tags: [Call Subscription Admin]
+      summary: View provider usage analytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: since
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Real-time usage analytics
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    CallPlanUpsert:
+      type: object
+      required:
+        - name
+        - provider
+        - customerPrice
+      properties:
+        name:
+          type: string
+        provider:
+          type: string
+          example: airtel
+        customerPrice:
+          type: number
+          example: 1000
+        dealerCommission:
+          type: number
+          example: 50
+        validityDays:
+          type: integer
+          example: 30
+        shortCode:
+          type: string
+          example: '50097'
+        internalSequenceNumber:
+          type: integer
+          example: 5
+        stockLimit:
+          type: integer
+          nullable: true
+        stockRemaining:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive]
+        portfolio:
+          type: string
+          example: talkmore
+        bundleClass:
+          type: string
+          example: talkmore_gifting

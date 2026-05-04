@@ -11,36 +11,49 @@ class PricingService {
     };
   }
 
-  async getSystemSettingMap() {
+  async getSystemSettingMap(transaction = null) {
     const now = Date.now();
-    if (this.cache.settings && now - this.cache.settingsAt < 10000) return this.cache.settings;
+    if (!transaction && this.cache.settings && now - this.cache.settingsAt < 10000) return this.cache.settings;
 
-    const rows = await SystemSetting.findAll();
+    const rows = await SystemSetting.findAll({ transaction });
     const map = new Map(rows.map((r) => [r.key, r.value]));
-    this.cache.settings = map;
-    this.cache.settingsAt = now;
+    if (!transaction) {
+      this.cache.settings = map;
+      this.cache.settingsAt = now;
+    }
     return map;
   }
 
-  async getOrCreateTierByName(name) {
+  async getOrCreateTierByName(name, transaction = null) {
     const key = String(name || '').trim().toLowerCase();
     if (!key) throw new Error('Tier name is required');
-    if (this.cache.tiersByName.has(key)) return this.cache.tiersByName.get(key);
+    if (!transaction && this.cache.tiersByName.has(key)) return this.cache.tiersByName.get(key);
 
-    const existing = await PricingTier.findOne({ where: { name: key } });
-    if (existing) {
-      this.cache.tiersByName.set(key, existing);
-      return existing;
+    try {
+      const [tier] = await PricingTier.findOrCreate({
+        where: { name: key },
+        defaults: { name: key, is_active: true, priority: 100 },
+        transaction,
+      });
+      if (!transaction) {
+        this.cache.tiersByName.set(key, tier);
+      }
+      return tier;
+    } catch (error) {
+      const existing = await PricingTier.findOne({ where: { name: key }, transaction });
+      if (existing) {
+        if (!transaction) {
+          this.cache.tiersByName.set(key, existing);
+        }
+        return existing;
+      }
+      throw error;
     }
-
-    const created = await PricingTier.create({ name: key, is_active: true, priority: 100 });
-    this.cache.tiersByName.set(key, created);
-    return created;
   }
 
-  async getTierForUser(user) {
+  async getTierForUser(user, transaction = null) {
     const role = String(user?.role || 'user').toLowerCase();
-    const settings = await this.getSystemSettingMap();
+    const settings = await this.getSystemSettingMap(transaction);
     const tierKey =
       role === 'admin'
         ? settings.get('pricing_tier_admin')
@@ -49,7 +62,7 @@ class PricingService {
           : settings.get('pricing_tier_user');
 
     const tierName = String(tierKey || 'default').trim().toLowerCase();
-    return this.getOrCreateTierByName(tierName);
+    return this.getOrCreateTierByName(tierName, transaction);
   }
 
   ruleIsActiveForNow(rule, now = new Date()) {
@@ -122,10 +135,11 @@ class PricingService {
     };
   }
 
-  async quoteAirtime({ user, provider, faceValue }) {
-    const tier = await this.getTierForUser(user);
+  async quoteAirtime({ user, provider, faceValue, transaction = null }) {
+    const tier = await this.getTierForUser(user, transaction);
     const rules = await PricingRule.findAll({
       where: { tierId: tier.id, product_type: 'airtime', is_active: true },
+      transaction,
     });
 
     const rule = this.pickBestRule(rules, { provider });
@@ -147,10 +161,11 @@ class PricingService {
     };
   }
 
-  async quoteDataPlan({ user, plan }) {
-    const tier = await this.getTierForUser(user);
+  async quoteDataPlan({ user, plan, transaction = null }) {
+    const tier = await this.getTierForUser(user, transaction);
     const rules = await PricingRule.findAll({
       where: { tierId: tier.id, product_type: 'data', is_active: true },
+      transaction,
     });
 
     const rule = this.pickBestRule(rules, { provider: plan.provider, dataPlanId: plan.id });
@@ -209,4 +224,3 @@ class PricingService {
 }
 
 module.exports = new PricingService();
-

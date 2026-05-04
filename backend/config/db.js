@@ -45,6 +45,7 @@ const AdminWalletDeductionAudit = require('../models/AdminWalletDeductionAudit')
 const VoiceBundlePurchase = require('../models/VoiceBundlePurchase');
 const VoiceBundlePurchaseAudit = require('../models/VoiceBundlePurchaseAudit');
 const TransactionPinSecurityEvent = require('../models/TransactionPinSecurityEvent');
+const TransactionIntegrityAudit = require('../models/TransactionIntegrityAudit');
 
 // Define Associations (Top Level)
 
@@ -180,6 +181,12 @@ try {
   User.hasMany(TransactionPinSecurityEvent, { foreignKey: 'userId', as: 'transactionPinSecurityEvents', onDelete: 'CASCADE' });
   TransactionPinSecurityEvent.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
+  User.hasMany(TransactionIntegrityAudit, { foreignKey: 'userId', as: 'transactionIntegrityAudits', onDelete: 'CASCADE' });
+  TransactionIntegrityAudit.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  Transaction.hasMany(TransactionIntegrityAudit, { foreignKey: 'transactionId', as: 'integrityAudits', onDelete: 'CASCADE' });
+  TransactionIntegrityAudit.belongsTo(Transaction, { foreignKey: 'transactionId', as: 'transaction' });
+
   CallPlan.hasMany(VoiceBundlePurchase, { foreignKey: 'callPlanId', as: 'voiceBundlePurchases', onDelete: 'CASCADE' });
   VoiceBundlePurchase.belongsTo(CallPlan, { foreignKey: 'callPlanId', as: 'callPlan' });
 
@@ -282,18 +289,49 @@ const connectDB = async () => {
       const dataPlansTable = typeof DataPlan.getTableName === 'function' ? DataPlan.getTableName() : 'data_plans';
       const simsTable = typeof Sim.getTableName === 'function' ? Sim.getTableName() : 'Sims';
       const callPlansTable = typeof CallPlan.getTableName === 'function' ? CallPlan.getTableName() : 'CallPlans';
+      const transactionsTable = typeof Transaction.getTableName === 'function' ? Transaction.getTableName() : 'transactions';
       const planPriceHistoryTable =
         typeof PlanPriceHistory.getTableName === 'function' ? PlanPriceHistory.getTableName() : 'plan_price_history';
       const planDeletionAuditTable =
         typeof PlanDeletionAudit.getTableName === 'function' ? PlanDeletionAudit.getTableName() : 'plan_deletion_audits';
       const voiceBundlePurchasesTable =
         typeof VoiceBundlePurchase.getTableName === 'function' ? VoiceBundlePurchase.getTableName() : 'voice_bundle_purchases';
+      const transactionIntegrityAuditTable =
+        typeof TransactionIntegrityAudit.getTableName === 'function' ? TransactionIntegrityAudit.getTableName() : 'transaction_integrity_audits';
       const usersTable = typeof User.getTableName === 'function' ? User.getTableName() : 'Users';
       const ensureVoiceBundlePurchaseColumns = async () =>
         Promise.all([
           ensureColumn(voiceBundlePurchasesTable, 'expires_at', { type: DataTypes.DATE, allowNull: true }),
           ensureColumn(voiceBundlePurchasesTable, 'bundle_category', { type: DataTypes.STRING, allowNull: false, defaultValue: 'minute' }),
           ensureColumn(voiceBundlePurchasesTable, 'migrated_from_purchase_id', { type: DataTypes.UUID, allowNull: true }),
+        ]);
+      const ensureCallPlanColumns = async () =>
+        Promise.all([
+          ensureColumn(callPlansTable, 'customer_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+          ensureColumn(callPlansTable, 'dealer_commission', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+          ensureColumn(callPlansTable, 'short_code', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(callPlansTable, 'internal_sequence_number', { type: DataTypes.INTEGER, allowNull: true }),
+          ensureColumn(callPlansTable, 'portfolio', { type: DataTypes.STRING, allowNull: false, defaultValue: 'standard' }),
+          ensureColumn(callPlansTable, 'bundle_class', { type: DataTypes.STRING, allowNull: false, defaultValue: 'generic_voice' }),
+          ensureColumn(callPlansTable, 'service_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'Call Subscriptions' }),
+          ensureColumn(callPlansTable, 'service_slug', { type: DataTypes.STRING, allowNull: false, defaultValue: 'call-subscriptions' }),
+          ensureColumn(callPlansTable, 'category_name', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(callPlansTable, 'category_slug', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(callPlansTable, 'subcategory_name', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(callPlansTable, 'subcategory_slug', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(callPlansTable, 'stock_limit', { type: DataTypes.INTEGER, allowNull: true }),
+          ensureColumn(callPlansTable, 'stock_remaining', { type: DataTypes.INTEGER, allowNull: true }),
+          ensureColumn(callPlansTable, 'metadata', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} }),
+        ]);
+      const ensureTransactionIntegrityColumns = async () =>
+        Promise.all([
+          ensureColumn(transactionsTable, 'payment_channel', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(transactionsTable, 'fulfillment_route', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(transactionsTable, 'route_lock_key', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(transactionsTable, 'delivery_status', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(transactionsTable, 'integrity_status', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(transactionsTable, 'refund_reference', { type: DataTypes.STRING, allowNull: true }),
+          ensureColumn(transactionsTable, 'anomaly_flag', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
         ]);
       const ensureTransactionPinColumns = async () => {
         if (dialect === 'postgres') {
@@ -422,6 +460,8 @@ const connectDB = async () => {
           ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
           ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
           ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
+          ensureTransactionIntegrityColumns(),
+          ensureCallPlanColumns(),
           ensureVoiceBundlePurchaseColumns(),
         ]);
         await ensureTransactionPinColumns();
@@ -476,6 +516,8 @@ const connectDB = async () => {
         ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
         ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
         ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
+        ensureTransactionIntegrityColumns(),
+        ensureCallPlanColumns(),
       ]);
       await ensureTransactionPinColumns();
 
@@ -521,10 +563,24 @@ const connectDB = async () => {
         console.error('Transaction PIN security event table sync failed:', e.message);
       }
 
+      try {
+        await TransactionIntegrityAudit.sync();
+        await ensureColumn(transactionIntegrityAuditTable, 'transaction_id', { type: DataTypes.UUID, allowNull: false });
+        await ensureColumn(transactionIntegrityAuditTable, 'user_id', { type: DataTypes.UUID, allowNull: true });
+        await ensureColumn(transactionIntegrityAuditTable, 'event_type', { type: DataTypes.STRING, allowNull: false });
+        await ensureColumn(transactionIntegrityAuditTable, 'severity', { type: DataTypes.STRING, allowNull: false, defaultValue: 'info' });
+        await ensureColumn(transactionIntegrityAuditTable, 'status', { type: DataTypes.STRING, allowNull: false, defaultValue: 'open' });
+        await ensureColumn(transactionIntegrityAuditTable, 'details', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
+        await ensureColumn(transactionIntegrityAuditTable, 'resolved_at', { type: DataTypes.DATE, allowNull: true });
+      } catch (e) {
+        console.error('Transaction integrity audit table sync failed:', e.message);
+      }
+
       console.log('Database Synced');
 
       try {
         const { getAllCallSubProviders } = require('../services/callSubCatalog');
+        const { syncTalkMorePortfolio } = require('../services/callSubscriptionPortfolioService');
         const providers = Object.values(getAllCallSubProviders());
         await Promise.all(
           providers.flatMap((provider) =>
@@ -533,6 +589,8 @@ const connectDB = async () => {
               if (existing) {
                 existing.name = bundle.name;
                 existing.price = bundle.price;
+                existing.customerPrice = bundle.price;
+                existing.shortCode = bundle.code;
                 existing.minutes = bundle.minutes;
                 existing.validityDays = bundle.validityDays;
                 existing.status = 'active';
@@ -544,11 +602,13 @@ const connectDB = async () => {
                 name: bundle.name,
                 provider: provider.key,
                 price: bundle.price,
+                customerPrice: bundle.price,
                 minutes: bundle.minutes,
                 validityDays: bundle.validityDays,
                 status: 'active',
                 type: 'voice',
                 api_plan_id: bundle.code,
+                shortCode: bundle.code,
               });
             }),
           ),
@@ -571,6 +631,7 @@ const connectDB = async () => {
             );
           }),
         );
+        await syncTalkMorePortfolio(CallPlan);
       } catch (e) {
         console.error('Call Sub seed failed:', e.message);
       }

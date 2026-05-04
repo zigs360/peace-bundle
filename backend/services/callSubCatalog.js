@@ -4,6 +4,7 @@ const providerCatalog = {
     label: 'Airtel',
     description: 'Airtel call subscription bundles',
     apiPlanPrefix: 'ATM-',
+    supportedPrefixes: ['ATM-'],
     purchaseKind: 'airtel_call_sub',
     refundKind: 'airtel_call_sub_refund',
     smsLabel: 'Airtel',

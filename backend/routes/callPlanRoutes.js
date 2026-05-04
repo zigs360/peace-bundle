@@ -14,6 +14,9 @@ const {
   getMyCallSubHistory,
   adminCallSubAnalytics,
   adminCallSubMonitoring,
+  listManagedCallSubPlans,
+  getCallSubStock,
+  calculateCallSubCommission,
 } = require('../controllers/callPlanController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
@@ -30,6 +33,9 @@ router.post('/call-sub/:provider/:id/purchase', protect, purchaseCallSubBundle);
 router.get('/call-sub/:provider/history', protect, getMyCallSubHistory);
 
 // Admin routes
+router.get('/admin/call-sub/:provider/plans', protect, admin, listManagedCallSubPlans);
+router.get('/admin/call-sub/:provider/stock', protect, admin, getCallSubStock);
+router.post('/admin/call-sub/:provider/commission/calculate', protect, admin, calculateCallSubCommission);
 router.post('/', protect, admin, createCallPlan);
 router.put('/:id', protect, admin, updateCallPlan);
 router.delete('/:id', protect, admin, deleteCallPlan);

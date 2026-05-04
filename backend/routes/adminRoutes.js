@@ -55,6 +55,7 @@ const adminPlanController = require('../controllers/adminPlanController');
 const treasuryController = require('../controllers/treasuryController');
 const adminWalletDeductionController = require('../controllers/adminWalletDeductionController');
 const adminTransactionPinAuditController = require('../controllers/adminTransactionPinAuditController');
+const adminTransactionIntegrityController = require('../controllers/adminTransactionIntegrityController');
 const {
     listAdminOgdamsSims,
     createAdminOgdamsDataPurchase,
@@ -137,6 +138,9 @@ router.put('/plans/:id', protect, admin, adminPlanController.updatePlan);
 router.delete('/plans/:id', protect, admin, adminPlanController.deletePlan);
 router.get('/audit/price-history', protect, admin, adminPlanController.getPriceHistory);
 router.get('/audit/transaction-pin-events', protect, admin, adminTransactionPinAuditController.listTransactionPinSecurityEvents);
+router.get('/audit/transaction-integrity', protect, admin, adminTransactionIntegrityController.listTransactionIntegrityAudits);
+router.get('/audit/transaction-integrity/summary', protect, admin, adminTransactionIntegrityController.getIntegritySummary);
+router.post('/audit/transaction-integrity/repair', protect, admin, adminTransactionIntegrityController.runTransactionIntegrityRepair);
 router.get('/audit/plan/:id/history', protect, admin, adminPlanController.getPlanHistory);
 router.get('/stats/summary', protect, admin, adminPlanController.getPlanStatsSummary);
 router.get('/stats/recent-updates', protect, admin, adminPlanController.getRecentPriceUpdates);

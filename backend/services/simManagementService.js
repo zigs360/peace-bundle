@@ -452,7 +452,7 @@ class SimManagementService {
         throw new Error('Invalid cost');
       }
 
-      if (!(await this.canDispense(sim))) {
+      if (!(await this.canDispense(sim, transaction))) {
         throw new Error('SIM daily limit reached or inactive');
       }
 
@@ -511,7 +511,7 @@ class SimManagementService {
       }
 
       await this.finalizeReservation(sim.id, costToSim, true, transaction);
-      await this.incrementDispense(sim);
+      await this.incrementDispense(sim, transaction);
 
       return {
         success: true,
@@ -531,7 +531,7 @@ class SimManagementService {
         void e;
       }
       if (sim) {
-        await sim.increment('failedDispenses');
+        await sim.increment('failedDispenses', { transaction });
       }
       logger.error(`Transaction processing failed for SIM ${sim?.phoneNumber || 'unknown'}: ${msg}`);
       return { success: false, error: msg };
@@ -580,8 +580,8 @@ class SimManagementService {
    * Increment SIM dispense count
    * @param {Sim} sim
    */
-  async incrementDispense(sim) {
-    await sim.incrementDispenses();
+  async incrementDispense(sim, transaction = null) {
+    await sim.incrementDispenses(false, transaction ? { transaction } : {});
   }
   /**
    * Detect and handle banned SIM
@@ -684,8 +684,8 @@ class SimManagementService {
    * @param {Sim} sim
    * @returns {Promise<boolean>}
    */
-  async canDispense(sim) {
-    await sim.resetDailyDispenses();
+  async canDispense(sim, transaction = null) {
+    await sim.resetDailyDispenses(transaction ? { transaction } : {});
 
     // Get limit from settings or default to 100
     // In PHP: config('transaction_limits.reseller.sim_daily_limit', 100)

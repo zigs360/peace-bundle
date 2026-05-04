@@ -96,6 +96,14 @@ class DataPurchaseController {
 
             logger.info(`[DataPurchase] Successful purchase for user ${user.id}: ${plan.name} to ${recipient_phone}`);
 
+            if (['failed', 'refunded'].includes(String(transaction.status || '').toLowerCase())) {
+                return res.status(502).json({
+                    success: false,
+                    message: transaction.failure_reason || 'Data purchase failed and was automatically reversed',
+                    transaction: sanitizeTransactionForClient(transaction, { isAdmin: user.role === 'admin' })
+                });
+            }
+
             res.json({
                 success: true,
                 message: 'Data purchase initiated successfully!',

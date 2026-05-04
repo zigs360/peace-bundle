@@ -16,9 +16,10 @@ describe('SIM pool routing for user data purchase', () => {
 
   beforeEach(async () => {
     await Transaction.destroy({ where: {} });
-    await Sim.destroy({ where: {} });
+    await Sim.destroy({ where: {}, force: true });
     await DataPlan.destroy({ where: {} });
     await Wallet.destroy({ where: {} });
+    await User.destroy({ where: {}, force: true });
     jest.restoreAllMocks();
   });
 
@@ -35,10 +36,8 @@ describe('SIM pool routing for user data purchase', () => {
       account_status: 'active',
     });
 
-    await walletService.creditFundingWithFraudChecks(user, 5000, 'Test Funding', {
-      reference: `MI-${Date.now()}-POOL`,
-      gateway: 'billstack',
-    });
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    await wallet.update({ balance: 5000, status: 'active', daily_limit: 99999999, daily_spent: 0 });
 
     const plan = await DataPlan.create({
       provider: 'mtn',
@@ -97,13 +96,10 @@ describe('SIM pool routing for user data purchase', () => {
       account_status: 'active',
     });
 
-    await walletService.creditFundingWithFraudChecks(user, 5000, 'Test Funding', {
-      reference: `MI-${Date.now()}-POOL2`,
-      gateway: 'billstack',
-    });
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    await wallet.update({ balance: 5000, status: 'active', daily_limit: 99999999, daily_spent: 0 });
 
-    const walletBefore = await Wallet.findOne({ where: { userId: user.id } });
-    const beforeBal = parseFloat(String(walletBefore.balance));
+    const beforeBal = parseFloat(String(wallet.balance));
 
     const plan = await DataPlan.create({
       provider: 'mtn',
@@ -123,11 +119,10 @@ describe('SIM pool routing for user data purchase', () => {
 
     const txn = await dataPurchaseService.purchase(user, plan, user.phone, null);
     const fresh = await Transaction.findByPk(txn.id);
-    expect(fresh.status).toBe('failed');
+    expect(fresh.status).toBe('refunded');
 
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
     const afterBal = parseFloat(String(walletAfter.balance));
     expect(afterBal).toBe(beforeBal);
   });
 });
-

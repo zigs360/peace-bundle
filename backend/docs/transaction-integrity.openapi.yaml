@@ -1,0 +1,305 @@
+openapi: 3.0.3
+info:
+  title: Peace Bundle Transaction Integrity Admin API
+  version: 1.0.0
+  description: |
+    Admin endpoints for monitoring and repairing billing anomalies across airtime and data purchase flows.
+    Covers duplicate charge detection, failed delivery refund recovery, stale transaction rollback, and integrity audit review.
+servers:
+  - url: /api
+tags:
+  - name: Transaction Integrity Admin
+paths:
+  /admin/audit/transaction-integrity:
+    get:
+      tags: [Transaction Integrity Admin]
+      summary: List transaction integrity audit events
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - in: query
+          name: sinceHours
+          schema:
+            type: integer
+            default: 72
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, warning, info]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [open, resolved]
+        - in: query
+          name: eventType
+          schema:
+            type: string
+        - in: query
+          name: userId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: transactionReference
+          schema:
+            type: string
+        - in: query
+          name: source
+          schema:
+            type: string
+            enum: [airtime_purchase, data_purchase]
+        - in: query
+          name: integrityStatus
+          schema:
+            type: string
+        - in: query
+          name: anomalyOnly
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Paginated integrity audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrityAuditListResponse'
+        '403':
+          description: Admin role required
+  /admin/audit/transaction-integrity/summary:
+    get:
+      tags: [Transaction Integrity Admin]
+      summary: Get integrity anomaly summary and latest monitor run
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: sinceHours
+          schema:
+            type: integer
+            default: 24
+      responses:
+        '200':
+          description: Integrity summary payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegritySummaryResponse'
+        '403':
+          description: Admin role required
+  /admin/audit/transaction-integrity/repair:
+    post:
+      tags: [Transaction Integrity Admin]
+      summary: Trigger an on-demand transaction integrity repair pass
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  default: 100
+                  maximum: 1000
+      responses:
+        '200':
+          description: Repair pass completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  summary:
+                    $ref: '#/components/schemas/IntegrityMonitorReport'
+        '403':
+          description: Admin role required
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    IntegrityMonitorReport:
+      type: object
+      properties:
+        duplicateRefunds:
+          type: integer
+        failedRefundsRecovered:
+          type: integer
+        staleTransactionsResolved:
+          type: integer
+        scanned:
+          type: integer
+    IntegrityAuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        severity:
+          type: string
+        status:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        user:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            email:
+              type: string
+            phone:
+              type: string
+        transaction:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            reference:
+              type: string
+            source:
+              type: string
+            status:
+              type: string
+            payment_channel:
+              type: string
+              nullable: true
+            fulfillment_route:
+              type: string
+              nullable: true
+            delivery_status:
+              type: string
+              nullable: true
+            integrity_status:
+              type: string
+              nullable: true
+            refund_reference:
+              type: string
+              nullable: true
+            anomaly_flag:
+              type: boolean
+    IntegrityAuditListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        count:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrityAuditEvent'
+    IntegritySummaryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        window:
+          type: object
+          properties:
+            since:
+              type: string
+              format: date-time
+            sinceHours:
+              type: integer
+        audits:
+          type: object
+          properties:
+            total:
+              type: integer
+            open:
+              type: integer
+            resolved:
+              type: integer
+            bySeverity:
+              type: object
+              additionalProperties:
+                type: integer
+            byStatus:
+              type: object
+              additionalProperties:
+                type: integer
+            byEventType:
+              type: object
+              additionalProperties:
+                type: integer
+        transactions:
+          type: object
+          properties:
+            scanned:
+              type: integer
+            flagged:
+              type: integer
+            refunded:
+              type: integer
+            failed:
+              type: integer
+            pendingIntegrityReview:
+              type: integer
+            byIntegrityStatus:
+              type: object
+              additionalProperties:
+                type: integer
+            byPaymentChannel:
+              type: object
+              additionalProperties:
+                type: integer
+            byFulfillmentRoute:
+              type: object
+              additionalProperties:
+                type: integer
+        latestMonitor:
+          type: object
+          properties:
+            runAt:
+              type: string
+              format: date-time
+              nullable: true
+            report:
+              allOf:
+                - $ref: '#/components/schemas/IntegrityMonitorReport'
+              nullable: true
+        recentOpenAudits:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrityAuditEvent'

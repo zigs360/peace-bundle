@@ -5,6 +5,7 @@ const smeplugService = require('./smeplugService');
 const ogdamsService = require('./ogdamsService');
 const simManagementService = require('./simManagementService');
 const affiliateService = require('./affiliateService');
+const transactionIntegrityService = require('./transactionIntegrityService');
 const logger = require('../utils/logger');
 
 class DataPurchaseService {
@@ -95,23 +96,7 @@ class DataPurchaseService {
           return;
         }
         if (parsed?.status === 'failed') {
-          await this.dispenseAirtimeWithFallback(
-            txn,
-            { network: txn.provider || meta.provider, amount: meta.vend_amount || txn.amount, phoneNumber: txn.recipient_phone || meta.recipient_phone },
-            { reconciliation: true, attempt },
-            null,
-            { skipOgdams: true },
-          );
-
-          try {
-            const user = await User.findByPk(txn.userId);
-            if (user) {
-              const { sendTransactionNotification } = require('./notificationService');
-              await sendTransactionNotification(user, txn);
-            }
-          } catch (e) {
-            void e;
-          }
+          await this.handleFailedAirtimeTransaction(txn, 'Airtime delivery failed during reconciliation', null);
           return;
         }
       } catch (e) {
@@ -157,7 +142,7 @@ class DataPurchaseService {
     return sequelize.transaction(async (t) => {
       // 1. Get price for user
       // Assuming getPriceForUser returns a promise or value
-      const amount = await plan.getPriceForUser(user);
+      const amount = await plan.getPriceForUser(user, { transaction: t });
 
       // 2. Check sufficient balance
       const hasBalance = await walletService.hasSufficientBalance(user, amount, t);
@@ -217,6 +202,27 @@ class DataPurchaseService {
         t
       );
 
+      const fingerprint = transactionIntegrityService.buildFingerprint({
+        userId: user.id,
+        source: 'data_purchase',
+        recipientPhone,
+        amount,
+        network: plan.provider,
+        planId: plan.id,
+      });
+
+      await transactionIntegrityService.annotateDebitTransaction(
+        transaction,
+        {
+          recipient_phone: recipientPhone,
+          provider: plan.provider,
+          data_plan_id: plan.id,
+          transaction_fingerprint: fingerprint,
+          client_reference: transaction.reference,
+        },
+        t,
+      );
+
       // Update with specific data purchase fields and custom reference
       await transaction.update({
         reference: this.generateReference(), // Use TXN- prefix as per requirement
@@ -227,6 +233,12 @@ class DataPurchaseService {
         dataPlanId: plan.id,
         simId: sim ? sim.id : null
       }, { transaction: t });
+
+      const lockedRoute = transactionIntegrityService.selectDataRoute({
+        plan,
+        preferredSim: sim,
+      });
+      await transactionIntegrityService.lockRoute(transaction, lockedRoute, t);
 
       // Note: Our Transaction model comment says:
       // // data_plan_id will be added by association
@@ -276,22 +288,49 @@ class DataPurchaseService {
         String(simPoolEnabledRaw || (process.env.NODE_ENV === 'test' ? 'false' : 'true')).toLowerCase() === 'true';
       const allowWalletFallback =
         String(process.env.SIM_POOL_ALLOW_WALLET_FALLBACK || 'false').toLowerCase() === 'true';
+      const route = transaction.fulfillment_route
+        ? {
+            fulfillmentRoute: transaction.fulfillment_route,
+            paymentChannel: transaction.payment_channel,
+            provider: transaction.provider,
+            simId: transaction.simId || transaction.metadata?.integrity?.routeLock?.simId || null,
+          }
+        : transactionIntegrityService.selectDataRoute({
+            plan,
+            preferredSim: sim,
+          });
 
-      if (simPoolEnabled && plan && !sim) {
-        try {
-          const poolSim = await simManagementService.getOptimalSimForData(plan);
-          if (poolSim) sim = poolSim;
-        } catch (e) {
-          void e;
+      if (!transaction.fulfillment_route) {
+        await transactionIntegrityService.lockRoute(transaction, route, t);
+      }
+
+      if (route.simId && !sim) {
+        sim = await Sim.findByPk(route.simId, { transaction: t });
+      }
+
+      if (route.fulfillmentRoute === 'sim_pool' || route.fulfillmentRoute === 'ogdams_sim') {
+        if (!simPoolEnabled && !sim) {
+          await transactionIntegrityService.failAndRefund(transaction, 'SIM pool route selected but SIM pool is disabled', t, {
+            flagAsAnomaly: true,
+          });
+          return;
         }
-      }
 
-      if (simPoolEnabled && !allowWalletFallback && plan && !sim) {
-        await this.handleFailedTransaction(transaction, 'No SIM available for this data purchase', null, t);
-        return;
-      }
+        if (!sim && plan) {
+          try {
+            sim = await simManagementService.getOptimalSimForData(plan);
+          } catch (e) {
+            void e;
+          }
+        }
 
-      if (simPoolEnabled && sim && plan) {
+        if (!sim) {
+          await transactionIntegrityService.failAndRefund(transaction, 'No SIM available for this data purchase', t, {
+            flagAsAnomaly: true,
+          });
+          return;
+        }
+
         const poolResult = await simManagementService.processTransactionWithReservation(
           sim,
           plan,
@@ -301,50 +340,100 @@ class DataPurchaseService {
         );
 
         if (poolResult.success) {
-          await transaction.update(
+          transaction.simId = sim.id;
+          transaction.metadata = {
+            ...(transaction.metadata || {}),
+            service_provider: poolResult.platform,
+            sim_pool: true,
+            sim_id: sim.id,
+          };
+          await transactionIntegrityService.markProviderSuccess(
+            transaction,
             {
-              simId: sim.id,
-              smeplug_response: { provider: poolResult.platform, data: poolResult.details || null },
-              metadata: {
-                ...(transaction.metadata || {}),
-                service_provider: poolResult.platform,
-                sim_pool: true,
-                sim_id: sim.id,
-              },
+              provider: poolResult.platform,
+              providerReference: poolResult.reference,
+              response: { provider: poolResult.platform, data: poolResult.details || null },
             },
-            { transaction: t }
+            t,
           );
-          await transaction.markAsCompleted(transaction.smeplug_response, t);
           return;
         }
 
-        if (!allowWalletFallback) {
-          await this.handleFailedTransaction(transaction, poolResult.error || 'No SIM available for this data purchase', sim, t);
-          return;
-        }
+        await transactionIntegrityService.failAndRefund(
+          transaction,
+          poolResult.error || 'SIM route failed',
+          t,
+          { flagAsAnomaly: true },
+        );
+        return;
       }
 
-      const mode = sim ? 'device_based' : 'wallet';
-      const options = sim ? { sim_number: sim.phoneNumber } : {};
+      if (route.fulfillmentRoute === 'ogdams_api') {
+        const response = await ogdamsService.purchaseData({
+          networkId: this.getNetworkId(transaction.provider),
+          planCode: String(plan?.ogdams_sku || smeplugPlanId || ''),
+          phoneNumber: transaction.recipient_phone,
+          reference: transaction.reference,
+        });
 
-      const response = await smeplugService.purchaseData(
-        transaction.provider,
-        transaction.recipient_phone,
-        smeplugPlanId || '1',
-        mode,
-        options
-      );
-
-      if (response.success) {
-        await transaction.markAsCompleted(response.data, t);
-
-        // Increment SIM dispense count
-        if (sim) {
-          await sim.incrementDispenses();
+        const ok = String(response?.status || '').toLowerCase() === 'success';
+        if (!ok) {
+          await transactionIntegrityService.failAndRefund(transaction, response?.message || 'Ogdams data purchase failed', t, {
+            flagAsAnomaly: true,
+          });
+          return;
         }
-      } else {
-        // Mark as failed and refund
-        await this.handleFailedTransaction(transaction, response.error || 'Unknown error', sim, t);
+
+        await transactionIntegrityService.markProviderSuccess(
+          transaction,
+          {
+            provider: 'ogdams',
+            providerReference: response?.reference || response?.data?.reference || transaction.reference,
+            response: { provider: 'ogdams', data: response },
+          },
+          t,
+        );
+        return;
+      }
+
+      if (route.fulfillmentRoute === 'smeplug_api') {
+        const mode = sim ? 'device_based' : 'wallet';
+        const options = sim ? { sim_number: sim.phoneNumber } : {};
+        const response = await smeplugService.purchaseData(
+          transaction.provider,
+          transaction.recipient_phone,
+          smeplugPlanId || '1',
+          mode,
+          options
+        );
+
+        if (response.success) {
+          await transactionIntegrityService.markProviderSuccess(
+            transaction,
+            {
+              provider: 'smeplug',
+              providerReference: response.data?.reference || response.data?.transaction_id || transaction.reference,
+              response: { provider: 'smeplug', data: response.data },
+            },
+            t,
+          );
+          if (sim) {
+            await sim.incrementDispenses(false, t ? { transaction: t } : {});
+          }
+          return;
+        }
+
+        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Unknown error', t, {
+          flagAsAnomaly: true,
+        });
+        return;
+      }
+
+      if (simPoolEnabled && !allowWalletFallback && route.fulfillmentRoute !== 'smeplug_api') {
+        await transactionIntegrityService.failAndRefund(transaction, 'No valid locked route available for this data purchase', t, {
+          flagAsAnomaly: true,
+        });
+        return;
       }
     } catch (error) {
       await this.handleFailedTransaction(transaction, error.message, sim, t);
@@ -359,46 +448,22 @@ class DataPurchaseService {
    * @param {object} t
    */
   async handleFailedTransaction(transaction, reason, sim, t) {
-    // Mark as failed
-    await transaction.markAsFailed(reason, t);
-    
-    // Refund user (if it was a debit)
-    if (transaction.type === 'debit') {
-        const user = await User.findByPk(transaction.userId || transaction.user_id, { transaction: t });
-        if (user) {
-            await walletService.credit(
-                user,
-                transaction.amount,
-                'refund',
-                `Refund for failed data purchase: ${transaction.reference}`,
-                { original_transaction_reference: transaction.reference },
-                t
-            );
-        }
-    }
+    await transactionIntegrityService.failAndRefund(transaction, reason, t, {
+      flagAsAnomaly: true,
+      auditEvent: 'data_delivery_failed',
+    });
 
     // Increment SIM failed count
     if (sim) {
-        await sim.incrementDispenses(true); // true for failed
+        await sim.incrementDispenses(true, t ? { transaction: t } : {});
     }
   }
 
   async handleFailedAirtimeTransaction(transaction, reason, t) {
-    await transaction.markAsFailed(reason, t);
-
-    if (transaction.type === 'debit') {
-      const user = await User.findByPk(transaction.userId || transaction.user_id, { transaction: t });
-      if (user) {
-        await walletService.credit(
-          user,
-          transaction.amount,
-          'refund',
-          `Refund for failed airtime purchase: ${transaction.reference}`,
-          { original_transaction_reference: transaction.reference },
-          t,
-        );
-      }
-    }
+    await transactionIntegrityService.failAndRefund(transaction, reason, t, {
+      flagAsAnomaly: true,
+      auditEvent: 'airtime_delivery_failed',
+    });
   }
 
   /**
@@ -544,7 +609,33 @@ class DataPurchaseService {
         t
       );
 
-      await transaction.update({ reference, status: 'processing', completed_at: null }, { transaction: t });
+      const fingerprint = transactionIntegrityService.buildFingerprint({
+        userId: user.id,
+        source: 'airtime_purchase',
+        recipientPhone: phoneNumber,
+        amount,
+        network,
+        faceValue: amount,
+      });
+
+      await transaction.update({
+        reference,
+        status: 'processing',
+        completed_at: null,
+        recipient_phone: phoneNumber,
+        provider: network,
+        delivery_status: 'pending',
+        integrity_status: 'awaiting_route_lock',
+        metadata: {
+          ...(transaction.metadata || {}),
+          client_reference: reference,
+          transaction_fingerprint: fingerprint,
+        },
+      }, { transaction: t });
+
+      const preferredSim = await simManagementService.getOptimalSim(network, amount);
+      const route = transactionIntegrityService.selectAirtimeRoute({ network, preferredSim });
+      await transactionIntegrityService.lockRoute(transaction, route, t);
 
       try {
         await this.dispenseAirtimeWithFallback(
@@ -579,8 +670,22 @@ class DataPurchaseService {
     const cleanNetwork = String(network || '').trim().toLowerCase();
     const cleanPhone = normalizePhone(phoneNumber);
     const vendAmount = Math.round(Number(amount));
+    const lockedRoute = transaction.fulfillment_route
+      ? {
+          fulfillmentRoute: transaction.fulfillment_route,
+          paymentChannel: transaction.payment_channel,
+          provider: transaction.provider || cleanNetwork,
+          simId: transaction.simId || transaction.metadata?.integrity?.routeLock?.simId || null,
+        }
+      : transactionIntegrityService.selectAirtimeRoute({
+          network: cleanNetwork,
+          preferredSim: await simManagementService.getOptimalSim(cleanNetwork, vendAmount),
+        });
 
     const baseMeta = transaction.metadata && typeof transaction.metadata === 'object' ? transaction.metadata : {};
+    if (!transaction.fulfillment_route) {
+      await transactionIntegrityService.lockRoute(transaction, lockedRoute, t);
+    }
 
     const recordAttempt = async (entry) => {
       attempts.push(entry);
@@ -599,43 +704,41 @@ class DataPurchaseService {
 
     const persistSuccess = async ({ provider, reference, response, switchedFrom = null }) => {
       const latencyMs = Date.now() - startedAt;
-      await transaction.update(
+      transaction.recipient_phone = cleanPhone;
+      transaction.provider = cleanNetwork;
+      transaction.metadata = {
+        ...baseMeta,
+        service_provider: provider,
+        provider_latency_ms: latencyMs,
+        provider_switch:
+          switchedFrom
+            ? { from: switchedFrom, to: provider, reason: 'primary_failed', context }
+            : baseMeta.provider_switch || null,
+        provider_attempts: attempts,
+      };
+      await transactionIntegrityService.markProviderSuccess(
+        transaction,
         {
-          recipient_phone: cleanPhone,
-          provider: cleanNetwork,
-          smeplug_reference: reference || transaction.smeplug_reference || transaction.reference,
-          smeplug_response: { provider, data: response },
-          status: 'completed',
-          completed_at: new Date(),
-          metadata: {
-            ...baseMeta,
-            service_provider: provider,
-            provider_latency_ms: latencyMs,
-            provider_switch:
-              switchedFrom
-                ? { from: switchedFrom, to: provider, reason: 'primary_failed', context }
-                : baseMeta.provider_switch || null,
-            provider_attempts: attempts,
-          },
+          provider,
+          providerReference: reference || transaction.smeplug_reference || transaction.reference,
+          response: { provider, data: response },
         },
-        { transaction: t },
+        t,
       );
     };
 
     const persistFailure = async (reason) => {
-      await this.handleFailedAirtimeTransaction(transaction, reason, t);
-      await transaction.update(
-        {
-          metadata: {
-            ...baseMeta,
-            provider_attempts: attempts,
-          },
-        },
-        { transaction: t },
-      );
+      transaction.metadata = {
+        ...baseMeta,
+        provider_attempts: attempts,
+      };
+      await transactionIntegrityService.failAndRefund(transaction, reason, t, {
+        flagAsAnomaly: true,
+        auditEvent: 'airtime_delivery_failed',
+      });
     };
 
-    if (!options.skipOgdams) {
+    if (lockedRoute.fulfillmentRoute === 'ogdams_api' && !options.skipOgdams) {
       try {
       const ogdamsResponse = await this.withTimeout(
         ogdamsService.purchaseAirtime({
@@ -699,19 +802,8 @@ class DataPurchaseService {
               return { provider: 'ogdams', response: parsed.raw, verified: true };
             }
             if (parsed?.status === 'failed') {
-              logger.warn('[Airtime] Switching provider after verified failure', {
-                from: 'ogdams',
-                to: 'smeplug',
-                reference: transaction.reference,
-                reason: ogReason,
-              });
-              await recordAttempt({
-                provider: 'ogdams',
-                ok: false,
-                latency_ms: Date.now() - startedAt,
-                error: ogReason,
-                switch: { from: 'ogdams', to: 'smeplug', reason: 'verified_failed', context },
-              });
+              await persistFailure(ogReason);
+              return { provider: 'ogdams', failed: true };
             } else {
               await transaction.update(
                 {
@@ -775,29 +867,23 @@ class DataPurchaseService {
           return { provider: 'ogdams', pending: true };
         }
 
-        logger.warn('[Airtime] Switching provider', {
-          from: 'ogdams',
-          to: 'smeplug',
-          reference: transaction.reference,
-          reason: ogReason,
-        });
-        await recordAttempt({
-          provider: 'ogdams',
-          ok: false,
-          latency_ms: Date.now() - startedAt,
-          error: ogReason,
-          switch: { from: 'ogdams', to: 'smeplug', reason: ogReason, context },
-        });
+        await persistFailure(ogReason);
+        return { provider: 'ogdams', failed: true };
       }
     }
 
     const smeplugStart = Date.now();
     try {
+      if (lockedRoute.fulfillmentRoute !== 'smeplug_api' && lockedRoute.fulfillmentRoute !== 'sim_pool') {
+        throw new Error('Unsupported locked airtime route');
+      }
       let processedViaSim = false;
       let simReference = null;
       let simResponse = null;
 
-      const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, vendAmount);
+      const optimalSim = lockedRoute.simId
+        ? await Sim.findByPk(lockedRoute.simId, { transaction: t })
+        : await simManagementService.getOptimalSim(cleanNetwork, vendAmount);
       if (optimalSim) {
         try {
           const simResult = await this.withTimeout(
@@ -830,9 +916,13 @@ class DataPurchaseService {
           provider: 'smeplug',
           reference: simReference,
           response: simResponse,
-          switchedFrom: 'ogdams',
+          switchedFrom: null,
         });
         return { provider: 'smeplug', response: simResponse };
+      }
+
+      if (lockedRoute.fulfillmentRoute === 'sim_pool') {
+        throw new Error('No SIM available for locked airtime route');
       }
 
       const smeplugResponse = await this.withTimeout(
@@ -858,7 +948,7 @@ class DataPurchaseService {
         provider: 'smeplug',
         reference: smeplugResponse.data?.reference || smeplugResponse.data?.transaction_id,
         response: smeplugResponse.data,
-        switchedFrom: 'ogdams',
+        switchedFrom: null,
       });
 
       return { provider: 'smeplug', response: smeplugResponse.data };

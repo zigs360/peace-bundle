@@ -1,6 +1,9 @@
 const request = require('supertest');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const app = require('../server');
 const { connectDB, User, Wallet, WalletTransaction, Transaction, Sim, sequelize } = require('../config/db');
+const SystemSetting = require('../models/SystemSetting');
 const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
 const ogdamsService = require('../services/ogdamsService');
@@ -15,29 +18,41 @@ const ogdamsService = require('../services/ogdamsService');
  */
 
 const seedUserWithBalance = async ({ balance }) => {
-  const email = `airtime-${Date.now()}@test.com`;
-  const phone = `080${Date.now().toString().slice(-8)}`;
-
-  const regRes = await request(app).post('/api/auth/register').send({
+  const unique = `airtime-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const password = await bcrypt.hash('password123', 4);
+  const user = await User.create({
     name: 'Airtime Tester',
-    email,
-    password: 'password123',
-    phone,
+    email: `${unique}@test.com`,
+    password,
+    phone: `080${Math.floor(Math.random() * 100000000).toString().padStart(8, '0')}`,
+    role: 'admin',
+    account_status: 'active',
   });
-  expect(regRes.statusCode).toBe(201);
-  const token = regRes.body.token;
+  const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'test_jwt_secret', { expiresIn: '1h' });
   expect(token).toBeTruthy();
-
-  const user = await User.findOne({ where: { email } });
-  expect(user).toBeTruthy();
 
   const [wallet] = await Wallet.findOrCreate({
     where: { userId: user.id },
     defaults: { balance: 0 },
   });
-  await wallet.update({ balance });
+  await wallet.update({ balance, daily_limit: 99999999, daily_spent: 0, status: 'active' });
 
   return { user, token };
+};
+
+const createTransactionPinSession = async (token) => {
+  await request(app)
+    .post('/api/auth/transaction-pin')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ password: 'password123', pin: '4826', confirmPin: '4826' });
+
+  const sessionRes = await request(app)
+    .post('/api/auth/transaction-pin/session')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ pin: '4826', scope: 'financial' });
+
+  expect(sessionRes.statusCode).toBe(200);
+  return sessionRes.body?.data?.token;
 };
 
 describe('Airtime Purchase Flow', () => {
@@ -50,6 +65,7 @@ describe('Airtime Purchase Flow', () => {
   });
 
   afterEach(async () => {
+    await SystemSetting.destroy({ where: { key: ['transaction_limits_user_daily_transactions', 'transaction_limits_user_hourly_transactions', 'transaction_limits_user_daily_value_limit', 'transaction_limits_admin_daily_transactions', 'transaction_limits_admin_hourly_transactions', 'transaction_limits_admin_daily_value_limit'] } });
     await Transaction.destroy({ where: {}, force: true });
     await WalletTransaction.destroy({ where: {}, force: true });
     await Sim.destroy({ where: {}, force: true });
@@ -59,6 +75,7 @@ describe('Airtime Purchase Flow', () => {
 
   it('POST /api/transactions/airtime attempts Ogdams first (even when SIM exists)', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
+    const pinToken = await createTransactionPinSession(token);
 
     await Sim.create({
       userId: user.id,
@@ -72,6 +89,7 @@ describe('Airtime Purchase Flow', () => {
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
+      .set('x-transaction-pin-token', pinToken)
       .send({ network: 'mtn', phone: '08122222222', amount: 100 });
 
     expect(res.statusCode).toBe(200);
@@ -86,8 +104,9 @@ describe('Airtime Purchase Flow', () => {
     expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
   });
 
-  it('POST /api/transactions/airtime falls back to SMEPlug SIM route when Ogdams fails and SIM exists', async () => {
+  it('POST /api/transactions/airtime auto-refunds and does not switch routes when Ogdams fails and a SIM exists', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
+    const pinToken = await createTransactionPinSession(token);
 
     await Sim.create({
       userId: user.id,
@@ -103,52 +122,42 @@ describe('Airtime Purchase Flow', () => {
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
+      .set('x-transaction-pin-token', pinToken)
       .send({ network: 'mtn', phone: '08133333333', amount: 100 });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
+    expect(res.statusCode).toBe(502);
+    expect(res.body.success).toBe(false);
     expect(res.body.transaction).toBeTruthy();
-    expect(res.body.transaction.smeplug_reference).toBe('MOCK-VTU-REF');
-    expect(res.body.transaction.smeplug_response.provider).toBe('smeplug');
-    expect(res.body.transaction.metadata.service_provider).toBe('smeplug');
-    expect(res.body.transaction.metadata.provider_switch).toBeTruthy();
+    expect(res.body.transaction.status).toBe('refunded');
+    expect(String(res.body.message || '').toLowerCase()).toMatch(/reversed|refund/);
 
-    expect(smeplugService.purchaseVTU).toHaveBeenCalled();
-    const lastCall = smeplugService.purchaseVTU.mock.calls.at(-1);
-    expect(lastCall[0]).toBe('mtn');
-    expect(lastCall[1]).toBe('08133333333');
-    expect(lastCall[2]).toBe(100);
-    expect(lastCall[3]).toEqual({ mode: 'device_based', sim_number: '08111111111' });
+    expect(smeplugService.purchaseVTU).not.toHaveBeenCalled();
 
     const wallet = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+    expect(parseFloat(wallet.balance)).toBeCloseTo(1000, 2);
   });
 
-  it('POST /api/transactions/airtime falls back to SMEPlug API when Ogdams fails and no SIM exists', async () => {
+  it('POST /api/transactions/airtime auto-refunds and does not switch routes when Ogdams fails and no SIM exists', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
+    const pinToken = await createTransactionPinSession(token);
 
     ogdamsService.purchaseAirtime.mockResolvedValueOnce({ status: 'failed', message: 'temporary error' });
 
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
+      .set('x-transaction-pin-token', pinToken)
       .send({ network: 'mtn', phone: '08144444444', amount: 100 });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
+    expect(res.statusCode).toBe(502);
+    expect(res.body.success).toBe(false);
     expect(res.body.transaction).toBeTruthy();
-    expect(res.body.transaction.smeplug_reference).toBe('MOCK-VTU-REF');
-    expect(res.body.transaction.smeplug_response.provider).toBe('smeplug');
+    expect(res.body.transaction.status).toBe('refunded');
 
-    expect(smeplugService.purchaseVTU).toHaveBeenCalled();
-    const lastCall = smeplugService.purchaseVTU.mock.calls.at(-1);
-    expect(lastCall[0]).toBe('mtn');
-    expect(lastCall[1]).toBe('08144444444');
-    expect(lastCall[2]).toBe(100);
-    expect(lastCall[3]).toBeUndefined();
+    expect(smeplugService.purchaseVTU).not.toHaveBeenCalled();
 
     const wallet = await Wallet.findOne({ where: { userId: user.id } });
-    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+    expect(parseFloat(wallet.balance)).toBeCloseTo(1000, 2);
   });
 
   it('wallet debit is atomic when insufficient balance', async () => {
@@ -169,10 +178,12 @@ describe('Airtime Purchase Flow', () => {
 
   it('POST /api/purchase/unified airtime works with +234 format and debits full amount', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
+    const pinToken = await createTransactionPinSession(token);
 
     const res = await request(app)
       .post('/api/purchase/unified')
       .set('Authorization', `Bearer ${token}`)
+      .set('x-transaction-pin-token', pinToken)
       .send({
         phone: '+2348133333333',
         serviceType: 'airtime',
@@ -195,6 +206,7 @@ describe('Airtime Purchase Flow', () => {
     process.env.OGDAMS_TIMEOUT_MS = '5';
 
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
+    const pinToken = await createTransactionPinSession(token);
 
     ogdamsService.purchaseAirtime.mockImplementationOnce(() => new Promise(() => {}));
     ogdamsService.checkAirtimeStatus.mockResolvedValueOnce(null);
@@ -202,6 +214,7 @@ describe('Airtime Purchase Flow', () => {
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
+      .set('x-transaction-pin-token', pinToken)
       .send({ network: 'mtn', phone: '08155555555', amount: 100 });
 
     expect(res.statusCode).toBe(200);

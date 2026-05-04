@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import PlansIndex from './Index';
 
@@ -20,12 +20,21 @@ vi.mock('react-i18next', () => ({
     t: (key: string, options?: Record<string, any>) => {
       const translations: Record<string, string> = {
         'admin.plansManagementTitle': 'Plans Management',
+        'admin.plansManagementDescription': 'Manage plans',
         'admin.applyFilters': 'Apply Filters',
         'admin.editPlanTitle': `Edit Plan: ${options?.name ?? ''}`,
         'admin.saveChanges': 'Save Changes',
         'admin.importCsv': 'Import CSV',
         'admin.importPlansTitle': 'Import Plans',
         'admin.importPlansAction': 'Import Plans',
+        'admin.planSearchPlaceholder': 'Plan name, ID, size',
+        'common.edit': 'Edit',
+        'common.save': 'Save',
+        'common.cancel': 'Cancel',
+        'common.loading': 'Loading...',
+        'common.created': 'created',
+        'common.updated': 'updated',
+        'common.skipped': 'skipped',
       };
       return translations[key] || key;
     },
@@ -146,7 +155,7 @@ describe('PlansIndex', () => {
   });
 
   it('loads plans, applies filters, and saves modal edits for name, validity, and price fields', async () => {
-    const { container } = render(
+    render(
       <MemoryRouter>
         <PlansIndex />
       </MemoryRouter>,
@@ -185,15 +194,19 @@ describe('PlansIndex', () => {
 
     fireEvent.click(screen.getByText('Edit'));
 
-    expect(await screen.findByText('Edit Plan: 1GB [GIFTING]')).toBeInTheDocument();
-    fireEvent.change(screen.getByDisplayValue('1GB [GIFTING]'), { target: { value: '1GB Mega' } });
-    fireEvent.change(screen.getByDisplayValue('1 Day'), { target: { value: '30 Days' } });
-    const priceInputs = screen.getAllByDisplayValue('475');
+    const heading = await screen.findByText('Edit Plan: 1GB [GIFTING]');
+    expect(heading).toBeInTheDocument();
+    const modal = heading.closest('.fixed') as HTMLElement;
+    expect(modal).toBeTruthy();
+
+    fireEvent.change(within(modal).getByDisplayValue('1GB [GIFTING]'), { target: { value: '1GB Mega' } });
+    fireEvent.change(within(modal).getByDisplayValue('1 Day'), { target: { value: '30 Days' } });
+    const priceInputs = within(modal).getAllByDisplayValue('475');
     fireEvent.change(priceInputs[priceInputs.length - 1], { target: { value: '490' } });
-    const reasonBox = container.querySelector('textarea');
+    const reasonBox = modal.querySelector('textarea');
     expect(reasonBox).toBeTruthy();
     fireEvent.change(reasonBox as HTMLTextAreaElement, { target: { value: 'Vendor update' } });
-    fireEvent.click(screen.getByText('Save Changes'));
+    fireEvent.click(within(modal).getByText('Save Changes'));
 
     await waitFor(() => {
       expect(apiPut).toHaveBeenCalledWith(
@@ -218,9 +231,12 @@ describe('PlansIndex', () => {
 
     expect(await screen.findByText('Plans Management')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Edit'));
-    fireEvent.change(screen.getByDisplayValue('1GB [GIFTING]'), { target: { value: '' } });
-    fireEvent.change(screen.getByDisplayValue('1 Day'), { target: { value: '' } });
-    fireEvent.click(screen.getByText('Save Changes'));
+    const heading = await screen.findByText('Edit Plan: 1GB [GIFTING]');
+    const modal = heading.closest('.fixed') as HTMLElement;
+    expect(modal).toBeTruthy();
+    fireEvent.change(within(modal).getByDisplayValue('1GB [GIFTING]'), { target: { value: '' } });
+    fireEvent.change(within(modal).getByDisplayValue('1 Day'), { target: { value: '' } });
+    fireEvent.click(within(modal).getByText('Save Changes'));
 
     await waitFor(() => {
       expect(apiPut).not.toHaveBeenCalled();
@@ -270,6 +286,12 @@ describe('PlansIndex', () => {
       );
     });
 
-    expect(await screen.findByText(/Imported plans successfully/i)).toBeInTheDocument();
+    const importHeading = await screen.findByRole('heading', { name: 'Import Plans' });
+    const importModal = importHeading.closest('.fixed') as HTMLElement;
+    expect(importModal).toBeTruthy();
+    expect(within(importModal).getByText('created: 1')).toBeInTheDocument();
+    expect(within(importModal).getByText('updated: 0')).toBeInTheDocument();
+    expect(within(importModal).getByText('skipped: 0')).toBeInTheDocument();
+    expect(within(importModal).getAllByText('1GB [GIFTING] (MTN)').length).toBeGreaterThan(0);
   });
 });

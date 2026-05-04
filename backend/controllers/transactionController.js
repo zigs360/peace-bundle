@@ -16,6 +16,7 @@ const transactionLimitService = require('../services/transactionLimitService');
 const affiliateService = require('../services/affiliateService');
 const paymentGatewayService = require('../services/paymentGatewayService');
 const billPaymentService = require('../services/billPaymentService');
+const transactionIntegrityService = require('../services/transactionIntegrityService');
 const sequelize = require('../config/database');
 const { Op } = require('sequelize');
 const PDFDocument = require('pdfkit');
@@ -62,6 +63,15 @@ const processAffiliateCommission = async (user, amount, transaction, t) => {
         console.error('Affiliate Commission Error:', error);
         // Don't fail the main transaction if commission fails
     }
+};
+
+const buildAutoReversalMessage = (transaction, fallback) => {
+    const reason = String(transaction?.failure_reason || '').trim();
+    if (!reason) return fallback;
+    if (String(transaction?.status || '').toLowerCase() === 'refunded') {
+        return `${reason}. Transaction was automatically reversed`;
+    }
+    return reason;
 };
 
 // @desc    Initialize Wallet Funding
@@ -222,6 +232,21 @@ const buyData = async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
+        if (reference) {
+            const existing = await transactionIntegrityService.findDuplicateByReference(reference);
+            if (existing) {
+                const updatedWallet = await walletService.getBalance(user);
+                return res.status(200).json({
+                    success: true,
+                    message: 'Duplicate request (idempotent replay)',
+                    balance: updatedWallet,
+                    charged_price: toFiniteNumber(existing.amount) || null,
+                    transaction_ref: existing.reference,
+                    transaction: sanitizeTransactionForClient(existing, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
+                });
+            }
+        }
+
         // Check Transaction Limits
         const limitCheck = await transactionLimitService.canTransact(user);
         if (!limitCheck.allowed) {
@@ -262,7 +287,7 @@ const buyData = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Selected plan is currently disabled for purchase' });
         }
 
-        const cost = parseFloat(await plan.getPriceForUser(user));
+        const cost = parseFloat(await plan.getPriceForUser(user, { transaction: t }));
         if (requestedAmount !== null && Math.abs(cost - requestedAmount) > 0.009) {
             if (t) await t.rollback();
             return res.status(400).json({ success: false, message: 'Displayed price is stale. Please refresh plans and try again.' });
@@ -270,6 +295,32 @@ const buyData = async (req, res) => {
 
         // 1. Debit Wallet
         let newTransaction;
+        const transactionFingerprint = transactionIntegrityService.buildFingerprint({
+            userId: user.id,
+            source: 'data_purchase',
+            recipientPhone: phone,
+            amount: cost,
+            network: plan.provider,
+            planId,
+        });
+        const duplicateCandidate = await transactionIntegrityService.findLikelyDuplicate({
+            userId: user.id,
+            source: 'data_purchase',
+            fingerprint: transactionFingerprint,
+            clientReference: reference || null,
+        });
+        if (duplicateCandidate) {
+            if (t && !t.finished) await t.rollback();
+            const updatedWallet = await walletService.getBalance(user);
+            return res.status(200).json({
+                success: true,
+                message: 'Duplicate request (idempotent replay)',
+                balance: updatedWallet,
+                charged_price: toFiniteNumber(duplicateCandidate.amount) || cost,
+                transaction_ref: duplicateCandidate.reference,
+                transaction: sanitizeTransactionForClient(duplicateCandidate, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
+            });
+        }
         try {
             newTransaction = await walletService.debit(
                 user, 
@@ -306,58 +357,43 @@ const buyData = async (req, res) => {
             throw debitError;
         }
 
+        await transactionIntegrityService.annotateDebitTransaction(
+            newTransaction,
+            {
+                recipient_phone: phone,
+                provider: plan.provider,
+                data_plan_id: plan.id,
+                client_reference: reference || newTransaction.reference,
+                transaction_fingerprint: transactionFingerprint,
+            },
+            t,
+        );
+
         // 2. Process Purchase (Local SIM or API)
-        const networkId = smeplugService.getNetworkId(plan.provider);
-        
-        // Determine routing: Local SIM or API (Smeplug)
-        let processedViaSim = false;
-        let simReference = null;
-        let simResponse = null;
+        const preferredSim = plan.available_sim === false ? null : await simManagementService.getOptimalSimForData(plan);
+        const route = transactionIntegrityService.selectDataRoute({ plan, preferredSim });
+        await transactionIntegrityService.lockRoute(newTransaction, route, t);
 
-        // Try to find a local SIM first (if enabled/applicable)
-        // Passing plan.api_cost to check if SIM has enough balance
-        const optimalSim = await simManagementService.getOptimalSim(plan.provider, plan.api_cost || 0);
-        
-        if (optimalSim) {
-            try {
-                const simResult = await simManagementService.processTransaction(optimalSim, plan, phone);
-                if (simResult.success) {
-                    processedViaSim = true;
-                    simReference = simResult.reference;
-                    simResponse = simResult;
-                }
-            } catch (simError) {
-                logger.error('Local SIM transaction failed, falling back to API:', { error: simError.message, phone });
-            }
-        }
+        newTransaction.status = 'processing';
+        newTransaction.recipient_phone = phone;
+        newTransaction.provider = plan.provider;
+        newTransaction.dataPlanId = plan.id;
+        if (route.simId) newTransaction.simId = route.simId;
+        await newTransaction.save({ transaction: t });
 
-        if (processedViaSim) {
-            newTransaction.smeplug_reference = simReference;
-            newTransaction.smeplug_response = simResponse;
-            await newTransaction.save({ transaction: t });
-        } else {
-            if (plan.available_wallet === false) {
-                throw new Error('Selected plan is not available on wallet routing right now');
-            }
+        await dataPurchaseService.dispenseData(newTransaction, preferredSim, t);
 
-            // Use the canonical vendor plan ID first, then legacy fallbacks.
-            const smeplugPlanId = plan.plan_id || plan.smeplug_plan_id || planId;
-
-            const purchaseResult = await smeplugService.purchaseData(
-                plan.provider,
-                phone,
-                smeplugPlanId,
-                'wallet'
-            );
-
-            if (!purchaseResult.success) {
-                throw new Error(purchaseResult.error || 'Data purchase failed at provider');
-            }
-
-            // Update transaction with provider reference
-            newTransaction.smeplug_reference = purchaseResult.data?.reference;
-            newTransaction.smeplug_response = purchaseResult.data;
-            await newTransaction.save({ transaction: t });
+        if (['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
+            await t.commit();
+            const updatedWallet = await walletService.getBalance(user);
+            return res.status(502).json({
+                success: false,
+                message: buildAutoReversalMessage(newTransaction, 'Data purchase failed and was automatically reversed'),
+                balance: updatedWallet,
+                charged_price: cost,
+                transaction_ref: newTransaction.reference,
+                transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
+            });
         }
 
         await t.commit();
@@ -428,6 +464,19 @@ const buyAirtime = async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
+        if (reference) {
+            const existing = await transactionIntegrityService.findDuplicateByReference(reference);
+            if (existing) {
+                const updatedWallet = await walletService.getBalance(user);
+                return res.status(200).json({
+                    success: true,
+                    message: 'Duplicate request (idempotent replay)',
+                    balance: updatedWallet,
+                    transaction: sanitizeTransactionForClient(existing, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
+                });
+            }
+        }
+
         // Check Transaction Limits
         const limitCheck = await transactionLimitService.canTransact(user);
         if (!limitCheck.allowed) {
@@ -441,8 +490,32 @@ const buyAirtime = async (req, res) => {
         t = await sequelize.transaction();
 
         const faceValue = Number(amount);
-        const quote = await pricingService.quoteAirtime({ user, provider: network, faceValue });
+        const quote = await pricingService.quoteAirtime({ user, provider: network, faceValue, transaction: t });
         const toPay = parseFloat(String(quote.charged_amount));
+        const transactionFingerprint = transactionIntegrityService.buildFingerprint({
+            userId: user.id,
+            source: 'airtime_purchase',
+            recipientPhone: phone,
+            amount: toPay,
+            network,
+            faceValue,
+        });
+        const duplicateCandidate = await transactionIntegrityService.findLikelyDuplicate({
+            userId: user.id,
+            source: 'airtime_purchase',
+            fingerprint: transactionFingerprint,
+            clientReference: reference || null,
+        });
+        if (duplicateCandidate) {
+            if (t && !t.finished) await t.rollback();
+            const updatedWallet = await walletService.getBalance(user);
+            return res.status(200).json({
+                success: true,
+                message: 'Duplicate request (idempotent replay)',
+                balance: updatedWallet,
+                transaction: sanitizeTransactionForClient(duplicateCandidate, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
+            });
+        }
 
         // Debit Wallet
         try {
@@ -469,6 +542,17 @@ const buyAirtime = async (req, res) => {
             throw debitError;
         }
 
+        await transactionIntegrityService.annotateDebitTransaction(
+            newTransaction,
+            {
+                recipient_phone: phone,
+                provider: network,
+                client_reference: reference || newTransaction.reference,
+                transaction_fingerprint: transactionFingerprint,
+            },
+            t,
+        );
+
         logger.info('[Airtime] Purchase initiated', { userId, reference: newTransaction.reference, network, amount: faceValue });
 
         await newTransaction.update(
@@ -487,6 +571,14 @@ const buyAirtime = async (req, res) => {
             { transaction: t }
         );
 
+        const preferredSim = await simManagementService.getOptimalSim(network, faceValue);
+        const route = transactionIntegrityService.selectAirtimeRoute({ network, preferredSim });
+        await transactionIntegrityService.lockRoute(newTransaction, route, t);
+        if (route.simId) {
+            newTransaction.simId = route.simId;
+            await newTransaction.save({ transaction: t });
+        }
+
         let providerResult;
         try {
             providerResult = await dataPurchaseService.dispenseAirtimeWithFallback(
@@ -500,9 +592,20 @@ const buyAirtime = async (req, res) => {
             const updatedWallet = await walletService.getBalance(user);
             return res.status(502).json({
                 success: false,
-                message: providerError.message || 'Airtime purchase failed at provider',
+                message: buildAutoReversalMessage(newTransaction, providerError.message || 'Airtime purchase failed at provider'),
                 balance: updatedWallet,
                 transaction: newTransaction
+            });
+        }
+
+        if (providerResult?.failed || ['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
+            await t.commit();
+            const updatedWallet = await walletService.getBalance(user);
+            return res.status(502).json({
+                success: false,
+                message: buildAutoReversalMessage(newTransaction, 'Airtime purchase failed and was automatically reversed'),
+                balance: updatedWallet,
+                transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
             });
         }
 

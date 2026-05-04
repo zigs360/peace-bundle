@@ -7,6 +7,7 @@
     "dev": "nodemon server.js",
     "lint": "eslint .",
     "test": "cross-env NODE_ENV=test jest --testTimeout=30000 --runInBand --detectOpenHandles",
+    "test:call-sub-module:coverage": "cross-env NODE_ENV=test jest tests/call_sub_management.test.js --runInBand --coverage --collectCoverageFrom=models/CallPlan.js --collectCoverageFrom=services/callSubscriptionManagementService.js --collectCoverageFrom=services/callSubscriptionPortfolioService.js",
     "plans:import": "node scripts/importDataPlans.js",
     "migrate:legacy-validity": "node scripts/migrateLegacyValidityBundles.js airtel",
     "migrate:legacy-validity:dry-run": "node scripts/migrateLegacyValidityBundles.js airtel --dry-run"

@@ -15,6 +15,7 @@ const { startVirtualAccountProvisioningJob } = require('./jobs/virtualAccountPro
 const { startAirtimeReconcileJob } = require('./jobs/airtimeReconcileJob');
 const { startWebhookAlertJob } = require('./jobs/webhookAlertJob');
 const { startWalletReconciliationJob } = require('./jobs/walletReconciliationJob');
+const { startTransactionIntegrityJob } = require('./jobs/transactionIntegrityJob');
 
 const path = require('path');
 const fs = require('fs');
@@ -221,6 +222,7 @@ if (require.main === module) {
       startAirtimeReconcileJob();
       startWebhookAlertJob();
       startWalletReconciliationJob();
+      startTransactionIntegrityJob();
     });
   })();
 }

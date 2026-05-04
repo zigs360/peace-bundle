@@ -781,7 +781,7 @@ export default function PlansIndex() {
       </div>
 
       {selectedPlan && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" aria-label={t('admin.editPlanTitle', { name: selectedPlan.name })} className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-6 space-y-5">
             <div>
               <h2 className="text-xl font-bold text-gray-900">{t('admin.editPlanTitle', { name: selectedPlan.name })}</h2>
@@ -843,7 +843,7 @@ export default function PlansIndex() {
       )}
 
       {deleteDialog && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" aria-label={t('admin.deletePlanTitle')} className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl p-6 space-y-5">
             <div>
               <h2 className="text-xl font-bold text-gray-900">{t('admin.deletePlanTitle')}</h2>
@@ -891,7 +891,7 @@ export default function PlansIndex() {
       )}
 
       {bulkDeleteDialog && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" aria-label={t('admin.bulkDeleteTitle')} className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl p-6 space-y-5">
             <div>
               <h2 className="text-xl font-bold text-gray-900">{t('admin.bulkDeleteTitle')}</h2>
@@ -937,7 +937,7 @@ export default function PlansIndex() {
       )}
 
       {showImportModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" aria-label={t('admin.importPlansTitle')} className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-6 space-y-5">
             <div>
               <h2 className="text-xl font-bold text-gray-900">{t('admin.importPlansTitle')}</h2>

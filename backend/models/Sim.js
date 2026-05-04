@@ -183,17 +183,17 @@ Sim.prototype.isLowBalance = function() {
          parseFloat(this.airtimeBalance) < parseFloat(this.lowBalanceThreshold);
 };
 
-Sim.prototype.resetDailyDispenses = async function() {
+Sim.prototype.resetDailyDispenses = async function(options = {}) {
   const today = new Date().toISOString().split('T')[0];
   if (this.dailyResetDate !== today) {
     this.dailyDispenses = 0;
     this.dailyResetDate = today;
-    await this.save();
+    await this.save(options);
   }
 };
 
-Sim.prototype.incrementDispenses = async function(failed = false) {
-  await this.resetDailyDispenses();
+Sim.prototype.incrementDispenses = async function(failed = false, options = {}) {
+  await this.resetDailyDispenses(options);
   
   this.totalDispenses += 1;
   this.dailyDispenses += 1;
@@ -202,7 +202,7 @@ Sim.prototype.incrementDispenses = async function(failed = false) {
     this.failedDispenses += 1;
   }
   
-  await this.save();
+  await this.save(options);
 };
 
 module.exports = Sim;

@@ -8,6 +8,7 @@ const simManagementService = require('../services/simManagementService');
 const dataPurchaseService = require('../services/dataPurchaseService');
 const pricingService = require('../services/pricingService');
 const transactionLimitService = require('../services/transactionLimitService');
+const transactionIntegrityService = require('../services/transactionIntegrityService');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database');
 const { sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
@@ -77,7 +78,7 @@ const purchaseUnified = async (req, res) => {
         transactionType = 'airtime_purchase';
         description = `${network.toUpperCase()} Airtime ₦${finalAmount} to ${cleanPhone}`;
 
-        const quote = await pricingService.quoteAirtime({ user, provider: cleanNetwork, faceValue: finalAmount });
+        const quote = await pricingService.quoteAirtime({ user, provider: cleanNetwork, faceValue: finalAmount, transaction: t });
         const chargedAmount = parseFloat(String(quote.charged_amount));
         
         // Debit Wallet
@@ -88,6 +89,25 @@ const purchaseUnified = async (req, res) => {
           description,
           { network: cleanNetwork, phone: cleanPhone, amount: finalAmount, chargedAmount, serviceType, planId, pricing: quote },
           t
+        );
+
+        const transactionFingerprint = transactionIntegrityService.buildFingerprint({
+          userId: user.id,
+          source: 'airtime_purchase',
+          recipientPhone: cleanPhone,
+          amount: chargedAmount,
+          network: cleanNetwork,
+          faceValue: finalAmount,
+        });
+        await transactionIntegrityService.annotateDebitTransaction(
+          newTransaction,
+          {
+            recipient_phone: cleanPhone,
+            provider: cleanNetwork,
+            client_reference: newTransaction.reference,
+            transaction_fingerprint: transactionFingerprint,
+          },
+          t,
         );
 
         await newTransaction.update(
@@ -106,6 +126,14 @@ const purchaseUnified = async (req, res) => {
           { transaction: t }
         );
 
+        const preferredSim = await simManagementService.getOptimalSim(cleanNetwork, finalAmount);
+        const route = transactionIntegrityService.selectAirtimeRoute({ network: cleanNetwork, preferredSim });
+        await transactionIntegrityService.lockRoute(newTransaction, route, t);
+        if (route.simId) {
+          newTransaction.simId = route.simId;
+          await newTransaction.save({ transaction: t });
+        }
+
         let providerResult;
         try {
           providerResult = await dataPurchaseService.dispenseAirtimeWithFallback(
@@ -119,6 +147,15 @@ const purchaseUnified = async (req, res) => {
           return res.status(502).json({
             success: false,
             message: providerError.message || 'Failed to process airtime purchase',
+            transaction: newTransaction
+          });
+        }
+
+        if (providerResult?.failed || ['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
+          await t.commit();
+          return res.status(502).json({
+            success: false,
+            message: newTransaction.failure_reason || 'Failed to process airtime purchase',
             transaction: newTransaction
           });
         }
@@ -143,7 +180,7 @@ const purchaseUnified = async (req, res) => {
           throw new Error('Invalid data plan selected');
         }
 
-        const quote = await pricingService.quoteDataPlan({ user, plan });
+        const quote = await pricingService.quoteDataPlan({ user, plan, transaction: t });
         const price = parseFloat(String(quote.charged_amount));
 
         // Debit Wallet
@@ -156,42 +193,45 @@ const purchaseUnified = async (req, res) => {
           t
         );
 
-        // 2. Process Purchase (Local SIM or API)
-        let processedViaSim = false;
-        let simReference = null;
-        let simResponse = null;
+        const transactionFingerprint = transactionIntegrityService.buildFingerprint({
+          userId: user.id,
+          source: 'data_purchase',
+          recipientPhone: cleanPhone,
+          amount: price,
+          network: cleanNetwork,
+          planId: plan.id,
+        });
+        await transactionIntegrityService.annotateDebitTransaction(
+          newTransaction,
+          {
+            recipient_phone: cleanPhone,
+            provider: cleanNetwork,
+            data_plan_id: plan.id,
+            client_reference: newTransaction.reference,
+            transaction_fingerprint: transactionFingerprint,
+          },
+          t,
+        );
 
-        // Try to find a local SIM first
-        const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, plan.api_cost || 0);
-        if (optimalSim) {
-          try {
-            const simResult = await simManagementService.processTransaction(optimalSim, plan, cleanPhone);
-            if (simResult.success) {
-              processedViaSim = true;
-              simReference = simResult.reference;
-              simResponse = simResult;
-            }
-          } catch (simError) {
-            logger.error('Local SIM Data Failure:', { error: simError.message, phone: cleanPhone });
-          }
-        }
+        const optimalSim = plan.available_sim === false ? null : await simManagementService.getOptimalSimForData(plan);
+        const route = transactionIntegrityService.selectDataRoute({ plan, preferredSim: optimalSim });
+        await transactionIntegrityService.lockRoute(newTransaction, route, t);
+        newTransaction.status = 'processing';
+        newTransaction.recipient_phone = cleanPhone;
+        newTransaction.provider = cleanNetwork;
+        newTransaction.dataPlanId = plan.id;
+        if (route.simId) newTransaction.simId = route.simId;
+        await newTransaction.save({ transaction: t });
 
-        if (processedViaSim) {
-          newTransaction.smeplug_reference = simReference;
-          newTransaction.smeplug_response = simResponse;
-          await newTransaction.save({ transaction: t });
-        } else {
-          // Call SMEPlug API as fallback
-          const providerResponse = await smeplugService.purchaseData(cleanNetwork, cleanPhone, plan.smeplug_plan_id || plan.id, 'wallet');
-          
-          if (!providerResponse.success) {
-            logger.error('Smeplug Data Failure:', providerResponse);
-            throw new Error(providerResponse.error || 'Failed to process data purchase');
-          }
+        await dataPurchaseService.dispenseData(newTransaction, optimalSim, t);
 
-          newTransaction.smeplug_reference = providerResponse.data?.reference;
-          newTransaction.smeplug_response = providerResponse.data;
-          await newTransaction.save({ transaction: t });
+        if (['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
+          await t.commit();
+          return res.status(502).json({
+            success: false,
+            message: newTransaction.failure_reason || 'Failed to process data purchase',
+            transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
+          });
         }
 
         await t.commit();

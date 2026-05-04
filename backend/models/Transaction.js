@@ -143,6 +143,35 @@ const Transaction = sequelize.define('Transaction', {
     type: DataTypes.INTEGER,
     defaultValue: 0,
   },
+  payment_channel: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  fulfillment_route: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  route_lock_key: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  delivery_status: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  integrity_status: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  refund_reference: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  anomaly_flag: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
 
   userId: {
     type: DataTypes.UUID,
@@ -212,6 +241,10 @@ const Transaction = sequelize.define('Transaction', {
     { fields: ['status'] },
     { fields: ['type'] },
     { fields: ['source'] },
+    { fields: ['payment_channel'] },
+    { fields: ['fulfillment_route'] },
+    { fields: ['integrity_status'] },
+    { fields: ['delivery_status'] },
     { fields: ['createdAt'] },
     { fields: ['status', 'createdAt'] },
     { fields: ['recipient_phone', 'createdAt'] },

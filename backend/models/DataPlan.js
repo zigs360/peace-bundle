@@ -311,7 +311,7 @@ DataPlan.addHook('beforeValidate', (plan) => {
 });
 
 // Instance Methods
-DataPlan.prototype.getPriceForUser = async function(user) {
+DataPlan.prototype.getPriceForUser = async function(user, options = {}) {
   const fallbackBasePrice = parseFloat(String(this.your_price ?? this.admin_price ?? this.wallet_price ?? 0));
 
   if (!user) {
@@ -319,7 +319,7 @@ DataPlan.prototype.getPriceForUser = async function(user) {
   }
 
   try {
-    const quote = await pricingService.quoteDataPlan({ user, plan: this });
+    const quote = await pricingService.quoteDataPlan({ user, plan: this, transaction: options.transaction || null });
     if (quote && quote.ruleId) {
       return parseFloat(String(quote.charged_amount));
     }
