@@ -7,7 +7,17 @@ const WebhookEvent = require('../models/WebhookEvent');
 const fs = require('fs');
 const path = require('path');
 const { decrypt } = require('../utils/cryptoUtils');
+const { getReadableTransactionAttributes } = require('../services/transactionSchemaCompatibilityService');
 const logger = require('../utils/logger');
+
+const withSafeTransactionReadOptions = async (options = {}) => {
+    const readableAttributes = await getReadableTransactionAttributes();
+    if (!readableAttributes || options.attributes) return options;
+    return {
+        ...options,
+        attributes: readableAttributes,
+    };
+};
 
 // @desc    Get All Data Plans (Admin)
 // @route   GET /api/admin/plans
@@ -500,7 +510,7 @@ const getTransactions = async (req, res) => {
             }
         }
 
-        const { count, rows } = await Transaction.findAndCountAll({
+        const { count, rows } = await Transaction.findAndCountAll(await withSafeTransactionReadOptions({
             where,
             include: [
                 { model: User, as: 'user', attributes: ['id', 'name', 'email'] },
@@ -510,7 +520,7 @@ const getTransactions = async (req, res) => {
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset)
-        });
+        }));
 
         res.json({
             transactions: rows,
@@ -668,9 +678,9 @@ const refundTransaction = async (req, res) => {
     const { id } = req.params;
 
     try {
-        const transaction = await Transaction.findByPk(id, {
+        const transaction = await Transaction.findByPk(id, await withSafeTransactionReadOptions({
             include: [{ model: User, as: 'user' }]
-        });
+        }));
 
         if (!transaction) {
             return res.status(404).json({ success: false, message: 'Transaction not found' });
@@ -760,7 +770,7 @@ const getAdminStats = async (req, res) => {
             Transaction.count({ where: { status: 'pending' } }),
             Sim.count(),
             Sim.count({ where: { status: 'active' } }),
-            Transaction.findAll({
+            Transaction.findAll(await withSafeTransactionReadOptions({
                 attributes: [
                     'provider',
                     [sequelize.fn('SUM', sequelize.col('amount')), 'total']
@@ -772,14 +782,14 @@ const getAdminStats = async (req, res) => {
                 },
                 group: ['provider'],
                 raw: true
-            }),
-            Transaction.findAll({
+            })),
+            Transaction.findAll(await withSafeTransactionReadOptions({
                 include: [
                     { model: User, as: 'user', attributes: ['name', 'email'] },
                 ],
                 order: [['createdAt', 'DESC']],
                 limit: 10
-            }),
+            })),
             getTransactionTrends(),
             Wallet.sum('balance').then(sum => parseFloat(sum || 0)),
             treasuryService.getTreasurySnapshot()
@@ -1389,13 +1399,13 @@ const getBulkSMSHistory = async (req, res) => {
             source: 'bulk_sms_payment'
         };
 
-        const { count, rows } = await Transaction.findAndCountAll({
+        const { count, rows } = await Transaction.findAndCountAll(await withSafeTransactionReadOptions({
             where,
             include: [{ model: User, as: 'user', attributes: ['name', 'email'] }],
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset)
-        });
+        }));
 
         res.json({
             success: true,
@@ -1640,7 +1650,7 @@ const listPendingFundingReviews = async (req, res) => {
         const { page = 1, limit = 20 } = req.query;
         const offset = (parseInt(page) - 1) * parseInt(limit);
 
-        const { count, rows } = await Transaction.findAndCountAll({
+        const { count, rows } = await Transaction.findAndCountAll(await withSafeTransactionReadOptions({
             where: {
                 status: 'pending',
                 type: 'credit',
@@ -1650,7 +1660,7 @@ const listPendingFundingReviews = async (req, res) => {
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset
-        });
+        }));
 
         const pendingReview = rows.filter((t) => t?.metadata?.review_status === 'pending_review');
 
@@ -1672,7 +1682,7 @@ const approvePendingFundingReview = async (req, res) => {
     try {
         const t = await sequelize.transaction();
         try {
-            const txn = await Transaction.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
+            const txn = await Transaction.findByPk(id, await withSafeTransactionReadOptions({ transaction: t, lock: t.LOCK.UPDATE }));
             if (!txn) {
                 await t.rollback();
                 return res.status(404).json({ success: false, message: 'Transaction not found' });
@@ -1749,7 +1759,7 @@ const rejectPendingFundingReview = async (req, res) => {
     try {
         const t = await sequelize.transaction();
         try {
-            const txn = await Transaction.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
+            const txn = await Transaction.findByPk(id, await withSafeTransactionReadOptions({ transaction: t, lock: t.LOCK.UPDATE }));
             if (!txn) {
                 await t.rollback();
                 return res.status(404).json({ success: false, message: 'Transaction not found' });

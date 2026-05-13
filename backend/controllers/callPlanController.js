@@ -94,6 +94,20 @@ const canUseManagedCallPlanColumns = async () => {
   return compatibility.managedColumnsAvailable;
 };
 
+const getCallPlanSchemaBlocker = async (featureLabel = 'This call subscription feature') => {
+  const compatibility = await getCallPlanSchemaCompatibility();
+  if (compatibility.managedColumnsAvailable) return null;
+  return {
+    statusCode: 503,
+    response: {
+      success: false,
+      code: 'CALLPLAN_MIGRATION_REQUIRED',
+      message: `${featureLabel} is temporarily unavailable until the call subscription database migration is applied.`,
+      missingColumns: compatibility.missingManagedColumns || [],
+    },
+  };
+};
+
 /**
  * @desc    Get voice bundles (TalkMore, etc.)
  * @route   GET /api/callplans/voice-bundles
@@ -137,6 +151,10 @@ const getVoiceBundles = async (req, res) => {
  */
 const createCallPlan = async (req, res) => {
   try {
+    const blocker = await getCallPlanSchemaBlocker('Call plan creation');
+    if (blocker) {
+      return res.status(blocker.statusCode).json(blocker.response);
+    }
     const payload = normalizeCallPlanPayload(req.body || {});
     const { name, provider, customerPrice, minutes, validityDays, status, type, bundleClass } = payload;
 
@@ -276,7 +294,8 @@ const getCallSubBundles = async (req, res) => {
   try {
     const provider = resolveCallSubProvider(req.params.provider);
     const portfolio = String(req.query.portfolio || '').trim().toLowerCase();
-    const managedColumnsAvailable = await canUseManagedCallPlanColumns();
+    const compatibility = await getCallPlanSchemaCompatibility();
+    const managedColumnsAvailable = compatibility.managedColumnsAvailable;
     const where = {
       provider: provider.key,
       status: 'active',
@@ -284,7 +303,13 @@ const getCallSubBundles = async (req, res) => {
     };
     if (portfolio === 'talkmore') {
       if (!managedColumnsAvailable) {
-        return res.json({ success: true, data: [] });
+        return res.json({
+          success: true,
+          degraded: true,
+          message: 'TalkMore bundles are unavailable until the call subscription migration is applied.',
+          missingColumns: compatibility.missingManagedColumns || [],
+          data: [],
+        });
       }
       where.bundleClass = TALKMORE_GIFTING_BUNDLE_CLASS;
     } else {
@@ -295,7 +320,17 @@ const getCallSubBundles = async (req, res) => {
     }
     const plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({ where, order: [['price', 'ASC']] }));
     const payload = await resolvePricedPlans(plans, req);
-    res.json({ success: true, data: payload });
+    res.json({
+      success: true,
+      degraded: !managedColumnsAvailable,
+      ...(managedColumnsAvailable
+        ? {}
+        : {
+            message: 'Call subscription data is running in compatibility mode until the migration is applied.',
+            missingColumns: compatibility.missingManagedColumns || [],
+          }),
+      data: payload,
+    });
   } catch (error) {
     const statusCode = error.statusCode || 500;
     logger.error(`[CallPlan] Call sub bundles fetch error: ${error.message}`);
@@ -310,6 +345,10 @@ const purchaseCallSubBundle = async (req, res) => {
 
   try {
     const provider = resolveCallSubProvider(req.params.provider);
+    const blocker = await getCallPlanSchemaBlocker(`${provider.label} call subscription purchase`);
+    if (blocker) {
+      return res.status(blocker.statusCode).json(blocker.response);
+    }
     if (!recipientPhoneNumber || !ussdParserService.validatePhoneNumber(recipientPhoneNumber)) {
       return res.status(400).json({ success: false, message: 'Invalid recipient phone number' });
     }
@@ -683,6 +722,10 @@ const getCallPlanById = async (req, res) => {
  */
 const updateCallPlan = async (req, res) => {
   try {
+    const blocker = await getCallPlanSchemaBlocker('Call plan updates');
+    if (blocker) {
+      return res.status(blocker.statusCode).json(blocker.response);
+    }
     const payload = normalizeCallPlanPayload(req.body || {});
 
     const callPlan = await CallPlan.findByPk(req.params.id, await withSafeCallPlanReadAttributes());
@@ -765,9 +808,16 @@ const listManagedCallSubPlans = async (req, res) => {
   try {
     const provider = resolveCallSubProvider(req.params.provider);
     const portfolio = String(req.query.portfolio || '').trim().toLowerCase();
-    const managedColumnsAvailable = await canUseManagedCallPlanColumns();
+    const compatibility = await getCallPlanSchemaCompatibility();
+    const managedColumnsAvailable = compatibility.managedColumnsAvailable;
     if (portfolio && !managedColumnsAvailable) {
-      return res.json({ success: true, items: [] });
+      return res.json({
+        success: true,
+        degraded: true,
+        message: 'Managed call subscription plans are unavailable until the migration is applied.',
+        missingColumns: compatibility.missingManagedColumns || [],
+        items: [],
+      });
     }
     const where = { provider: provider.key };
     if (portfolio) where.portfolio = portfolio;
@@ -775,7 +825,17 @@ const listManagedCallSubPlans = async (req, res) => {
       where,
       order: [['price', 'ASC'], ['createdAt', 'ASC']],
     }));
-    return res.json({ success: true, items: plans.map((plan) => normalizeManagedCallPlan(plan)) });
+    return res.json({
+      success: true,
+      degraded: !managedColumnsAvailable,
+      ...(managedColumnsAvailable
+        ? {}
+        : {
+            message: 'Managed call subscription plans are running in compatibility mode until the migration is applied.',
+            missingColumns: compatibility.missingManagedColumns || [],
+          }),
+      items: plans.map((plan) => normalizeManagedCallPlan(plan)),
+    });
   } catch (error) {
     const statusCode = error.statusCode || 500;
     logger.error(`[CallPlan] Managed plan list error: ${error.message}`);
@@ -786,9 +846,17 @@ const listManagedCallSubPlans = async (req, res) => {
 const getCallSubStock = async (req, res) => {
   try {
     const provider = resolveCallSubProvider(req.params.provider);
-    const managedColumnsAvailable = await canUseManagedCallPlanColumns();
+    const compatibility = await getCallPlanSchemaCompatibility();
+    const managedColumnsAvailable = compatibility.managedColumnsAvailable;
     if (!managedColumnsAvailable) {
-      return res.json({ success: true, provider: provider.key, items: [] });
+      return res.json({
+        success: true,
+        degraded: true,
+        provider: provider.key,
+        message: 'Stock data is unavailable until the call subscription migration is applied.',
+        missingColumns: compatibility.missingManagedColumns || [],
+        items: [],
+      });
     }
     const plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
       where: { provider: provider.key },

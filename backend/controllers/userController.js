@@ -37,21 +37,6 @@ const requestVirtualAccount = async (req, res) => {
             });
         }
 
-        const rawPhone = String(user.phone || '').trim();
-        const phoneDigits = rawPhone.replace(/\D/g, '');
-        const isPhoneValid =
-            /^0\d{10}$/.test(rawPhone) ||
-            (phoneDigits.startsWith('234') && phoneDigits.length === 13) ||
-            (phoneDigits.startsWith('0') && phoneDigits.length === 11);
-
-        if (!rawPhone || !isPhoneValid) {
-            return res.json({
-                success: false,
-                code: 'PHONE_INVALID',
-                message: 'A valid Nigerian phone number is required on your profile before requesting a virtual account.'
-            });
-        }
-
         if (user.virtual_account_number) {
             if (!virtualAccountService.isDisplayableVirtualAccount(user)) {
                 await virtualAccountService.quarantineUnauthorizedVirtualAccount(user);
@@ -67,6 +52,15 @@ const requestVirtualAccount = async (req, res) => {
                 accountName: user.virtual_account_name
             });
             }
+        }
+
+        const readiness = await virtualAccountService.getProvisioningReadiness(user);
+        if (!readiness.canAttempt) {
+            return res.json({
+                success: false,
+                code: readiness.code,
+                message: readiness.message,
+            });
         }
 
         logger.info(`[VirtualAccount] Manual request initiated by user ${userId} (${user.email})`);
@@ -127,6 +121,15 @@ const getVirtualAccountSummary = async (req, res) => {
                 if (ageMs >= 0 && ageMs < 2 * 60 * 1000) {
                     return res.json({ success: true, hasVirtualAccount: false, message: 'Your virtual account is being generated. Please refresh in a few minutes.' });
                 }
+            }
+            const readiness = await virtualAccountService.getProvisioningReadiness(user);
+            if (!readiness.canAttempt) {
+                return res.json({
+                    success: true,
+                    hasVirtualAccount: false,
+                    code: readiness.code,
+                    message: readiness.message,
+                });
             }
             try {
                 await virtualAccountService.recordProvisioningAttempt(user.id);

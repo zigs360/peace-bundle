@@ -40,6 +40,28 @@ const mapUserForClient = (user) => ({
     hasTransactionPin: Boolean(user.transaction_pin_hash),
 });
 
+const buildVirtualAccountProfileState = async (user) => {
+    const hasDisplayableVirtualAccount = VirtualAccountService.isDisplayableVirtualAccount(user);
+    if (hasDisplayableVirtualAccount) {
+        return {
+            hasDisplayableVirtualAccount: true,
+            virtualAccountStatus: {
+                code: 'ALREADY_ASSIGNED',
+                message: 'Virtual account is assigned.',
+            },
+        };
+    }
+
+    const readiness = await VirtualAccountService.getProvisioningReadiness(user);
+    return {
+        hasDisplayableVirtualAccount: false,
+        virtualAccountStatus: {
+            code: readiness.code,
+            message: readiness.message,
+        },
+    };
+};
+
 const attachRecoveredWallet = async (user) => {
     if (!user) return null;
     if (user.wallet) return user.wallet;
@@ -269,24 +291,11 @@ const getMe = async (req, res) => {
 
         await attachRecoveredWallet(user);
 
-        // Auto-assign virtual account if missing (for existing users)
-        if (!user.virtual_account_number) {
-            try {
-                const accountDetails = await VirtualAccountService.assignVirtualAccount(user);
-                if (accountDetails) {
-                    user.virtual_account_number = accountDetails.accountNumber;
-                    user.virtual_account_bank = accountDetails.bankName;
-                    user.virtual_account_name = accountDetails.accountName;
-                }
-            } catch (err) {
-                logger.warn(`[Auth] Failed to auto-assign virtual account for user ${user.id}: ${err.message}`);
-            }
-        }
-        
         // Transform response to flat structure expected by frontend
         const userResponse = user.toJSON();
         userResponse.balance = user.wallet ? user.wallet.balance : 0;
         userResponse.hasTransactionPin = Boolean(user.transaction_pin_hash);
+        Object.assign(userResponse, await buildVirtualAccountProfileState(user));
         
         res.json(userResponse);
     } catch (error) {

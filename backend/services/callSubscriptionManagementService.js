@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
+const { getCallPlanSchemaCompatibility } = require('./callPlanSchemaCompatibilityService');
 
 const TALKMORE_GIFTING_BUNDLE_CLASS = 'talkmore_gifting';
 const TALKMORE_VALIDITY_DAYS = 30;
@@ -129,6 +130,15 @@ function calculateProratedCommission({
 }
 
 async function decrementPlanStock(CallPlan, { planId, transaction }) {
+  const compatibility = await getCallPlanSchemaCompatibility();
+  if (!compatibility.managedColumnsAvailable) {
+    const error = new Error('Call subscription stock management requires the pending database migration');
+    error.statusCode = 503;
+    error.code = 'CALLPLAN_MIGRATION_REQUIRED';
+    error.missingColumns = compatibility.missingManagedColumns || [];
+    throw error;
+  }
+
   const plan = await CallPlan.findByPk(planId, { transaction });
 
   if (!plan) {

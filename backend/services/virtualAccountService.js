@@ -72,6 +72,79 @@ class VirtualAccountService {
         return this.isApprovedProvider(provider);
     }
 
+    getPhoneEligibility(user) {
+        const rawPhone = String(user?.phone || '').trim();
+        const phoneDigits = rawPhone.replace(/\D/g, '');
+        const isValid =
+            /^0\d{10}$/.test(rawPhone) ||
+            (phoneDigits.startsWith('234') && phoneDigits.length === 13) ||
+            (phoneDigits.startsWith('0') && phoneDigits.length === 11);
+        return {
+            rawPhone,
+            isValid,
+        };
+    }
+
+    async getProvisioningReadiness(user) {
+        if (!user) {
+            return {
+                canAttempt: false,
+                code: 'USER_NOT_FOUND',
+                message: 'User not found.',
+            };
+        }
+
+        if (user.virtual_account_number && this.isDisplayableVirtualAccount(user)) {
+            return {
+                canAttempt: false,
+                code: 'ALREADY_ASSIGNED',
+                message: 'A virtual account is already assigned.',
+            };
+        }
+
+        if (!user.email || !user.name) {
+            return {
+                canAttempt: false,
+                code: 'PROFILE_INCOMPLETE',
+                message: 'Your profile is incomplete. Please update your name and email before requesting a virtual account.',
+            };
+        }
+
+        const phone = this.getPhoneEligibility(user);
+        if (!phone.isValid) {
+            return {
+                canAttempt: false,
+                code: 'PHONE_INVALID',
+                message: 'A valid Nigerian phone number is required to generate a virtual account.',
+            };
+        }
+
+        const hasPayvessel = this.isPayvesselConfigured();
+        const hasBillstack = this.isBillstackConfigured();
+        if (!hasPayvessel && !hasBillstack) {
+            return {
+                canAttempt: false,
+                code: 'PROVIDER_NOT_CONFIGURED',
+                message: 'No virtual account provider is properly configured.',
+            };
+        }
+
+        const payvesselKycOk = await this.isPayvesselKycSatisfied(user);
+        if (!hasBillstack && hasPayvessel && !payvesselKycOk) {
+            return {
+                canAttempt: false,
+                code: 'KYC_REQUIRED',
+                message: 'KYC/BVN verification is required to generate a virtual account.',
+            };
+        }
+
+        return {
+            canAttempt: true,
+            code: 'READY',
+            message: 'Virtual account provisioning can be attempted.',
+        };
+    }
+
     async findUserByAccountNumber(accountNumber) {
         const acc = String(accountNumber || '').trim();
         if (!acc) return null;

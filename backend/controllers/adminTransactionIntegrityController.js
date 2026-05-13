@@ -5,6 +5,10 @@ const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const SystemSetting = require('../models/SystemSetting');
 const transactionIntegrityService = require('../services/transactionIntegrityService');
+const {
+  getReadableTransactionAttributes,
+  getTransactionSchemaCompatibility,
+} = require('../services/transactionSchemaCompatibilityService');
 const logger = require('../utils/logger');
 
 const PURCHASE_SOURCES = ['airtime_purchase', 'data_purchase'];
@@ -27,7 +31,7 @@ const buildAuditWhere = (query) => {
   return where;
 };
 
-const buildTransactionWhere = (query, since) => {
+const buildTransactionWhere = (query, since, { integrityColumnsAvailable } = {}) => {
   const where = {
     source: { [Op.in]: PURCHASE_SOURCES },
     createdAt: { [Op.gte]: since },
@@ -39,10 +43,10 @@ const buildTransactionWhere = (query, since) => {
   if (query.source) {
     where.source = String(query.source).trim();
   }
-  if (query.integrityStatus) {
+  if (query.integrityStatus && integrityColumnsAvailable) {
     where.integrity_status = String(query.integrityStatus).trim();
   }
-  if (String(query.anomalyOnly || '').toLowerCase() === 'true') {
+  if (String(query.anomalyOnly || '').toLowerCase() === 'true' && integrityColumnsAvailable) {
     where.anomaly_flag = true;
   }
 
@@ -53,6 +57,34 @@ const getIntegritySummary = async (req, res) => {
   try {
     const sinceHours = parsePositiveInt(req.query.sinceHours, 24, 24 * 30);
     const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
+    const [schemaCompatibility, readableTransactionAttributes] = await Promise.all([
+      getTransactionSchemaCompatibility(),
+      getReadableTransactionAttributes(),
+    ]);
+    const transactionAttributes = readableTransactionAttributes || [
+      'id',
+      'reference',
+      'source',
+      'status',
+      'payment_channel',
+      'fulfillment_route',
+      'integrity_status',
+      'refund_reference',
+      'anomaly_flag',
+    ];
+    const auditTransactionAttributes = readableTransactionAttributes || [
+      'id',
+      'reference',
+      'source',
+      'status',
+      'payment_channel',
+      'fulfillment_route',
+      'delivery_status',
+      'integrity_status',
+      'refund_reference',
+      'anomaly_flag',
+      'createdAt',
+    ];
 
     const [audits, transactions, latestReportSetting, latestRunSetting] = await Promise.all([
       TransactionIntegrityAudit.findAll({
@@ -62,7 +94,7 @@ const getIntegritySummary = async (req, res) => {
         order: [['createdAt', 'DESC']],
         limit: 1000,
         include: [
-          { model: Transaction, as: 'transaction', attributes: ['id', 'reference', 'source', 'status', 'payment_channel', 'fulfillment_route', 'integrity_status', 'refund_reference', 'anomaly_flag'] },
+          { model: Transaction, as: 'transaction', attributes: transactionAttributes },
           { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
         ],
       }),
@@ -71,6 +103,7 @@ const getIntegritySummary = async (req, res) => {
           source: { [Op.in]: PURCHASE_SOURCES },
           createdAt: { [Op.gte]: since },
         },
+        ...(readableTransactionAttributes ? { attributes: readableTransactionAttributes } : {}),
         order: [['createdAt', 'DESC']],
         limit: 1000,
       }),
@@ -129,6 +162,10 @@ const getIntegritySummary = async (req, res) => {
         runAt: latestRunSetting?.value || null,
         report: latestMonitorReport,
       },
+      schemaCompatibility: {
+        degraded: !schemaCompatibility.integrityColumnsAvailable,
+        missingIntegrityColumns: schemaCompatibility.missingIntegrityColumns || [],
+      },
       recentOpenAudits: openAudits.slice(0, 10),
     });
   } catch (error) {
@@ -150,9 +187,26 @@ const listTransactionIntegrityAudits = async (req, res) => {
     const offset = (page - 1) * limit;
     const sinceHours = parsePositiveInt(req.query.sinceHours, 72, 24 * 30);
     const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
+    const [schemaCompatibility, readableTransactionAttributes] = await Promise.all([
+      getTransactionSchemaCompatibility(),
+      getReadableTransactionAttributes(),
+    ]);
 
     const where = buildAuditWhere(req.query);
-    const transactionWhere = buildTransactionWhere(req.query, since);
+    const transactionWhere = buildTransactionWhere(req.query, since, schemaCompatibility);
+    const transactionAttributes = readableTransactionAttributes || [
+      'id',
+      'reference',
+      'source',
+      'status',
+      'payment_channel',
+      'fulfillment_route',
+      'delivery_status',
+      'integrity_status',
+      'refund_reference',
+      'anomaly_flag',
+      'createdAt',
+    ];
 
     const { count, rows } = await TransactionIntegrityAudit.findAndCountAll({
       where: {
@@ -163,7 +217,7 @@ const listTransactionIntegrityAudits = async (req, res) => {
         {
           model: Transaction,
           as: 'transaction',
-          attributes: ['id', 'reference', 'source', 'status', 'payment_channel', 'fulfillment_route', 'delivery_status', 'integrity_status', 'refund_reference', 'anomaly_flag', 'createdAt'],
+          attributes: transactionAttributes,
           where: transactionWhere,
           required: true,
         },
@@ -184,6 +238,10 @@ const listTransactionIntegrityAudits = async (req, res) => {
       count,
       page,
       limit,
+      schemaCompatibility: {
+        degraded: !schemaCompatibility.integrityColumnsAvailable,
+        missingIntegrityColumns: schemaCompatibility.missingIntegrityColumns || [],
+      },
       rows,
     });
   } catch (error) {

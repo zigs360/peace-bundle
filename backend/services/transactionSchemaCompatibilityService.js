@@ -77,9 +77,9 @@ async function getTransactionSchemaCompatibility({ forceRefresh = false } = {}) 
   } catch (error) {
     const result = {
       checked: true,
-      integrityColumnsAvailable: true,
-      missingIntegrityColumns: [],
-      readableAttributes: undefined,
+      integrityColumnsAvailable: false,
+      missingIntegrityColumns: [...TRANSACTION_INTEGRITY_COLUMNS],
+      readableAttributes: BASE_TRANSACTION_ATTRIBUTES,
       error: {
         name: error.name || 'Error',
         message: error.message || String(error),

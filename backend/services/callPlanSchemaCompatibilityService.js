@@ -75,9 +75,9 @@ async function getCallPlanSchemaCompatibility({ forceRefresh = false } = {}) {
   } catch (error) {
     const result = {
       checked: true,
-      managedColumnsAvailable: true,
-      missingManagedColumns: [],
-      readableAttributes: undefined,
+      managedColumnsAvailable: false,
+      missingManagedColumns: [...CALLPLAN_MANAGED_COLUMNS],
+      readableAttributes: BASE_CALLPLAN_ATTRIBUTES,
       error: {
         name: error.name || 'Error',
         message: error.message || String(error),
