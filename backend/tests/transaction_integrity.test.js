@@ -154,6 +154,41 @@ describe('Transaction integrity safeguards', () => {
     expect(parseFloat(wallet.balance)).toBeCloseTo(5000, 2);
   });
 
+  it('creates wallet transactions with explicit insert fields so old schemas do not receive integrity defaults', async () => {
+    const { user } = await createUserWithToken({ balance: 1000, prefix: 'safe-fields' });
+    const createSpy = jest.spyOn(Transaction, 'create');
+
+    await walletService.debit(user, 100, 'airtime_purchase', 'Safe field debit', {
+      reference: 'SAFE-FIELDS-001',
+    });
+
+    const [, options] = createSpy.mock.calls.at(-1);
+    expect(options.fields).toEqual(expect.arrayContaining([
+      'id',
+      'walletId',
+      'userId',
+      'type',
+      'amount',
+      'balance_before',
+      'balance_after',
+      'source',
+      'reference',
+      'description',
+      'metadata',
+      'status',
+      'completed_at',
+    ]));
+    expect(options.fields).not.toEqual(expect.arrayContaining([
+      'payment_channel',
+      'fulfillment_route',
+      'route_lock_key',
+      'delivery_status',
+      'integrity_status',
+      'refund_reference',
+      'anomaly_flag',
+    ]));
+  });
+
   it('automatically reverses duplicate charges discovered by the monitor', async () => {
     const { user } = await createUserWithToken({ balance: 1000, prefix: 'dup' });
     const fingerprint = transactionIntegrityService.buildFingerprint({

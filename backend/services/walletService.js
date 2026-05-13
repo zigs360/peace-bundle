@@ -17,6 +17,18 @@ class WalletService {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  async createTransactionRecord(attributes, options = {}) {
+    const payload = {
+      id: crypto.randomUUID(),
+      ...attributes,
+    };
+
+    return Transaction.create(payload, {
+      ...options,
+      fields: Object.keys(payload),
+    });
+  }
+
   async inferOpeningBalance(user, transaction = null) {
     const latestTransaction = await Transaction.findOne({
       where: {
@@ -111,7 +123,7 @@ class WalletService {
       const txnSource = this.normalizeTransactionSource(source);
       
       // Create transaction record
-      const txn = await Transaction.create({
+      const txn = await this.createTransactionRecord({
         walletId: wallet.id,
         userId: user.id, // Explicitly set userId
         type: 'credit',
@@ -197,7 +209,7 @@ class WalletService {
         const exceedsCap = Number.isFinite(cap) && fundedTotal + amountNum > cap;
 
         if (exceedsVelocity || exceedsCap) {
-          const txn = await Transaction.create(
+          const txn = await this.createTransactionRecord(
             {
               walletId: wallet.id,
               userId: user.id,
@@ -283,7 +295,7 @@ class WalletService {
       }, { transaction: transaction });
       
       // Create transaction record
-      const txn = await Transaction.create({
+      const txn = await this.createTransactionRecord({
         walletId: wallet.id,
         userId: user.id,
         type: 'debit',
@@ -332,7 +344,7 @@ class WalletService {
 
       const txnType = delta < 0 ? 'debit' : 'credit';
       const txnAmount = Math.abs(delta);
-      const txn = await Transaction.create(
+      const txn = await this.createTransactionRecord(
         {
           walletId: wallet.id,
           userId: user.id,
@@ -377,7 +389,7 @@ class WalletService {
       
       await senderWallet.update({ balance: senderBalanceAfter }, { transaction: transaction });
 
-      const debitTxn = await Transaction.create({
+      const debitTxn = await this.createTransactionRecord({
         walletId: senderWallet.id,
         userId: sender.id,
         type: 'debit',
@@ -400,7 +412,7 @@ class WalletService {
 
       await recipientWallet.update({ balance: recipientBalanceAfter }, { transaction: transaction });
 
-      const creditTxn = await Transaction.create({
+      const creditTxn = await this.createTransactionRecord({
         walletId: recipientWallet.id,
         userId: recipient.id,
         type: 'credit',
@@ -471,7 +483,7 @@ class WalletService {
       
       await wallet.update({ commission_balance: newBalance }, { transaction: transaction });
       
-      return Transaction.create({
+      return this.createTransactionRecord({
         walletId: wallet.id,
         userId: user.id,
         type: 'credit',
@@ -516,7 +528,7 @@ class WalletService {
       }, { transaction: transaction });
 
       // Create transaction
-      return Transaction.create({
+      return this.createTransactionRecord({
         walletId: wallet.id,
         userId: user.id,
         type: 'credit',
