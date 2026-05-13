@@ -17,6 +17,30 @@ const STALE_PROCESSING_MS = Number.parseInt(process.env.TRANSACTION_STALE_PROCES
 const round2 = (value) => Number(Number(value || 0).toFixed(2));
 
 class TransactionIntegrityService {
+  async getWriteCompatibility() {
+    const compatibility = await getTransactionSchemaCompatibility();
+    return {
+      integrityColumnsAvailable: compatibility.integrityColumnsAvailable,
+      missingIntegrityColumns: compatibility.missingIntegrityColumns || [],
+    };
+  }
+
+  applyIntegrityFieldCompatibility(transaction, updates, compatibility) {
+    const next = { ...updates };
+    if (compatibility?.integrityColumnsAvailable) {
+      return next;
+    }
+
+    delete next.payment_channel;
+    delete next.fulfillment_route;
+    delete next.route_lock_key;
+    delete next.delivery_status;
+    delete next.integrity_status;
+    delete next.refund_reference;
+    delete next.anomaly_flag;
+    return next;
+  }
+
   buildRefundReference(reference) {
     const hash = crypto.createHash('sha256').update(String(reference || '')).digest('hex').slice(0, 24).toUpperCase();
     return `RFND-${hash}`;
@@ -79,6 +103,7 @@ class TransactionIntegrityService {
   }
 
   async lockRoute(transaction, route, dbTransaction = null) {
+    const compatibility = await this.getWriteCompatibility();
     const currentPaymentChannel = String(transaction.payment_channel || '').trim();
     const currentFulfillmentRoute = String(transaction.fulfillment_route || '').trim();
     if (
@@ -94,11 +119,20 @@ class TransactionIntegrityService {
       .update(`${transaction.reference}|${route.paymentChannel}|${route.fulfillmentRoute}|${route.provider || ''}|${route.simId || ''}`)
       .digest('hex');
 
-    transaction.payment_channel = route.paymentChannel;
-    transaction.fulfillment_route = route.fulfillmentRoute;
-    transaction.route_lock_key = routeFingerprint;
-    transaction.delivery_status = transaction.delivery_status || 'pending';
-    transaction.integrity_status = 'route_locked';
+    Object.assign(
+      transaction,
+      this.applyIntegrityFieldCompatibility(
+        transaction,
+        {
+          payment_channel: route.paymentChannel,
+          fulfillment_route: route.fulfillmentRoute,
+          route_lock_key: routeFingerprint,
+          delivery_status: transaction.delivery_status || 'pending',
+          integrity_status: 'route_locked',
+        },
+        compatibility,
+      ),
+    );
     transaction.metadata = {
       ...metadata,
       integrity: {
@@ -130,12 +164,22 @@ class TransactionIntegrityService {
   }
 
   async markProviderSuccess(transaction, payload = {}, dbTransaction = null) {
+    const compatibility = await this.getWriteCompatibility();
     const metadata = this.getMetadata(transaction);
     transaction.status = 'completed';
     transaction.completed_at = new Date();
-    transaction.delivery_status = 'success';
-    transaction.integrity_status = 'settled';
-    transaction.anomaly_flag = false;
+    Object.assign(
+      transaction,
+      this.applyIntegrityFieldCompatibility(
+        transaction,
+        {
+          delivery_status: 'success',
+          integrity_status: 'settled',
+          anomaly_flag: false,
+        },
+        compatibility,
+      ),
+    );
     transaction.smeplug_reference = payload.providerReference || transaction.smeplug_reference || transaction.reference;
     transaction.smeplug_response = payload.response || transaction.smeplug_response;
     transaction.metadata = {
@@ -198,6 +242,7 @@ class TransactionIntegrityService {
   }
 
   async annotateDebitTransaction(transaction, details = {}, dbTransaction = null) {
+    const compatibility = await this.getWriteCompatibility();
     const metadata = this.getMetadata(transaction);
     transaction.metadata = {
       ...metadata,
@@ -208,13 +253,23 @@ class TransactionIntegrityService {
         createdAt: metadata.integrity?.createdAt || new Date().toISOString(),
       },
     };
-    if (!transaction.delivery_status) transaction.delivery_status = 'pending';
-    if (!transaction.integrity_status) transaction.integrity_status = 'awaiting_route_lock';
+    Object.assign(
+      transaction,
+      this.applyIntegrityFieldCompatibility(
+        transaction,
+        {
+          delivery_status: transaction.delivery_status || 'pending',
+          integrity_status: transaction.integrity_status || 'awaiting_route_lock',
+        },
+        compatibility,
+      ),
+    );
     await transaction.save({ transaction: dbTransaction });
     return transaction;
   }
 
   async safeRefund(transaction, reason, dbTransaction = null, options = {}) {
+    const compatibility = await this.getWriteCompatibility();
     if (!transaction) return null;
     const original = transaction;
     const metadata = this.getMetadata(original);
@@ -225,8 +280,17 @@ class TransactionIntegrityService {
       if (existing) {
         if (original.status !== 'refunded') {
           original.status = 'refunded';
-          original.integrity_status = 'auto_refunded';
-          original.delivery_status = original.delivery_status || 'failed';
+          Object.assign(
+            original,
+            this.applyIntegrityFieldCompatibility(
+              original,
+              {
+                integrity_status: 'auto_refunded',
+                delivery_status: original.delivery_status || 'failed',
+              },
+              compatibility,
+            ),
+          );
           await original.save({ transaction: dbTransaction });
         }
         return existing;
@@ -236,10 +300,19 @@ class TransactionIntegrityService {
     const refundReference = this.buildRefundReference(original.reference);
     const priorRefund = await Transaction.findOne({ where: { reference: refundReference }, transaction: dbTransaction });
     if (priorRefund) {
-      original.refund_reference = priorRefund.reference;
       original.status = 'refunded';
-      original.integrity_status = 'auto_refunded';
-      original.delivery_status = original.delivery_status || 'failed';
+      Object.assign(
+        original,
+        this.applyIntegrityFieldCompatibility(
+          original,
+          {
+            refund_reference: priorRefund.reference,
+            integrity_status: 'auto_refunded',
+            delivery_status: original.delivery_status || 'failed',
+          },
+          compatibility,
+        ),
+      );
       original.metadata = {
         ...metadata,
         integrity: {
@@ -276,11 +349,20 @@ class TransactionIntegrityService {
       dbTransaction,
     );
 
-    original.refund_reference = refundTxn.reference;
     original.status = 'refunded';
-    original.delivery_status = 'failed';
-    original.integrity_status = 'auto_refunded';
-    original.anomaly_flag = Boolean(options.flagAsAnomaly);
+    Object.assign(
+      original,
+      this.applyIntegrityFieldCompatibility(
+        original,
+        {
+          refund_reference: refundTxn.reference,
+          delivery_status: 'failed',
+          integrity_status: 'auto_refunded',
+          anomaly_flag: Boolean(options.flagAsAnomaly),
+        },
+        compatibility,
+      ),
+    );
     original.metadata = {
       ...metadata,
       integrity: {
@@ -308,11 +390,21 @@ class TransactionIntegrityService {
   }
 
   async failAndRefund(transaction, reason, dbTransaction = null, options = {}) {
+    const compatibility = await this.getWriteCompatibility();
     transaction.failure_reason = reason;
     transaction.status = 'failed';
-    transaction.delivery_status = 'failed';
-    transaction.integrity_status = 'refund_pending';
-    transaction.anomaly_flag = Boolean(options.flagAsAnomaly);
+    Object.assign(
+      transaction,
+      this.applyIntegrityFieldCompatibility(
+        transaction,
+        {
+          delivery_status: 'failed',
+          integrity_status: 'refund_pending',
+          anomaly_flag: Boolean(options.flagAsAnomaly),
+        },
+        compatibility,
+      ),
+    );
     await transaction.save({ transaction: dbTransaction });
     await this.logAudit(
       transaction,

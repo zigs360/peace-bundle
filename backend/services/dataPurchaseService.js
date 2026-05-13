@@ -624,14 +624,22 @@ class DataPurchaseService {
         completed_at: null,
         recipient_phone: phoneNumber,
         provider: network,
-        delivery_status: 'pending',
-        integrity_status: 'awaiting_route_lock',
         metadata: {
           ...(transaction.metadata || {}),
           client_reference: reference,
           transaction_fingerprint: fingerprint,
         },
       }, { transaction: t });
+      await transactionIntegrityService.annotateDebitTransaction(
+        transaction,
+        {
+          recipient_phone: phoneNumber,
+          provider: network,
+          client_reference: reference,
+          transaction_fingerprint: fingerprint,
+        },
+        t,
+      );
 
       const preferredSim = await simManagementService.getOptimalSim(network, amount);
       const route = transactionIntegrityService.selectAirtimeRoute({ network, preferredSim });

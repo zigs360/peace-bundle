@@ -401,6 +401,7 @@ class VirtualAccountService {
             created: 0,
             skipped_inactive: 0,
             skipped_existing: 0,
+            skipped_ineligible: 0,
             failed: 0,
             errors: []
         };
@@ -451,6 +452,16 @@ class VirtualAccountService {
 
                 if (row.virtual_account_number) {
                     summary.skipped_existing++;
+                    continue;
+                }
+
+                const readiness = await this.getProvisioningReadiness(row);
+                if (!readiness.canAttempt) {
+                    if (readiness.code === 'ALREADY_ASSIGNED') {
+                        summary.skipped_existing++;
+                    } else {
+                        summary.skipped_ineligible++;
+                    }
                     continue;
                 }
 
@@ -595,6 +606,14 @@ class VirtualAccountService {
         }
         if (user.virtual_account_number && !this.isDisplayableVirtualAccount(user)) {
             await this.quarantineUnauthorizedVirtualAccount(user, { transaction });
+        }
+
+        const readiness = await this.getProvisioningReadiness(user);
+        if (!readiness.canAttempt) {
+            if (readiness.code === 'ALREADY_ASSIGNED') {
+                return null;
+            }
+            throw new Error(readiness.message);
         }
 
         // Feature Flag: Check if generation is enabled
