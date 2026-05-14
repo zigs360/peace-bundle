@@ -1,6 +1,8 @@
 const sequelize = require('./database'); // Correct import of instance
 const bcrypt = require('bcryptjs');
 const { DataTypes, Op } = require('sequelize');
+const fs = require('fs');
+const path = require('path');
 
 let isConnected = false;
 const globalState = globalThis.__peacebundle_db_state || {
@@ -9,6 +11,111 @@ const globalState = globalThis.__peacebundle_db_state || {
   connectPromise: null
 };
 globalThis.__peacebundle_db_state = globalState;
+
+const SQL_MIGRATIONS_TABLE = 'app_sql_migrations';
+
+const ensureSqlMigrationsTable = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return false;
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "${SQL_MIGRATIONS_TABLE}" (
+        "id" TEXT PRIMARY KEY,
+        "applied_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    return true;
+  } catch (error) {
+    console.error(`[DB] Failed to ensure sql migrations table: ${error.message}`);
+    return false;
+  }
+};
+
+const isSqlMigrationApplied = async (id) => {
+  if (!id) return false;
+  const ensured = await ensureSqlMigrationsTable();
+  if (!ensured) return false;
+  const [rows] = await sequelize.query(
+    `SELECT 1 AS ok FROM "${SQL_MIGRATIONS_TABLE}" WHERE "id" = :id LIMIT 1;`,
+    { replacements: { id: String(id) } },
+  );
+  return Array.isArray(rows) && rows.length > 0;
+};
+
+const recordSqlMigrationApplied = async (id) => {
+  if (!id) return;
+  const ensured = await ensureSqlMigrationsTable();
+  if (!ensured) return;
+  await sequelize.query(
+    `INSERT INTO "${SQL_MIGRATIONS_TABLE}" ("id") VALUES (:id) ON CONFLICT ("id") DO NOTHING;`,
+    { replacements: { id: String(id) } },
+  );
+};
+
+const applySqlMigrationFile = async ({ id, filePath }) => {
+  if (!id || !filePath) throw new Error('Migration id and filePath are required');
+  const alreadyApplied = await isSqlMigrationApplied(id);
+  if (alreadyApplied) return { applied: false, id };
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Migration file missing: ${filePath}`);
+  }
+
+  const sql = fs.readFileSync(filePath, 'utf8');
+  if (!sql || !sql.trim()) {
+    throw new Error(`Migration file empty: ${filePath}`);
+  }
+
+  await sequelize.query(sql);
+  await recordSqlMigrationApplied(id);
+  return { applied: true, id };
+};
+
+const ensureTransactionIntegrityMigrationApplied = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+
+  const qi = sequelize.getQueryInterface();
+  let desc;
+  try {
+    desc = await qi.describeTable('transactions');
+  } catch (error) {
+    return;
+  }
+
+  const requiredColumns = [
+    'payment_channel',
+    'fulfillment_route',
+    'route_lock_key',
+    'delivery_status',
+    'integrity_status',
+    'refund_reference',
+    'anomaly_flag',
+  ];
+
+  const missingColumns = requiredColumns.filter(
+    (columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName),
+  );
+
+  if (!missingColumns.length) return;
+
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20260503_transaction_integrity.sql');
+  try {
+    const result = await applySqlMigrationFile({ id: '20260503_transaction_integrity', filePath: migrationFilePath });
+    if (result.applied) {
+      console.log(`[DB] Applied SQL migration: ${result.id}`);
+    }
+  } catch (error) {
+    console.error(`[DB] Failed to apply transaction integrity migration: ${error.message}`);
+    throw error;
+  }
+
+  const descAfter = await qi.describeTable('transactions');
+  const stillMissingColumns = requiredColumns.filter(
+    (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
+  );
+  if (stillMissingColumns.length) {
+    throw new Error(`Transactions table is missing columns after migration: ${stillMissingColumns.join(', ')}`);
+  }
+};
 
 // Import models (Top Level)
 const User = require('../models/User');
@@ -228,6 +335,8 @@ const connectDB = async () => {
         }
         throw authError;
       }
+
+      await ensureTransactionIntegrityMigrationApplied();
 
       try {
         await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL');
