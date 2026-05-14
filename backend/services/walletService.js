@@ -30,10 +30,31 @@ class WalletService {
       ...attributes,
     };
 
-    return Transaction.create(payload, {
-      ...options,
-      fields: Object.keys(payload),
-    });
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await Transaction.create(payload, {
+          ...options,
+          fields: Object.keys(payload),
+        });
+      } catch (error) {
+        const isUniqueConstraint =
+          error?.name === 'SequelizeUniqueConstraintError' ||
+          error?.original?.code === '23505';
+        if (!isUniqueConstraint || attempt >= maxAttempts || !payload.reference) {
+          throw error;
+        }
+
+        const prefix = String(payload.reference).split('-')[0] || 'WLT';
+        payload.reference = this.generateReference(prefix);
+        logger.warn('[WalletService] Reference collision; regenerated transaction reference', {
+          attempt,
+          prefix,
+        });
+      }
+    }
+
+    throw new Error('Failed to create transaction record');
   }
 
   async inferOpeningBalance(user, transaction = null) {
