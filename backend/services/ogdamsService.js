@@ -158,7 +158,7 @@ class OgdamsService {
             networkId: Joi.number().integer().min(1).max(4).required(),
             amount: Joi.number().integer().min(50).required(),
             phoneNumber: Joi.string().pattern(/^[0-9]{11}$/).required(),
-            type: Joi.string().valid('VTU').required(),
+            type: Joi.string().valid('VTU', 'vtu').required(),
             reference: Joi.string().required(),
         });
 
@@ -180,7 +180,10 @@ class OgdamsService {
                 phone: this.maskPhone(data.phoneNumber),
                 authStyle,
             });
-            return response.data;
+            if (response.data && typeof response.data === 'object') {
+                return { ...response.data, httpStatus: response.status };
+            }
+            return { data: response.data, httpStatus: response.status };
         } catch (error) {
             const status = error.response?.status;
             const responseData = error.response?.data;
@@ -295,7 +298,10 @@ class OgdamsService {
                 phone: this.maskPhone(data.phoneNumber),
                 authStyle,
             });
-            return response.data;
+            if (response.data && typeof response.data === 'object') {
+                return { ...response.data, httpStatus: response.status };
+            }
+            return { data: response.data, httpStatus: response.status };
         } catch (error2) {
             const status = error2.response?.status;
             const responseData = error2.response?.data;
