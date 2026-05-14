@@ -96,10 +96,11 @@ class OgdamsService {
 
     shouldRetryAuth(error) {
         const status = error?.response?.status;
-        if (status && [401, 403, 424].includes(Number(status))) return true;
+        if (status && [401, 403].includes(Number(status))) return true;
         const responseData = error?.response?.data;
         const message = String(
             responseData?.msg ||
+            responseData?.data?.msg ||
             responseData?.message ||
             responseData?.error ||
             error?.message ||
@@ -183,7 +184,11 @@ class OgdamsService {
         } catch (error) {
             const status = error.response?.status;
             const responseData = error.response?.data;
-            const message = responseData?.message || responseData?.error || error.message || 'Ogdams API request failed';
+            const message = responseData?.data?.msg || responseData?.msg || responseData?.message || responseData?.error || error.message || 'Ogdams API request failed';
+            const lower = String(message || '').toLowerCase();
+            const isDuplicateReference =
+                Number(status) === 424 &&
+                (lower.includes('reference exists') || lower.includes('reference') && lower.includes('exists already'));
 
             const meta = {
                 reference: data.reference,
@@ -203,6 +208,9 @@ class OgdamsService {
 
             const err = new Error(message);
             err.statusCode = status || 502;
+            if (isDuplicateReference) {
+                err.code = 'OGDAMS_DUPLICATE_REFERENCE';
+            }
             throw err;
         }
     }
@@ -266,7 +274,11 @@ class OgdamsService {
         } catch (error2) {
             const status = error2.response?.status;
             const responseData = error2.response?.data;
-            const message = responseData?.message || responseData?.error || error2.message || 'Ogdams data request failed';
+            const message = responseData?.data?.msg || responseData?.msg || responseData?.message || responseData?.error || error2.message || 'Ogdams data request failed';
+            const lower = String(message || '').toLowerCase();
+            const isDuplicateReference =
+                Number(status) === 424 &&
+                (lower.includes('reference exists') || lower.includes('reference') && lower.includes('exists already'));
             const meta = {
                 reference: data.reference,
                 status,
@@ -284,6 +296,9 @@ class OgdamsService {
             }
             const err = new Error(message);
             err.statusCode = status || 502;
+            if (isDuplicateReference) {
+                err.code = 'OGDAMS_DUPLICATE_REFERENCE';
+            }
             throw err;
         }
     }

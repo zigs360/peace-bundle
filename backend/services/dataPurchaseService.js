@@ -38,6 +38,7 @@ class DataPurchaseService {
     if (code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'ECONNRESET' || code === 'EAI_AGAIN' || code === 'ENOTFOUND') {
       return true;
     }
+    if (code === 'OGDAMS_DUPLICATE_REFERENCE') return true;
     if (Number.isFinite(statusCode) && statusCode >= 500) return true;
     return false;
   }
