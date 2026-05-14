@@ -66,9 +66,21 @@ const getAdminOgdamsDataPurchase = async (req, res) => {
   }
 };
 
+const probeOgdamsAuth = async (_req, res) => {
+  try {
+    const ogdamsService = require('../services/ogdamsService');
+    const result = await ogdamsService.probeAuth();
+    res.set('Cache-Control', 'no-store');
+    return res.json({ success: true, ...result });
+  } catch (e) {
+    logger.error('Admin Ogdams Probe Error:', { error: e.message });
+    return res.status(500).json({ success: false, message: 'Probe failed' });
+  }
+};
+
 module.exports = {
   listAdminOgdamsSims,
   createAdminOgdamsDataPurchase,
   getAdminOgdamsDataPurchase,
+  probeOgdamsAuth,
 };
-

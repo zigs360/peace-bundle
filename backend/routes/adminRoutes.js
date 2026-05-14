@@ -59,7 +59,8 @@ const adminTransactionIntegrityController = require('../controllers/adminTransac
 const {
     listAdminOgdamsSims,
     createAdminOgdamsDataPurchase,
-    getAdminOgdamsDataPurchase
+    getAdminOgdamsDataPurchase,
+    probeOgdamsAuth
 } = require('../controllers/adminOgdamsDataPurchaseController');
 const { protect, admin } = require('../middleware/authMiddleware');
 const rateLimit = require('express-rate-limit');
@@ -184,6 +185,7 @@ router.post('/treasury/sync', protect, admin, treasuryController.syncTreasuryRev
 router.post('/treasury/withdraw', protect, admin, treasuryController.withdrawTreasuryToSettlement);
 
 router.get('/ogdams/sims', protect, admin, listAdminOgdamsSims);
+router.get('/ogdams/probe', protect, admin, probeOgdamsAuth);
 router.post('/ogdams/data-purchase', protect, admin, ogdamsAdminPurchaseLimiter, createAdminOgdamsDataPurchase);
 router.get('/ogdams/data-purchase/:reference', protect, admin, getAdminOgdamsDataPurchase);
 
