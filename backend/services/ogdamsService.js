@@ -1,5 +1,6 @@
 const axios = require('axios');
 const axiosRetry = require('axios-retry').default;
+const crypto = require('crypto');
 const Joi = require('joi');
 const logger = require('../utils/logger');
 
@@ -31,10 +32,6 @@ class OgdamsService {
         return `********${last3}`;
     }
 
-    /**
-     * Get and sanitize Ogdams API Key
-     * @returns {string}
-     */
     getApiKey() {
         const key = process.env.OGDAMS_API_KEY;
         if (!key) return null;
@@ -50,11 +47,92 @@ class OgdamsService {
         return out;
     }
 
-    /**
-     * Vend airtime using Ogdams API
-     * @param {object} data - The payload for the airtime purchase
-     * @returns {Promise<object>} - The response from the API
-     */
+    getApiKeyFingerprint() {
+        const apiKey = this.getApiKey();
+        if (!apiKey) return null;
+        const digest = crypto.createHash('sha256').update(apiKey).digest('hex');
+        return { length: apiKey.length, sha256: digest.slice(0, 12) };
+    }
+
+    getAuthStyle() {
+        const raw = String(process.env.OGDAMS_AUTH_STYLE || 'bearer').trim().toLowerCase();
+        const allowed = new Set(['bearer', 'raw', 'x-api-key', 'both']);
+        if (allowed.has(raw)) return raw;
+        return 'bearer';
+    }
+
+    buildAuthHeaders(apiKey, style) {
+        if (!apiKey) return {};
+        if (style === 'raw') {
+            return { Authorization: apiKey };
+        }
+        if (style === 'x-api-key') {
+            return { 'x-api-key': apiKey };
+        }
+        if (style === 'both') {
+            return { Authorization: apiKey, 'x-api-key': apiKey };
+        }
+        return { Authorization: `Bearer ${apiKey}` };
+    }
+
+    shouldRetryAuth(error) {
+        const status = error?.response?.status;
+        if (status && [401, 403, 424].includes(Number(status))) return true;
+        const responseData = error?.response?.data;
+        const message = String(
+            responseData?.msg ||
+            responseData?.message ||
+            responseData?.error ||
+            error?.message ||
+            ''
+        ).toLowerCase();
+        return message.includes('authoris') || message.includes('authoriz') || message.includes('token');
+    }
+
+    async requestWithAuthFallback({ method, url, data, headers = {} }) {
+        const apiKey = this.getApiKey();
+        if (!apiKey) {
+            const err = new Error('OGDAMS_API_KEY is not configured');
+            err.statusCode = 500;
+            throw err;
+        }
+
+        const primaryStyle = this.getAuthStyle();
+        const attempts = [];
+        const tryStyles = [primaryStyle];
+        if (primaryStyle !== 'both') tryStyles.push('both');
+        if (primaryStyle !== 'bearer') tryStyles.push('bearer');
+        if (primaryStyle !== 'raw') tryStyles.push('raw');
+        if (primaryStyle !== 'x-api-key') tryStyles.push('x-api-key');
+
+        const seen = new Set();
+        for (const style of tryStyles) {
+            if (seen.has(style)) continue;
+            seen.add(style);
+            attempts.push(style);
+            const mergedHeaders = {
+                ...this.buildAuthHeaders(apiKey, style),
+                ...headers,
+            };
+
+            try {
+                const response = await this.http.request({ method, url, data, headers: mergedHeaders });
+                return { response, authStyle: style, apiKeyFingerprint: this.getApiKeyFingerprint() };
+            } catch (error) {
+                if (!this.shouldRetryAuth(error) || attempts.length >= 2) {
+                    throw Object.assign(error, {
+                        __ogdams_auth_attempts: attempts,
+                        __ogdams_auth_style: style,
+                    });
+                }
+            }
+        }
+
+        const err = new Error('Ogdams request failed');
+        err.statusCode = 502;
+        throw err;
+    }
+
     async purchaseAirtime(data) {
         const schema = Joi.object({
             networkId: Joi.number().integer().min(1).max(4).required(),
@@ -71,32 +149,16 @@ class OgdamsService {
 
         const airtimePath = String(process.env.OGDAMS_AIRTIME_PATH || '/vend/airtime').trim();
         const url = airtimePath.startsWith('/') ? airtimePath : `/${airtimePath}`;
-        const apiKey = this.getApiKey();
-        if (!apiKey) {
-            const err = new Error('OGDAMS_API_KEY is not configured');
-            err.statusCode = 500;
-            throw err;
-        }
-        const headers = {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-        };
-
-        // Debug header construction (only log in non-production or when explicitly needed)
-        if (process.env.NODE_ENV !== 'production') {
-            const maskedKey = apiKey.length > 8 
-                ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` 
-                : '****';
-            logger.info(`[OGDAMS] Header Auth: Bearer ${maskedKey} (Length: ${apiKey.length})`);
-        }
+        const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
 
         try {
-            const response = await this.http.post(url, data, { headers });
+            const { response, authStyle } = await this.requestWithAuthFallback({ method: 'post', url, data, headers });
             logger.info('[OGDAMS] Airtime vend response', {
                 reference: data.reference,
                 status: response.data?.status,
                 provider_reference: response.data?.reference || response.data?.data?.reference || null,
-                phone: this.maskPhone(data.phoneNumber)
+                phone: this.maskPhone(data.phoneNumber),
+                authStyle,
             });
             return response.data;
         } catch (error) {
@@ -104,7 +166,16 @@ class OgdamsService {
             const responseData = error.response?.data;
             const message = responseData?.message || responseData?.error || error.message || 'Ogdams API request failed';
 
-            const meta = { reference: data.reference, status, error: responseData || message, phone: this.maskPhone(data.phoneNumber) };
+            const meta = {
+                reference: data.reference,
+                status,
+                error: responseData || message,
+                phone: this.maskPhone(data.phoneNumber),
+                baseUrl: this.baseUrl,
+                path: url,
+                authAttempts: error.__ogdams_auth_attempts || undefined,
+                apiKeyFingerprint: this.getApiKeyFingerprint(),
+            };
             if (process.env.NODE_ENV === 'test') {
                 logger.debug('Ogdams API Error', meta);
             } else {
@@ -123,20 +194,15 @@ class OgdamsService {
             throw new Error('Reference is required');
         }
 
-        const apiKey = this.getApiKey();
-        if (!apiKey) {
-            const err = new Error('OGDAMS_API_KEY is not configured');
-            err.statusCode = 500;
-            throw err;
-        }
-
         const statusPath = String(process.env.OGDAMS_STATUS_PATH || '/transactions').trim();
         const basePath = statusPath.startsWith('/') ? statusPath : `/${statusPath}`;
         const url = `${basePath}/${encodeURIComponent(ref)}`;
 
         try {
-            const response = await this.http.get(url, {
-                headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+            const { response } = await this.requestWithAuthFallback({
+                method: 'get',
+                url,
+                headers: { Accept: 'application/json' },
             });
             return response.data;
         } catch (error) {
@@ -166,32 +232,32 @@ class OgdamsService {
 
         const dataPath = String(process.env.OGDAMS_DATA_PATH || '/vend/data').trim();
         const url = dataPath.startsWith('/') ? dataPath : `/${dataPath}`;
-        const apiKey = this.getApiKey();
-        if (!apiKey) {
-            const err = new Error('OGDAMS_API_KEY is not configured');
-            err.statusCode = 500;
-            throw err;
-        }
-
-        const headers = {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-        };
+        const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
 
         try {
-            const response = await this.http.post(url, data, { headers });
+            const { response, authStyle } = await this.requestWithAuthFallback({ method: 'post', url, data, headers });
             logger.info('[OGDAMS] Data vend response', {
                 reference: data.reference,
                 status: response.data?.status,
                 provider_reference: response.data?.reference || response.data?.data?.reference || null,
-                phone: this.maskPhone(data.phoneNumber)
+                phone: this.maskPhone(data.phoneNumber),
+                authStyle,
             });
             return response.data;
         } catch (error2) {
             const status = error2.response?.status;
             const responseData = error2.response?.data;
             const message = responseData?.message || responseData?.error || error2.message || 'Ogdams data request failed';
-            const meta = { reference: data.reference, status, error: responseData || message, phone: this.maskPhone(data.phoneNumber) };
+            const meta = {
+                reference: data.reference,
+                status,
+                error: responseData || message,
+                phone: this.maskPhone(data.phoneNumber),
+                baseUrl: this.baseUrl,
+                path: url,
+                authAttempts: error2.__ogdams_auth_attempts || undefined,
+                apiKeyFingerprint: this.getApiKeyFingerprint(),
+            };
             if (process.env.NODE_ENV === 'test') {
                 logger.debug('Ogdams API Error', meta);
             } else {
@@ -205,6 +271,42 @@ class OgdamsService {
 
     async checkTransactionStatus(reference) {
         return this.checkAirtimeStatus(reference);
+    }
+
+    async probeAuth() {
+        const ref = `OGDAMS-PROBE-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const statusPath = String(process.env.OGDAMS_STATUS_PATH || '/transactions').trim();
+        const basePath = statusPath.startsWith('/') ? statusPath : `/${statusPath}`;
+        const url = `${basePath}/${encodeURIComponent(ref)}`;
+        try {
+            const { response, authStyle, apiKeyFingerprint } = await this.requestWithAuthFallback({
+                method: 'get',
+                url,
+                headers: { Accept: 'application/json' },
+            });
+            return {
+                ok: true,
+                status: response.status,
+                authStyle,
+                apiKeyFingerprint,
+                baseUrl: this.baseUrl,
+                path: url,
+            };
+        } catch (error) {
+            const status = error.response?.status || null;
+            const responseData = error.response?.data || null;
+            const message = responseData?.msg || responseData?.message || responseData?.error || error.message || 'probe failed';
+            return {
+                ok: false,
+                status,
+                message,
+                error: responseData || message,
+                authAttempts: error.__ogdams_auth_attempts || undefined,
+                apiKeyFingerprint: this.getApiKeyFingerprint(),
+                baseUrl: this.baseUrl,
+                path: url,
+            };
+        }
     }
 }
 
