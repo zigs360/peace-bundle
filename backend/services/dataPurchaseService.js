@@ -678,6 +678,8 @@ class DataPurchaseService {
 
     const cleanNetwork = String(network || '').trim().toLowerCase();
     const cleanPhone = normalizePhone(phoneNumber);
+    const ogdamsPhone =
+      cleanPhone && cleanPhone.startsWith('0') && cleanPhone.length === 11 ? `234${cleanPhone.slice(1)}` : cleanPhone;
     const vendAmount = Math.round(Number(amount));
     const lockedRoute = transaction.fulfillment_route
       ? {
@@ -753,7 +755,7 @@ class DataPurchaseService {
         ogdamsService.purchaseAirtime({
           networkId: this.getNetworkId(cleanNetwork),
           amount: vendAmount,
-          phoneNumber: cleanPhone,
+          phoneNumber: ogdamsPhone,
           type: 'VTU',
           reference: transaction.reference,
         }),

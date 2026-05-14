@@ -157,7 +157,7 @@ class OgdamsService {
         const schema = Joi.object({
             networkId: Joi.number().integer().min(1).max(4).required(),
             amount: Joi.number().integer().min(50).required(),
-            phoneNumber: Joi.string().pattern(/^[0-9]{11}$/).required(),
+            phoneNumber: Joi.string().pattern(/^(0\d{10}|234\d{10})$/).required(),
             type: Joi.string().valid('VTU', 'vtu').required(),
             reference: Joi.string().required(),
         });
@@ -275,9 +275,9 @@ class OgdamsService {
         const schema = Joi.object({
             networkId: Joi.number().integer().min(1).max(4).required(),
             planCode: Joi.string().min(1).required(),
-            phoneNumber: Joi.string().pattern(/^[0-9]{11}$/).required(),
+            phoneNumber: Joi.string().pattern(/^(0\d{10}|234\d{10})$/).required(),
             reference: Joi.string().required(),
-            sim_number: Joi.string().pattern(/^[0-9]{11}$/).optional(),
+            sim_number: Joi.string().pattern(/^(0\d{10}|234\d{10})$/).optional(),
         });
 
         const { error } = schema.validate(data);
