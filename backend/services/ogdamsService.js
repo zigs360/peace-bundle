@@ -19,7 +19,7 @@ class OgdamsService {
 
         const baseRaw = process.env.OGDAMS_BASE_URL;
         const base = baseRaw ? sanitizeWrapped(baseRaw) : 'https://simhosting.ogdams.ng/api/v1';
-        this.baseUrl = String(base).trim().replace(/\s+/g, '').replace(/\/+$/, '');
+        this.baseUrl = String(base).trim().replace(/[\s`"']/g, '').replace(/\/+$/, '');
         const timeoutRaw = Number.parseInt(process.env.OGDAMS_TIMEOUT_MS || '12000', 10);
         this.timeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 12000;
 
@@ -95,8 +95,6 @@ class OgdamsService {
     }
 
     shouldRetryAuth(error) {
-        const status = error?.response?.status;
-        if (status && [401, 403].includes(Number(status))) return true;
         const responseData = error?.response?.data;
         const message = String(
             responseData?.msg ||
@@ -117,13 +115,15 @@ class OgdamsService {
             throw err;
         }
 
+        const methodLower = String(method || 'get').toLowerCase();
+        const maxAuthAttempts = methodLower === 'get' ? 4 : 2;
         const primaryStyle = this.getAuthStyle();
         const attempts = [];
         const tryStyles = [primaryStyle];
         if (primaryStyle !== 'both') tryStyles.push('both');
         if (primaryStyle !== 'bearer') tryStyles.push('bearer');
-        if (primaryStyle !== 'raw') tryStyles.push('raw');
         if (primaryStyle !== 'x-api-key') tryStyles.push('x-api-key');
+        if (primaryStyle !== 'raw') tryStyles.push('raw');
 
         const seen = new Set();
         for (const style of tryStyles) {
@@ -139,7 +139,7 @@ class OgdamsService {
                 const response = await this.http.request({ method, url, data, headers: mergedHeaders });
                 return { response, authStyle: style, apiKeyFingerprint: this.getApiKeyFingerprint() };
             } catch (error) {
-                if (!this.shouldRetryAuth(error) || attempts.length >= 2) {
+                if (!this.shouldRetryAuth(error) || attempts.length >= maxAuthAttempts) {
                     throw Object.assign(error, {
                         __ogdams_auth_attempts: attempts,
                         __ogdams_auth_style: style,
