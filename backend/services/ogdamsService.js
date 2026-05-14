@@ -6,7 +6,20 @@ const logger = require('../utils/logger');
 
 class OgdamsService {
     constructor() {
-        this.baseUrl = String(process.env.OGDAMS_BASE_URL || 'https://simhosting.ogdams.ng/api/v1').replace(/\/+$/, '');
+        const sanitizeWrapped = (value) => {
+            const raw = String(value ?? '').trim();
+            if (!raw) return '';
+            const first = raw[0];
+            const last = raw[raw.length - 1];
+            if ((first === last) && (first === '"' || first === "'" || first === '`') && raw.length >= 2) {
+                return raw.slice(1, -1).trim();
+            }
+            return raw;
+        };
+
+        const baseRaw = process.env.OGDAMS_BASE_URL;
+        const base = baseRaw ? sanitizeWrapped(baseRaw) : 'https://simhosting.ogdams.ng/api/v1';
+        this.baseUrl = String(base).trim().replace(/\s+/g, '').replace(/\/+$/, '');
         const timeoutRaw = Number.parseInt(process.env.OGDAMS_TIMEOUT_MS || '12000', 10);
         this.timeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 12000;
 
@@ -35,8 +48,13 @@ class OgdamsService {
     getApiKey() {
         const key = process.env.OGDAMS_API_KEY;
         if (!key) return null;
-        const s = String(key || '').trim();
+        let s = String(key || '').trim();
         if (!s) return null;
+        const first = s[0];
+        const last = s[s.length - 1];
+        if ((first === last) && (first === '"' || first === "'" || first === '`') && s.length >= 2) {
+            s = s.slice(1, -1).trim();
+        }
         let out = '';
         for (let i = 0; i < s.length; i++) {
             const code = s.charCodeAt(i);
@@ -44,7 +62,8 @@ class OgdamsService {
                 out += s[i];
             }
         }
-        return out;
+        const normalized = out.replace(/\s+/g, '');
+        return normalized || null;
     }
 
     getApiKeyFingerprint() {
@@ -70,7 +89,7 @@ class OgdamsService {
             return { 'x-api-key': apiKey };
         }
         if (style === 'both') {
-            return { Authorization: apiKey, 'x-api-key': apiKey };
+            return { Authorization: `Bearer ${apiKey}`, 'x-api-key': apiKey };
         }
         return { Authorization: `Bearer ${apiKey}` };
     }
@@ -86,7 +105,7 @@ class OgdamsService {
             error?.message ||
             ''
         ).toLowerCase();
-        return message.includes('authoris') || message.includes('authoriz') || message.includes('token');
+        return message.includes('authoris') || message.includes('authoriz') || message.includes('token') || message.includes('secret/public key');
     }
 
     async requestWithAuthFallback({ method, url, data, headers = {} }) {
