@@ -282,8 +282,6 @@ class WalletReconciliationService {
       totalDrift,
       topDiscrepancies: discrepancyReports.slice(0, 20).map((report) => ({
         userId: report.user.id,
-        name: report.user.name,
-        email: report.user.email,
         balance: report.wallet.balance,
         latestLedgerBalance: report.summary.latestLedgerBalance,
         driftFromLedger: report.summary.driftFromLedger,

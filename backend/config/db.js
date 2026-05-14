@@ -70,6 +70,52 @@ const applySqlMigrationFile = async ({ id, filePath }) => {
   return { applied: true, id };
 };
 
+const ensureCallSubscriptionModuleMigrationApplied = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+
+  const qi = sequelize.getQueryInterface();
+  let desc;
+  try {
+    desc = await qi.describeTable('CallPlans');
+  } catch (error) {
+    return;
+  }
+
+  const requiredColumns = [
+    'customer_price',
+    'dealer_commission',
+    'short_code',
+    'internal_sequence_number',
+    'portfolio',
+    'bundle_class',
+  ];
+
+  const missingColumns = requiredColumns.filter(
+    (columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName),
+  );
+
+  if (!missingColumns.length) return;
+
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20260503_call_subscription_module.sql');
+  try {
+    const result = await applySqlMigrationFile({ id: '20260503_call_subscription_module', filePath: migrationFilePath });
+    if (result.applied) {
+      console.log(`[DB] Applied SQL migration: ${result.id}`);
+    }
+  } catch (error) {
+    console.error(`[DB] Failed to apply call subscription module migration: ${error.message}`);
+    throw error;
+  }
+
+  const descAfter = await qi.describeTable('CallPlans');
+  const stillMissingColumns = requiredColumns.filter(
+    (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
+  );
+  if (stillMissingColumns.length) {
+    throw new Error(`CallPlans table is missing columns after migration: ${stillMissingColumns.join(', ')}`);
+  }
+};
+
 const ensureTransactionIntegrityMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
@@ -337,6 +383,7 @@ const connectDB = async () => {
       }
 
       await ensureTransactionIntegrityMigrationApplied();
+      await ensureCallSubscriptionModuleMigrationApplied();
 
       try {
         await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL');
@@ -617,275 +664,388 @@ const connectDB = async () => {
             ensureColumn(dataPlansTable, 'available_sim', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
             ensureColumn(dataPlansTable, 'available_wallet', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
             ensureColumn(dataPlansTable, 'last_updated_by', { type: DataTypes.STRING, allowNull: true }),
-            ensureColumn(dataPlansTable, 'deletedAt', { type: DataTypes.DATE, allowNull: true }),
-            ensureColumn(dataPlansTable, 'deleted_by', { type: DataTypes.STRING, allowNull: true }),
-            ensureColumn(dataPlansTable, 'deletion_reason', { type: DataTypes.TEXT, allowNull: true }),
-            ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
-            ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
-            ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
-            ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'payment_provider', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(dataPlansTable, 'fee_percentage', { type: DataTypes.DECIMAL(5, 2), allowNull: true }),
+            ensureColumn(simsTable, 'balance_locked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
+            ensureColumn(simsTable, 'balance_lock_key', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(simsTable, 'balance_locked_at', { type: DataTypes.DATE, allowNull: true }),
+            ensureColumn(simsTable, 'available_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+            ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
+            ensureColumn(simsTable, 'signal_strength', { type: DataTypes.INTEGER, allowNull: true }),
+            ensureColumn(simsTable, 'network_status', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(simsTable, 'ogdamsLinked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
+            ensureColumn(transactionsTable, 'reference', { type: DataTypes.STRING, allowNull: true }),
+            ensureColumn(transactionsTable, 'metadata', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} }),
+            ensureColumn(transactionsTable, 'failure_reason', { type: DataTypes.TEXT, allowNull: true }),
             ensureTransactionIntegrityColumns(),
             ensureCallPlanColumns(),
+            ensureTransactionPinColumns(),
             ensureVoiceBundlePurchaseColumns(),
           ]);
-          await ensureTransactionPinColumns();
-          await ensurePlanDeletionAuditCompatibility();
         });
       }
 
       if (process.env.NODE_ENV === 'test') {
-        if (!globalState.isSyncDone) {
-          console.log('Syncing models (test mode)...');
-          await sequelize.sync({ force: true });
-          console.log('Models synced');
-          globalState.isSyncDone = true;
+        await sequelize.sync({ force: true });
+      } else if (syncMode === 'alter') {
+        await sequelize.sync({ alter: true });
+      } else if (syncMode === 'force') {
+        await sequelize.sync({ force: true });
+      }
+
+      const modelSyncWork = async () => {
+        try {
+          await runModelSync('roles & permissions', async () => {
+            await Role.sync();
+            await Permission.sync();
+          });
+        } catch (e) {
+          console.error('Role/Permission sync failed:', e.message);
         }
-      } else {
-        if (syncMode === 'alter') {
-          await sequelize.sync({ alter: true });
-        } else if (syncMode === 'safe') {
-          await sequelize.sync();
-        } else if (syncMode !== 'none') {
-          throw new Error(`Invalid DB_SYNC mode: ${syncMode}`);
+
+        try {
+          await runModelSync('users', async () => {
+            await User.sync();
+            await qi.addConstraint('Users', {
+              fields: ['email'],
+              type: 'unique',
+              name: 'unique_email_constraint',
+            });
+          });
+        } catch (e) {
+          console.error('User table sync failed:', e.message);
         }
-      }
 
-      await runRuntimeSchemaEnsure('post-sync compatibility bootstrap', async () => {
-        await Promise.all([
-          ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'source', { type: DataTypes.STRING, allowNull: false, defaultValue: 'smeplug' }),
-          ensureColumn(dataPlansTable, 'plan_id', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'service_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'Data Plans' }),
-          ensureColumn(dataPlansTable, 'service_slug', { type: DataTypes.STRING, allowNull: false, defaultValue: 'data-plans' }),
-          ensureColumn(dataPlansTable, 'category_name', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'category_slug', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'subcategory_name', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'subcategory_slug', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'network_display_name', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'network_color', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'network_icon', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'data_size', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'original_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
-          ensureColumn(dataPlansTable, 'your_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
-          ensureColumn(dataPlansTable, 'wallet_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true }),
-          ensureColumn(dataPlansTable, 'available_sim', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
-          ensureColumn(dataPlansTable, 'available_wallet', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true }),
-          ensureColumn(dataPlansTable, 'last_updated_by', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'deletedAt', { type: DataTypes.DATE, allowNull: true }),
-          ensureColumn(dataPlansTable, 'deleted_by', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(dataPlansTable, 'deletion_reason', { type: DataTypes.TEXT, allowNull: true }),
-          ensureColumn(simsTable, 'iccid', { type: DataTypes.STRING, allowNull: true }),
-          ensureColumn(simsTable, 'ogdams_linked', { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }),
-          ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
-          ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
-          ensureTransactionIntegrityColumns(),
-          ensureCallPlanColumns(),
-        ]);
-        await ensureTransactionPinColumns();
-      });
+        try {
+          await runModelSync('wallets', async () => {
+            await Wallet.sync();
+          });
+        } catch (e) {
+          console.error('Wallet table sync failed:', e.message);
+        }
 
-      try {
-        await runModelSync('plan price history', async () => {
-          await PlanPriceHistory.sync();
-        });
-        await runRuntimeSchemaEnsure('plan price history compatibility', async () => {
-          await ensureColumn(planPriceHistoryTable, 'field_name', { type: DataTypes.STRING, allowNull: false, defaultValue: 'your_price' });
-          await ensureColumn(planPriceHistoryTable, 'old_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
-          await ensureColumn(planPriceHistoryTable, 'new_price', { type: DataTypes.DECIMAL(10, 2), allowNull: true });
-          await ensureColumn(planPriceHistoryTable, 'old_value', { type: DataTypes.STRING, allowNull: true });
-          await ensureColumn(planPriceHistoryTable, 'new_value', { type: DataTypes.STRING, allowNull: true });
-          await ensureColumn(planPriceHistoryTable, 'changed_by', { type: DataTypes.STRING, allowNull: false, defaultValue: 'system' });
-          await ensureColumn(planPriceHistoryTable, 'reason', { type: DataTypes.TEXT, allowNull: true });
-          await ensureColumn(planPriceHistoryTable, 'source', { type: DataTypes.STRING, allowNull: true });
-        });
-      } catch (e) {
-        console.error('Plan price history table sync failed:', e.message);
-      }
+        try {
+          await runModelSync('beneficiaries', async () => {
+            await Beneficiary.sync();
+          });
+        } catch (e) {
+          console.error('Beneficiary table sync failed:', e.message);
+        }
 
-      try {
-        await runRuntimeSchemaEnsure('plan deletion audit compatibility', async () => {
-          await ensurePlanDeletionAuditCompatibility();
-        });
-        await runModelSync('plan deletion audit', async () => {
-          await PlanDeletionAudit.sync();
-        });
-      } catch (e) {
-        console.error('Plan deletion audit table sync failed:', e.message);
-      }
+        try {
+          await runModelSync('data plans', async () => {
+            await DataPlan.sync();
+          });
+        } catch (e) {
+          console.error('DataPlan table sync failed:', e.message);
+        }
 
-      try {
-        await runModelSync('admin wallet deduction', async () => {
-          await AdminWalletDeduction.sync();
-          await AdminWalletDeductionAudit.sync();
-        });
-      } catch (e) {
-        console.error('Admin wallet deduction tables sync failed:', e.message);
-      }
+        try {
+          await runModelSync('reseller plan pricing', async () => {
+            await ResellerPlanPricing.sync();
+          });
+        } catch (e) {
+          console.error('ResellerPlanPricing table sync failed:', e.message);
+        }
 
-      try {
-        await runModelSync('voice bundle purchase', async () => {
-          await VoiceBundlePurchase.sync();
-          await VoiceBundlePurchaseAudit.sync();
-        });
-        await runRuntimeSchemaEnsure('voice bundle purchase compatibility', async () => {
-          await ensureVoiceBundlePurchaseColumns();
-        });
-      } catch (e) {
-        console.error('Voice bundle purchase tables sync failed:', e.message);
-      }
+        try {
+          await runModelSync('transactions', async () => {
+            await Transaction.sync();
+          });
+        } catch (e) {
+          console.error('Transaction table sync failed:', e.message);
+        }
 
-      try {
-        await runModelSync('transaction pin security event', async () => {
-          await TransactionPinSecurityEvent.sync();
-        });
-      } catch (e) {
-        console.error('Transaction PIN security event table sync failed:', e.message);
-      }
+        try {
+          await runModelSync('commissions', async () => {
+            await Commission.sync();
+          });
+        } catch (e) {
+          console.error('Commission table sync failed:', e.message);
+        }
 
-      try {
-        await runModelSync('transaction integrity audit', async () => {
-          await TransactionIntegrityAudit.sync();
-        });
-        await runRuntimeSchemaEnsure('transaction integrity audit compatibility', async () => {
-          await ensureColumn(transactionIntegrityAuditTable, 'transaction_id', { type: DataTypes.UUID, allowNull: false });
-          await ensureColumn(transactionIntegrityAuditTable, 'user_id', { type: DataTypes.UUID, allowNull: true });
-          await ensureColumn(transactionIntegrityAuditTable, 'event_type', { type: DataTypes.STRING, allowNull: false });
-          await ensureColumn(transactionIntegrityAuditTable, 'severity', { type: DataTypes.STRING, allowNull: false, defaultValue: 'info' });
-          await ensureColumn(transactionIntegrityAuditTable, 'status', { type: DataTypes.STRING, allowNull: false, defaultValue: 'open' });
-          await ensureColumn(transactionIntegrityAuditTable, 'details', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
-          await ensureColumn(transactionIntegrityAuditTable, 'resolved_at', { type: DataTypes.DATE, allowNull: true });
-        });
-      } catch (e) {
-        console.error('Transaction integrity audit table sync failed:', e.message);
-      }
+        try {
+          await runModelSync('referrals', async () => {
+            await Referral.sync();
+          });
+        } catch (e) {
+          console.error('Referral table sync failed:', e.message);
+        }
 
-      console.log('Database Synced');
+        try {
+          await runModelSync('apikeys', async () => {
+            await ApiKey.sync();
+          });
+        } catch (e) {
+          console.error('ApiKey table sync failed:', e.message);
+        }
 
-      try {
-        const { getAllCallSubProviders } = require('../services/callSubCatalog');
-        const { syncTalkMorePortfolio } = require('../services/callSubscriptionPortfolioService');
-        const callPlanCompatibility = await getCallPlanSchemaCompatibility();
-        if (!callPlanCompatibility.tableExists || callPlanCompatibility.missingColumns.length > 0) {
-          console.log(
-            `[DB] Skipping call subscription seed; pending migration for columns: ${
-              callPlanCompatibility.missingColumns.join(', ') || 'CallPlans table unavailable'
-            }`,
-          );
-        } else {
-          const providers = Object.values(getAllCallSubProviders());
-          await Promise.all(
-            providers.flatMap((provider) =>
-              (provider.bundles || []).map(async (bundle) => {
-                const existing = await CallPlan.findOne({ where: { provider: provider.key, api_plan_id: bundle.code } });
-                if (existing) {
-                  existing.name = bundle.name;
-                  existing.price = bundle.price;
-                  existing.customerPrice = bundle.price;
-                  existing.shortCode = bundle.code;
-                  existing.minutes = bundle.minutes;
-                  existing.validityDays = bundle.validityDays;
-                  existing.status = 'active';
-                  existing.type = 'voice';
-                  await existing.save();
-                  return;
-                }
-                await CallPlan.create({
-                  name: bundle.name,
-                  provider: provider.key,
-                  price: bundle.price,
-                  customerPrice: bundle.price,
-                  minutes: bundle.minutes,
-                  validityDays: bundle.validityDays,
-                  status: 'active',
-                  type: 'voice',
-                  api_plan_id: bundle.code,
-                  shortCode: bundle.code,
-                });
-              }),
-            ),
-          );
-          await Promise.all(
-            providers.map(async (provider) => {
-              const activeCodes = (provider.bundles || []).map((bundle) => bundle.code);
-              await CallPlan.update(
-                { status: 'inactive' },
-                {
-                  where: {
+        try {
+          await runModelSync('system settings', async () => {
+            await SystemSetting.sync();
+          });
+        } catch (e) {
+          console.error('SystemSetting table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('wallet transactions', async () => {
+            await WalletTransaction.sync();
+          });
+        } catch (e) {
+          console.error('WalletTransaction table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('subscription plans', async () => {
+            await SubscriptionPlan.sync();
+          });
+        } catch (e) {
+          console.error('SubscriptionPlan table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('support tickets', async () => {
+            await SupportTicket.sync();
+          });
+        } catch (e) {
+          console.error('SupportTicket table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('notifications', async () => {
+            await Notification.sync();
+          });
+        } catch (e) {
+          console.error('Notification table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('reviews', async () => {
+            await Review.sync();
+          });
+        } catch (e) {
+          console.error('Review table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('sims', async () => {
+            await Sim.sync();
+          });
+        } catch (e) {
+          console.error('Sim table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('webhook events', async () => {
+            await WebhookEvent.sync();
+          });
+        } catch (e) {
+          console.error('WebhookEvent table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('pricing', async () => {
+            await PricingTier.sync();
+            await PricingRule.sync();
+            await PricingAuditLog.sync();
+          });
+        } catch (e) {
+          console.error('Pricing table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('plan price history', async () => {
+            await PlanPriceHistory.sync();
+          });
+        } catch (e) {
+          console.error('Plan price history table sync failed:', e.message);
+        }
+
+        try {
+          await runRuntimeSchemaEnsure('plan deletion audit compatibility', async () => {
+            await ensurePlanDeletionAuditCompatibility();
+          });
+          await runModelSync('plan deletion audit', async () => {
+            await PlanDeletionAudit.sync();
+          });
+        } catch (e) {
+          console.error('Plan deletion audit table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('admin wallet deduction', async () => {
+            await AdminWalletDeduction.sync();
+            await AdminWalletDeductionAudit.sync();
+          });
+        } catch (e) {
+          console.error('Admin wallet deduction tables sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('voice bundle purchase', async () => {
+            await VoiceBundlePurchase.sync();
+            await VoiceBundlePurchaseAudit.sync();
+          });
+          await runRuntimeSchemaEnsure('voice bundle purchase compatibility', async () => {
+            await ensureVoiceBundlePurchaseColumns();
+          });
+        } catch (e) {
+          console.error('Voice bundle purchase tables sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('transaction pin security event', async () => {
+            await TransactionPinSecurityEvent.sync();
+          });
+        } catch (e) {
+          console.error('Transaction PIN security event table sync failed:', e.message);
+        }
+
+        try {
+          await runModelSync('transaction integrity audit', async () => {
+            await TransactionIntegrityAudit.sync();
+          });
+          await runRuntimeSchemaEnsure('transaction integrity audit compatibility', async () => {
+            await ensureColumn(transactionIntegrityAuditTable, 'transaction_id', { type: DataTypes.UUID, allowNull: false });
+            await ensureColumn(transactionIntegrityAuditTable, 'user_id', { type: DataTypes.UUID, allowNull: true });
+            await ensureColumn(transactionIntegrityAuditTable, 'event_type', { type: DataTypes.STRING, allowNull: false });
+            await ensureColumn(transactionIntegrityAuditTable, 'severity', { type: DataTypes.STRING, allowNull: false, defaultValue: 'info' });
+            await ensureColumn(transactionIntegrityAuditTable, 'status', { type: DataTypes.STRING, allowNull: false, defaultValue: 'open' });
+            await ensureColumn(transactionIntegrityAuditTable, 'details', { type: DataTypes.JSONB, allowNull: false, defaultValue: {} });
+            await ensureColumn(transactionIntegrityAuditTable, 'resolved_at', { type: DataTypes.DATE, allowNull: true });
+          });
+        } catch (e) {
+          console.error('Transaction integrity audit table sync failed:', e.message);
+        }
+
+        console.log('Database Synced');
+
+        try {
+          const { getAllCallSubProviders } = require('../services/callSubCatalog');
+          const { syncTalkMorePortfolio } = require('../services/callSubscriptionPortfolioService');
+          const callPlanCompatibility = await getCallPlanSchemaCompatibility();
+          if (!callPlanCompatibility.tableExists || callPlanCompatibility.missingColumns.length > 0) {
+            console.log(
+              `[DB] Skipping call subscription seed; pending migration for columns: ${
+                callPlanCompatibility.missingColumns.join(', ') || 'CallPlans table unavailable'
+              }`,
+            );
+          } else {
+            const providers = Object.values(getAllCallSubProviders());
+            await Promise.all(
+              providers.flatMap((provider) =>
+                (provider.bundles || []).map(async (bundle) => {
+                  const existing = await CallPlan.findOne({ where: { provider: provider.key, api_plan_id: bundle.code } });
+                  if (existing) {
+                    existing.name = bundle.name;
+                    existing.price = bundle.price;
+                    existing.customerPrice = bundle.price;
+                    existing.shortCode = bundle.code;
+                    existing.minutes = bundle.minutes;
+                    existing.validityDays = bundle.validityDays;
+                    existing.status = 'active';
+                    existing.type = 'voice';
+                    await existing.save();
+                    return;
+                  }
+                  await CallPlan.create({
+                    name: bundle.name,
                     provider: provider.key,
+                    price: bundle.price,
+                    customerPrice: bundle.price,
+                    minutes: bundle.minutes,
+                    validityDays: bundle.validityDays,
+                    status: 'active',
                     type: 'voice',
-                    api_plan_id: {
-                      [Op.like]: `${provider.apiPlanPrefix}%`,
-                      [Op.notIn]: activeCodes,
+                    api_plan_id: bundle.code,
+                    shortCode: bundle.code,
+                  });
+                }),
+              ),
+            );
+            await Promise.all(
+              providers.map(async (provider) => {
+                const activeCodes = (provider.bundles || []).map((bundle) => bundle.code);
+                await CallPlan.update(
+                  { status: 'inactive' },
+                  {
+                    where: {
+                      provider: provider.key,
+                      type: 'voice',
+                      api_plan_id: {
+                        [Op.like]: `${provider.apiPlanPrefix}%`,
+                        [Op.notIn]: activeCodes,
+                      },
                     },
                   },
-                },
-              );
-            }),
-          );
-          await syncTalkMorePortfolio(CallPlan);
+                );
+              }),
+            );
+            await syncTalkMorePortfolio(CallPlan);
+          }
+        } catch (e) {
+          console.error('Call Sub seed failed:', e.message);
         }
-      } catch (e) {
-        console.error('Call Sub seed failed:', e.message);
-      }
 
-      if (process.env.NODE_ENV !== 'test') {
-        const settingsCount = await SystemSetting.count();
-        if (settingsCount === 0) {
-          await SystemSetting.bulkCreate([
-            { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
-            { key: 'site_url', value: 'https://peacebundlle.com', type: 'string', group: 'general' },
-            { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
-            { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
-            { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },
-            {
-              key: 'allow_mock_bvn',
-              value: String(process.env.MOCK_BVN_ALLOWED || 'false'),
-              type: 'boolean',
-              group: 'api',
-            },
-            { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
-            { key: 'pricing_tier_user', value: 'default', type: 'string', group: 'pricing' },
-            { key: 'pricing_tier_reseller', value: 'default', type: 'string', group: 'pricing' },
-            { key: 'pricing_tier_admin', value: 'default', type: 'string', group: 'pricing' },
-            { key: 'settlement_bank_code', value: '', type: 'string', group: 'treasury', description: 'Settlement bank code for admin revenue cashout' },
-            { key: 'settlement_bank_name', value: '', type: 'string', group: 'treasury', description: 'Settlement bank name for admin revenue cashout' },
-            { key: 'settlement_account_number', value: '', type: 'string', group: 'treasury', description: 'Settlement 10-digit account number for admin revenue cashout' },
-            { key: 'settlement_account_name', value: '', type: 'string', group: 'treasury', description: 'Settlement account name for admin revenue cashout' },
-            { key: 'treasury_last_sync_at', value: '', type: 'string', group: 'treasury', description: 'Last treasury sync timestamp' },
+        if (process.env.NODE_ENV !== 'test') {
+          const settingsCount = await SystemSetting.count();
+          if (settingsCount === 0) {
+            await SystemSetting.bulkCreate([
+              { key: 'site_name', value: 'Peace Bundlle', type: 'string', group: 'general' },
+              { key: 'site_url', value: 'https://peacebundlle.com', type: 'string', group: 'general' },
+              { key: 'payvessel_api_key', value: '', type: 'password', group: 'api' },
+              { key: 'payvessel_secret_key', value: '', type: 'password', group: 'api' },
+              { key: 'paystack_secret_key', value: '', type: 'password', group: 'api' },
+              {
+                key: 'allow_mock_bvn',
+                value: String(process.env.MOCK_BVN_ALLOWED || 'false'),
+                type: 'boolean',
+                group: 'api',
+              },
+              { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
+              { key: 'pricing_tier_user', value: 'default', type: 'string', group: 'pricing' },
+              { key: 'pricing_tier_reseller', value: 'default', type: 'string', group: 'pricing' },
+              { key: 'pricing_tier_admin', value: 'default', type: 'string', group: 'pricing' },
+              { key: 'settlement_bank_code', value: '', type: 'string', group: 'treasury', description: 'Settlement bank code for admin revenue cashout' },
+              { key: 'settlement_bank_name', value: '', type: 'string', group: 'treasury', description: 'Settlement bank name for admin revenue cashout' },
+              { key: 'settlement_account_number', value: '', type: 'string', group: 'treasury', description: 'Settlement 10-digit account number for admin revenue cashout' },
+              { key: 'settlement_account_name', value: '', type: 'string', group: 'treasury', description: 'Settlement account name for admin revenue cashout' },
+              { key: 'treasury_last_sync_at', value: '', type: 'string', group: 'treasury', description: 'Last treasury sync timestamp' },
+            ]);
+            console.log('Default System Settings Seeded');
+          }
+
+          const ensureSetting = async (key, value, type, group, description) => {
+            const existing = await SystemSetting.findOne({ where: { key } });
+            if (existing) return;
+            await SystemSetting.set(key, value, type, group, description);
+          };
+
+          await Promise.all([
+            ensureSetting('settlement_bank_code', '', 'string', 'treasury', 'Settlement bank code for admin revenue cashout'),
+            ensureSetting('settlement_bank_name', '', 'string', 'treasury', 'Settlement bank name for admin revenue cashout'),
+            ensureSetting('settlement_account_number', '', 'string', 'treasury', 'Settlement 10-digit account number for admin revenue cashout'),
+            ensureSetting('settlement_account_name', '', 'string', 'treasury', 'Settlement account name for admin revenue cashout'),
+            ensureSetting('treasury_last_sync_at', '', 'string', 'treasury', 'Last treasury sync timestamp'),
           ]);
-          console.log('Default System Settings Seeded');
-        }
 
-        const ensureSetting = async (key, value, type, group, description) => {
-          const existing = await SystemSetting.findOne({ where: { key } });
-          if (existing) return;
-          await SystemSetting.set(key, value, type, group, description);
-        };
+          const adminUser = await seedAdmin();
 
-        await Promise.all([
-          ensureSetting('settlement_bank_code', '', 'string', 'treasury', 'Settlement bank code for admin revenue cashout'),
-          ensureSetting('settlement_bank_name', '', 'string', 'treasury', 'Settlement bank name for admin revenue cashout'),
-          ensureSetting('settlement_account_number', '', 'string', 'treasury', 'Settlement 10-digit account number for admin revenue cashout'),
-          ensureSetting('settlement_account_name', '', 'string', 'treasury', 'Settlement account name for admin revenue cashout'),
-          ensureSetting('treasury_last_sync_at', '', 'string', 'treasury', 'Last treasury sync timestamp'),
-        ]);
-
-        const adminUser = await seedAdmin();
-
-        if (adminUser) {
-          const [updatedCount] = await Sim.update({ userId: adminUser.id }, { where: { userId: null } });
-          if (updatedCount > 0) {
-            console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
+          if (adminUser) {
+            const [updatedCount] = await Sim.update({ userId: adminUser.id }, { where: { userId: null } });
+            if (updatedCount > 0) {
+              console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
+            }
           }
         }
-      }
 
-      globalState.isConnected = true;
-      isConnected = true;
-    })();
+        globalState.isConnected = true;
+        isConnected = true;
+      })();
 
-    await globalState.connectPromise;
-    globalState.connectPromise = null;
+      await globalState.connectPromise;
+      globalState.connectPromise = null;
 
   } catch (error) {
     console.error(`Error: ${error.message}`);
@@ -918,18 +1078,19 @@ const seedAdmin = async () => {
   }
 
   if (!allowSeed) {
-    console.warn('No admin user found and seeding is disabled; skipping admin seed.');
+    console.log('Skipping admin seeding in production without SEED_ADMIN=true');
     return null;
   }
 
   if (!adminEmail || !adminPassword) {
-    console.warn('No admin user found; set ADMIN_EMAIL and ADMIN_PASSWORD (and SEED_ADMIN=true in production) to seed one.');
+    console.log('Skipping admin seeding (ADMIN_EMAIL and/or ADMIN_PASSWORD not set)');
     return null;
   }
 
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(adminPassword, salt);
-  const adminUser = await User.create({
+
+  const newAdmin = await User.create({
     name: adminName,
     email: adminEmail,
     phone: adminPhone,
@@ -937,14 +1098,21 @@ const seedAdmin = async () => {
     role: 'admin',
     account_status: 'active',
   });
-  console.log('Admin user seeded from environment variables');
-  return adminUser;
+
+  await Wallet.create({
+    userId: newAdmin.id,
+    balance: 0,
+    status: 'active',
+    daily_limit: 99999999,
+    daily_spent: 0,
+  });
+
+  console.log(`Admin user seeded: ${adminEmail}`);
+  return newAdmin;
 };
 
 module.exports = {
-  sequelize,
   connectDB,
-  seedAdmin,
   User,
   Wallet,
   Beneficiary,
@@ -978,5 +1146,6 @@ module.exports = {
   AdminWalletDeductionAudit,
   VoiceBundlePurchase,
   VoiceBundlePurchaseAudit,
-  TransactionPinSecurityEvent
+  TransactionPinSecurityEvent,
+  TransactionIntegrityAudit,
 };

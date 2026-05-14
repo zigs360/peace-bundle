@@ -1,4 +1,5 @@
 const { QueryTypes } = require('sequelize');
+const crypto = require('crypto');
 const sequelize = require('../config/database');
 const logger = require('../utils/logger');
 
@@ -9,6 +10,7 @@ const createMetrics = () => ({
   lastQueryAt: null,
   lastQueryDurationMs: null,
   lastSlowQueryAt: null,
+  lastSlowQuery: null,
   slowQueryCount: 0,
   queryCount: 0,
   queryErrorCount: 0,
@@ -111,10 +113,31 @@ const instrumentQueries = () => {
 
   const slowThreshold = sequelize.__databaseRuntimeConfig?.slowQueryThresholdMs ?? 1500;
   const originalQuery = sequelize.query.bind(sequelize);
+  const fingerprintSql = (sql) => {
+    if (!sql || typeof sql !== 'string') return null;
+    const cleaned = sql.trim();
+    if (!cleaned) return null;
+    const upper = cleaned.toUpperCase();
+    const op = upper.split(/\s+/)[0] || 'UNKNOWN';
+    let table = null;
+    if (op === 'SELECT' || op === 'DELETE') {
+      const match = upper.match(/\bFROM\s+("?[\w.]+")/);
+      table = match ? match[1] : null;
+    } else if (op === 'UPDATE') {
+      const match = upper.match(/\bUPDATE\s+("?[\w.]+")/);
+      table = match ? match[1] : null;
+    } else if (op === 'INSERT') {
+      const match = upper.match(/\bINTO\s+("?[\w.]+")/);
+      table = match ? match[1] : null;
+    }
+    const hash = crypto.createHash('sha256').update(cleaned).digest('hex').slice(0, 12);
+    return { op, table, hash };
+  };
 
   sequelize.query = async function instrumentedQuery(...args) {
     const { metrics } = getDiagnosticsState();
     const startedAt = Date.now();
+    const sqlText = typeof args[0] === 'string' ? args[0] : null;
     try {
       const result = await originalQuery(...args);
       const durationMs = Date.now() - startedAt;
@@ -124,7 +147,13 @@ const instrumentQueries = () => {
       if (durationMs >= slowThreshold) {
         metrics.slowQueryCount += 1;
         metrics.lastSlowQueryAt = metrics.lastQueryAt;
-        logger.warn(`[DB] Slow query detected (${durationMs}ms)`);
+        const fp = fingerprintSql(sqlText);
+        metrics.lastSlowQuery = fp ? { durationMs, ...fp } : { durationMs };
+        if (fp) {
+          logger.warn(`[DB] Slow query detected (${durationMs}ms)`, fp);
+        } else {
+          logger.warn(`[DB] Slow query detected (${durationMs}ms)`);
+        }
       }
       return result;
     } catch (error) {
