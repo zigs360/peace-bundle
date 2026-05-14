@@ -11,6 +11,13 @@ const LEGACY_TRANSACTION_SOURCE_MAP = {
   wallet_funding: 'funding',
 };
 
+const referenceState = globalThis.__peacebundle_reference_state || {
+  lastMs: 0,
+  counter: 0,
+  recent: new Map(),
+};
+globalThis.__peacebundle_reference_state = referenceState;
+
 class WalletService {
   toFiniteNumber(value) {
     const parsed = typeof value === 'number' ? value : Number(value);
@@ -462,8 +469,37 @@ class WalletService {
    * Generate unique transaction reference
    * @returns {string}
    */
-  generateReference() {
-    return 'WLT-' + crypto.randomBytes(6).toString('hex').toUpperCase();
+  generateReference(prefix = 'WLT') {
+    const normalizedPrefix = String(prefix || 'WLT')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 8) || 'WLT';
+
+    const now = Date.now();
+    if (referenceState.lastMs === now) {
+      referenceState.counter += 1;
+    } else {
+      referenceState.lastMs = now;
+      referenceState.counter = 0;
+    }
+
+    const ts = now.toString(36).toUpperCase();
+    const ctr = referenceState.counter.toString(36).toUpperCase();
+    const rand = crypto.randomBytes(10).toString('hex').toUpperCase();
+    let candidate = `${normalizedPrefix}-${ts}-${ctr}-${rand}`;
+
+    const cutoff = now - 60_000;
+    for (const [key, createdAt] of referenceState.recent.entries()) {
+      if (createdAt < cutoff) referenceState.recent.delete(key);
+    }
+
+    while (referenceState.recent.has(candidate)) {
+      candidate = `${normalizedPrefix}-${ts}-${ctr}-${crypto.randomBytes(10).toString('hex').toUpperCase()}`;
+    }
+
+    referenceState.recent.set(candidate, now);
+    return candidate;
   }
 
   /**

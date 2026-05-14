@@ -75,14 +75,15 @@ class DataPurchaseService {
 
     if (statusCheckEnabled) {
       try {
-        const statusRaw = await ogdamsService.checkAirtimeStatus(txn.reference);
+        const statusReference = String(meta.provider_reference || txn.reference || '').trim();
+        const statusRaw = await ogdamsService.checkAirtimeStatus(statusReference);
         const parsed = this.parseOgdamsStatus(statusRaw);
         if (parsed?.status === 'success') {
           await txn.update({
             status: 'completed',
             completed_at: new Date(),
             smeplug_response: { provider: 'ogdams', data: parsed.raw },
-            metadata: { ...meta, service_provider: 'ogdams', provider_attempts: meta.provider_attempts || [] }
+            metadata: { ...meta, service_provider: 'ogdams', provider_attempts: meta.provider_attempts || [], provider_reference: statusReference }
           });
 
           try {
@@ -560,13 +561,8 @@ class DataPurchaseService {
    * Generate transaction reference
    * @returns {string}
    */
-  generateReference() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 12; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return 'TXN-' + result;
+  generateReference(prefix = 'TXN') {
+    return walletService.generateReference(prefix);
   }
 
   /**
@@ -750,39 +746,111 @@ class DataPurchaseService {
     };
 
     if (lockedRoute.fulfillmentRoute === 'ogdams_api' && !options.skipOgdams) {
-      try {
-      const ogdamsResponse = await this.withTimeout(
-        ogdamsService.purchaseAirtime({
-          networkId: this.getNetworkId(cleanNetwork),
-          amount: vendAmount,
-          phoneNumber: ogdamsPhone,
-          type: 'VTU',
-          reference: transaction.reference,
-        }),
-        ogdamsTimeoutMs,
-        'OGDAMS',
-      );
-
-      const httpStatus = Number(ogdamsResponse?.httpStatus);
-      const statusText = String(ogdamsResponse?.status || '').toLowerCase();
-      const isAccepted = httpStatus === 201 || httpStatus === 202;
-      const isPendingStatus =
-        statusText.includes('queue') ||
-        statusText.includes('process') ||
-        statusText.includes('pending') ||
-        statusText === 'queued' ||
-        statusText === 'processing' ||
-        statusText === 'accepted';
-      const ok = statusText === 'success';
-      await recordAttempt({
-        provider: 'ogdams',
-        ok,
-        latency_ms: Date.now() - startedAt,
-        status: ogdamsResponse?.status,
-        http_status: Number.isFinite(httpStatus) ? httpStatus : undefined,
+      const maskPhone = (value) => {
+        const digits = String(value || '').replace(/\D/g, '');
+        if (!digits) return null;
+        const last3 = digits.slice(-3);
+        return `********${last3}`;
+      };
+      const backoffMs = (attempt) => {
+        const base = 150;
+        const jitter = Math.floor(Math.random() * 120);
+        return base * (2 ** Math.max(0, attempt - 1)) + jitter;
+      };
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const buildOgdamsPayload = (requestReference) => ({
+        networkId: this.getNetworkId(cleanNetwork),
+        amount: vendAmount,
+        phoneNumber: ogdamsPhone,
+        type: 'VTU',
+        reference: requestReference,
       });
+      const attemptOgdamsVend = async (attempt, requestReference) => {
+        logger.info('[Airtime] Ogdams vend request', {
+          transactionReference: transaction.reference,
+          requestReference,
+          attempt,
+          phone: maskPhone(ogdamsPhone),
+          network: cleanNetwork,
+          amount: vendAmount,
+        });
 
-      if (!ok && (isAccepted || isPendingStatus)) {
+        try {
+          const response = await this.withTimeout(
+            ogdamsService.purchaseAirtime(buildOgdamsPayload(requestReference)),
+            ogdamsTimeoutMs,
+            'OGDAMS',
+          );
+
+          const httpStatus = Number(response?.httpStatus);
+          const statusText = String(response?.status || '').toLowerCase();
+          const isAccepted = httpStatus === 201 || httpStatus === 202;
+          const isPendingStatus =
+            statusText.includes('queue') ||
+            statusText.includes('process') ||
+            statusText.includes('pending') ||
+            statusText === 'queued' ||
+            statusText === 'processing' ||
+            statusText === 'accepted';
+          const ok = statusText === 'success';
+
+          logger.info('[Airtime] Ogdams vend response', {
+            transactionReference: transaction.reference,
+            requestReference,
+            attempt,
+            httpStatus: Number.isFinite(httpStatus) ? httpStatus : null,
+            status: response?.status,
+          });
+
+          await recordAttempt({
+            provider: 'ogdams',
+            ok,
+            attempt,
+            request_reference: requestReference,
+            latency_ms: Date.now() - startedAt,
+            status: response?.status,
+            http_status: Number.isFinite(httpStatus) ? httpStatus : undefined,
+          });
+
+          return { response, ok, isAccepted, isPendingStatus, httpStatus, requestReference };
+        } catch (error) {
+          const status = Number(error?.statusCode || error?.response?.status || 0) || null;
+          const code = String(error?.code || '').toUpperCase() || null;
+          const message = error?.message || 'Ogdams failed';
+          const uncertainError = this.isUncertainProviderStateError(error);
+
+          logger.error('[Airtime] Ogdams vend error', {
+            transactionReference: transaction.reference,
+            requestReference,
+            attempt,
+            status,
+            code,
+            message,
+          });
+
+          await recordAttempt({
+            provider: 'ogdams',
+            ok: false,
+            attempt,
+            request_reference: requestReference,
+            latency_ms: Date.now() - startedAt,
+            error: message,
+            http_status: status || undefined,
+            code: code || undefined,
+            uncertain: uncertainError,
+          });
+
+          error.__ogdams_request_reference = requestReference;
+          error.__ogdams_attempt = attempt;
+          throw error;
+        }
+      };
+
+      try {
+      const requestReference = this.generateReference('OGD');
+      const vend = await attemptOgdamsVend(1, requestReference);
+
+      if (!vend.ok && (vend.isAccepted || vend.isPendingStatus)) {
         await transaction.update(
           {
             status: 'queued',
@@ -790,6 +858,7 @@ class DataPurchaseService {
               ...baseMeta,
               provider_attempts: attempts,
               service_provider: 'ogdams',
+              provider_reference: vend.requestReference,
               provider_pending: true,
               reconcile_scheduled: true,
               reconcile_attempt: 1,
@@ -800,90 +869,96 @@ class DataPurchaseService {
         this.scheduleAirtimeReconciliation(transaction.id, 1);
         logger.warn('[Airtime] Queued due to Ogdams accepted/pending response', {
           reference: transaction.reference,
-          httpStatus: Number.isFinite(httpStatus) ? httpStatus : null,
-          status: ogdamsResponse?.status,
+          requestReference: vend.requestReference,
+          httpStatus: Number.isFinite(vend.httpStatus) ? vend.httpStatus : null,
+          status: vend.response?.status,
         });
-        return { provider: 'ogdams', pending: true, response: ogdamsResponse };
+        return { provider: 'ogdams', pending: true, response: vend.response };
       }
 
-      if (!ok) {
-        throw new Error(ogdamsResponse?.message || 'Ogdams returned non-success response');
+      if (!vend.ok) {
+        throw new Error(vend.response?.message || 'Ogdams returned non-success response');
       }
 
       await persistSuccess({
         provider: 'ogdams',
-        reference: ogdamsResponse?.reference || ogdamsResponse?.data?.reference || transaction.reference,
-        response: ogdamsResponse,
+        reference: vend.response?.reference || vend.response?.data?.reference || vend.requestReference,
+        response: vend.response,
       });
       logger.info('[Airtime] Provider success', { provider: 'ogdams', reference: transaction.reference });
-      return { provider: 'ogdams', response: ogdamsResponse };
+      return { provider: 'ogdams', response: vend.response };
       } catch (ogErr) {
         const ogReason = ogErr?.message || 'Ogdams failed';
         const ogCode = String(ogErr?.code || '').toUpperCase();
         const uncertain = this.isUncertainProviderStateError(ogErr);
 
-        await recordAttempt({
-          provider: 'ogdams',
-          ok: false,
-          latency_ms: Date.now() - startedAt,
-          error: ogReason,
-          uncertain,
-        });
-
         const { statusCheckEnabled } = this.getAirtimeReconcileConfig();
         if (ogCode === 'OGDAMS_DUPLICATE_REFERENCE') {
-          if (statusCheckEnabled) {
-            try {
-              const statusRaw = await this.withTimeout(
-                ogdamsService.checkAirtimeStatus(transaction.reference),
-                ogdamsTimeoutMs,
-                'OGDAMS_STATUS',
-              );
-              const parsed = this.parseOgdamsStatus(statusRaw);
-              if (parsed?.status === 'success') {
-                await persistSuccess({
-                  provider: 'ogdams',
-                  reference: statusRaw?.reference || statusRaw?.data?.reference || transaction.reference,
-                  response: parsed.raw,
-                });
-                logger.info('[Airtime] Provider success after verify', { provider: 'ogdams', reference: transaction.reference });
-                return { provider: 'ogdams', response: parsed.raw, verified: true };
-              }
-              if (parsed?.status === 'pending') {
-                await transaction.update(
-                  {
-                    status: 'queued',
-                    metadata: {
-                      ...baseMeta,
-                      provider_attempts: attempts,
-                      service_provider: 'ogdams',
-                      provider_pending: true,
-                      reconcile_scheduled: true,
-                      reconcile_attempt: 1,
-                    },
-                  },
-                  { transaction: t },
-                );
-                this.scheduleAirtimeReconciliation(transaction.id, 1);
-                logger.warn('[Airtime] Queued due to Ogdams duplicate reference pending status', { reference: transaction.reference });
-                return { provider: 'ogdams', pending: true };
-              }
-            } catch (statusErr) {
-              if (String(statusErr?.message || '').toLowerCase().includes('unauth')) {
-                await persistFailure('Ogdams status check unauthenticated for duplicate reference');
-                return { provider: 'ogdams', failed: true };
-              }
-            }
-          }
+          const delay = backoffMs(1);
+          logger.warn('[Airtime] Ogdams duplicate reference; retrying with new reference', {
+            transactionReference: transaction.reference,
+            attempt: 1,
+            delayMs: delay,
+            previousRequestReference: ogErr.__ogdams_request_reference || null,
+          });
+          await sleep(delay);
 
-          await persistFailure('Ogdams rejected duplicate reference');
-          return { provider: 'ogdams', failed: true };
+          try {
+            const retryReference = this.generateReference('OGD');
+            const vend = await attemptOgdamsVend(2, retryReference);
+            if (!vend.ok && (vend.isAccepted || vend.isPendingStatus)) {
+              await transaction.update(
+                {
+                  status: 'queued',
+                  metadata: {
+                    ...baseMeta,
+                    provider_attempts: attempts,
+                    service_provider: 'ogdams',
+                    provider_reference: vend.requestReference,
+                    provider_pending: true,
+                    reconcile_scheduled: true,
+                    reconcile_attempt: 1,
+                  },
+                },
+                { transaction: t },
+              );
+              this.scheduleAirtimeReconciliation(transaction.id, 1);
+              logger.warn('[Airtime] Queued due to Ogdams accepted/pending retry response', {
+                reference: transaction.reference,
+                requestReference: vend.requestReference,
+                httpStatus: Number.isFinite(vend.httpStatus) ? vend.httpStatus : null,
+                status: vend.response?.status,
+              });
+              return { provider: 'ogdams', pending: true, response: vend.response };
+            }
+            if (!vend.ok) {
+              await persistFailure('Ogdams duplicate reference retry returned non-success');
+              return { provider: 'ogdams', failed: true };
+            }
+
+            await persistSuccess({
+              provider: 'ogdams',
+              reference: vend.response?.reference || vend.response?.data?.reference || vend.requestReference,
+              response: vend.response,
+            });
+            logger.info('[Airtime] Provider success after duplicate reference retry', { provider: 'ogdams', reference: transaction.reference });
+            return { provider: 'ogdams', response: vend.response, retried: true };
+          } catch (retryError) {
+            await persistFailure('Ogdams duplicate reference retry failed');
+            return { provider: 'ogdams', failed: true };
+          }
         }
 
         if (uncertain && statusCheckEnabled) {
           try {
+            const statusReference = String(
+              (transaction.metadata && transaction.metadata.provider_reference) ||
+                baseMeta.provider_reference ||
+                transaction.reference ||
+                '',
+            ).trim();
             const statusRaw = await this.withTimeout(
-              ogdamsService.checkAirtimeStatus(transaction.reference),
+              ogdamsService.checkAirtimeStatus(statusReference),
               ogdamsTimeoutMs,
               'OGDAMS_STATUS',
             );
@@ -908,6 +983,7 @@ class DataPurchaseService {
                     ...baseMeta,
                     provider_attempts: attempts,
                     service_provider: 'ogdams',
+                    provider_reference: statusReference,
                     provider_pending: true,
                     reconcile_scheduled: true,
                     reconcile_attempt: 1,
@@ -927,6 +1003,7 @@ class DataPurchaseService {
                   ...baseMeta,
                   provider_attempts: attempts,
                   service_provider: 'ogdams',
+                  provider_reference: statusReference,
                   provider_pending: true,
                   reconcile_scheduled: true,
                   reconcile_attempt: 1,
@@ -951,6 +1028,7 @@ class DataPurchaseService {
                 ...baseMeta,
                 provider_attempts: attempts,
                 service_provider: 'ogdams',
+                provider_reference: ogErr.__ogdams_request_reference || baseMeta.provider_reference || null,
                 provider_pending: true,
                 reconcile_scheduled: true,
                 reconcile_attempt: 1,
