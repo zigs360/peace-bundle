@@ -223,24 +223,49 @@ class OgdamsService {
 
         const statusPath = String(process.env.OGDAMS_STATUS_PATH || '/transactions').trim();
         const basePath = statusPath.startsWith('/') ? statusPath : `/${statusPath}`;
-        const url = `${basePath}/${encodeURIComponent(ref)}`;
-
-        try {
-            const { response } = await this.requestWithAuthFallback({
-                method: 'get',
-                url,
-                headers: { Accept: 'application/json' },
-            });
-            return response.data;
-        } catch (error) {
-            const status = error.response?.status;
-            if (status === 404) return null;
-            const responseData = error.response?.data;
-            const message = responseData?.message || responseData?.error || error.message || 'Ogdams status request failed';
-            const err = new Error(message);
-            err.statusCode = status || 502;
-            throw err;
+        const encodedRef = encodeURIComponent(ref);
+        const urls = [
+            `${basePath}/${encodedRef}`,
+            `${basePath}?ref=${encodedRef}`,
+            `${basePath}?reference=${encodedRef}`,
+        ];
+        if (basePath.endsWith('/transactions')) {
+            urls.push(`/transaction/${encodedRef}`);
+            urls.push(`/transaction?ref=${encodedRef}`);
+            urls.push(`/transaction?reference=${encodedRef}`);
         }
+
+        let lastError = null;
+        for (const url of urls) {
+            try {
+                const { response } = await this.requestWithAuthFallback({
+                    method: 'get',
+                    url,
+                    headers: { Accept: 'application/json' },
+                });
+                return response.data;
+            } catch (error) {
+                lastError = error;
+                const status = error.response?.status;
+                if (status === 404) {
+                    continue;
+                }
+            }
+        }
+
+        const status = lastError?.response?.status;
+        if (status === 404) return null;
+        const responseData = lastError?.response?.data;
+        const message =
+            responseData?.data?.msg ||
+            responseData?.msg ||
+            responseData?.message ||
+            responseData?.error ||
+            lastError?.message ||
+            'Ogdams status request failed';
+        const err = new Error(message);
+        err.statusCode = status || 502;
+        throw err;
     }
 
     async purchaseData(data) {
