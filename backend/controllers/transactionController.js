@@ -31,6 +31,11 @@ const {
 } = require('../utils/dataPlanUtils');
 const { sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
 
+const dashboardStatsCache = globalThis.__peacebundle_dashboard_stats_cache || new Map();
+globalThis.__peacebundle_dashboard_stats_cache = dashboardStatsCache;
+const dashboardStatsInflight = globalThis.__peacebundle_dashboard_stats_inflight || new Map();
+globalThis.__peacebundle_dashboard_stats_inflight = dashboardStatsInflight;
+
 // Helper for Affiliate Commission
 const processAffiliateCommission = async (user, amount, transaction, t) => {
     // Basic implementation: check referrer, calculate %, credit wallet
@@ -1065,8 +1070,9 @@ const getAllTransactions = async (req, res) => {
         }));
         res.json(transactions);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        const statusCode = Number(error?.statusCode) || 500;
+        logger.error('[DashboardStats] Failed', { userId, statusCode, error: error.message });
+        res.status(statusCode).json({ success: false, message: error.message || 'Server Error' });
     }
 };
 
@@ -1224,6 +1230,10 @@ const getTransactions = async (req, res) => {
     if (!userId || userId === 'my') {
         userId = req.user.id;
     }
+    const isAdmin = String(req.user?.role || '').toLowerCase() === 'admin';
+    if (!isAdmin && String(userId) !== String(req.user.id)) {
+        return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
     
     try {
         const user = await User.findByPk(userId, { include: [{ model: Wallet, as: 'wallet' }] });
@@ -1253,30 +1263,76 @@ const getDashboardStats = async (req, res) => {
     }
 
     try {
-        const user = await User.findByPk(userId, { include: [{ model: Wallet, as: 'wallet' }] });
-        await ensureWalletOnUser(user);
-        if (!user || !user.wallet) {
-            return res.status(404).json({ message: 'User not found' });
+        const isAdmin = String(req.user?.role || '').toLowerCase() === 'admin';
+        if (!isAdmin && String(userId) !== String(req.user.id)) {
+            return res.status(403).json({ success: false, message: 'Not authorized' });
         }
 
-        const transactionsCount = await Transaction.count({
-            where: { walletId: user.wallet.id }
-        });
+        const cacheTtlMsRaw = Number.parseInt(process.env.DASHBOARD_STATS_CACHE_MS || '5000', 10);
+        const cacheTtlMs = Number.isFinite(cacheTtlMsRaw) && cacheTtlMsRaw > 0 ? cacheTtlMsRaw : 5000;
+        const cacheKey = `dashboard:${userId}`;
+        const now = Date.now();
+        const cached = dashboardStatsCache.get(cacheKey);
+        if (cached && cached.expiresAt > now) {
+            return res.json(cached.value);
+        }
 
-        // Get recent transactions for dashboard
-        const recentTransactions = await Transaction.findAll(await withSafeTransactionReadAttributes({
-            where: { walletId: user.wallet.id },
-            order: [['createdAt', 'DESC']],
-            limit: 5
-        }));
+        const inflight = dashboardStatsInflight.get(cacheKey);
+        if (inflight) {
+            const value = await inflight;
+            return res.json(value);
+        }
 
-        res.json({
-            transactionsCount,
-            balance: parseFloat(user.wallet.balance || 0),
-            commission: parseFloat(user.wallet.commission_balance || 0),
-            bonus: parseFloat(user.wallet.bonus_balance || 0),
-            recentTransactions
-        });
+        const startedAt = Date.now();
+        const promise = (async () => {
+            const user = await User.findByPk(userId);
+            if (!user) {
+                const err = new Error('User not found');
+                err.statusCode = 404;
+                throw err;
+            }
+
+            const wallet = await walletService.ensureWallet(user);
+            if (!wallet) {
+                const err = new Error('User wallet not found');
+                err.statusCode = 404;
+                throw err;
+            }
+
+            const walletId = wallet.id;
+            const [transactionsCount, recentTransactions] = await Promise.all([
+                Transaction.count({ where: { walletId } }),
+                Transaction.findAll(await withSafeTransactionReadAttributes({
+                    where: { walletId },
+                    order: [['createdAt', 'DESC']],
+                    limit: 5
+                })),
+            ]);
+
+            const value = {
+                transactionsCount,
+                balance: parseFloat(wallet.balance || 0),
+                commission: parseFloat(wallet.commission_balance || 0),
+                bonus: parseFloat(wallet.bonus_balance || 0),
+                recentTransactions
+            };
+
+            const durationMs = Date.now() - startedAt;
+            if (durationMs >= 2000) {
+                logger.warn('[DashboardStats] Slow response', { userId, walletId, durationMs });
+            }
+
+            dashboardStatsCache.set(cacheKey, { value, expiresAt: Date.now() + cacheTtlMs });
+            return value;
+        })();
+
+        dashboardStatsInflight.set(cacheKey, promise);
+        try {
+            const value = await promise;
+            return res.json(value);
+        } finally {
+            dashboardStatsInflight.delete(cacheKey);
+        }
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });

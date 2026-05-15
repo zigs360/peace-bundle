@@ -86,6 +86,8 @@ app.use((req, res, next) => {
   const defaultTimeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 30000;
   const timeoutMs = req.path.startsWith('/api/admin/virtual-accounts/health')
     ? 120000
+    : req.path.startsWith('/api/transactions/stats')
+      ? Math.max(defaultTimeoutMs, 60000)
     : req.path.startsWith('/api/admin')
       ? Math.max(defaultTimeoutMs, 60000)
       : defaultTimeoutMs;
