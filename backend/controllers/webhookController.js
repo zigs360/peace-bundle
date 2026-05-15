@@ -567,6 +567,128 @@ const handleSmeplugWebhook = async (req, res) => {
     }
 };
 
+const handleOgdamsWebhook = async (req, res) => {
+    const { Transaction } = require('../models');
+    const transactionIntegrityService = require('../services/transactionIntegrityService');
+    try {
+        const secret = process.env.OGDAMS_WEBHOOK_SECRET || null;
+        const provided = String(req.headers['x-ogdams-secret'] || '').trim();
+        if (secret && provided !== secret) {
+            await webhookEventService.recordReceived({
+                provider: 'ogdams',
+                reference: null,
+                amount: null,
+                currency: null,
+                payload: req.body,
+                req
+            });
+            return res.status(200).json({ success: false, message: 'Signature invalid/missing' });
+        }
+
+        const payload = req.body && typeof req.body === 'object' ? req.body : {};
+        const data = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+        const referenceRaw =
+            data?.reference ||
+            payload?.reference ||
+            data?.ref ||
+            payload?.ref ||
+            data?.transaction_reference ||
+            data?.transactionReference ||
+            null;
+        const reference = referenceRaw ? String(referenceRaw).trim() : null;
+        const statusRaw = data?.status || payload?.status || data?.state || payload?.state || null;
+        const status = statusRaw ? String(statusRaw).trim().toLowerCase() : null;
+
+        const webhookEvent = await webhookEventService.recordReceived({
+            provider: 'ogdams',
+            reference: reference || null,
+            amount: null,
+            currency: null,
+            payload,
+            req
+        });
+
+        if (!reference) {
+            await webhookEventService.markFailed(webhookEvent.id, { error: 'missing_reference' });
+            return res.status(200).json({ success: true });
+        }
+
+        const dialect = sequelize.getDialect ? sequelize.getDialect() : null;
+        let transactionId = null;
+        if (dialect === 'postgres') {
+            const { QueryTypes } = require('sequelize');
+            const rows = await sequelize.query(
+                `
+                SELECT "id"
+                FROM "transactions"
+                WHERE "reference" = :ref
+                   OR "smeplug_reference" = :ref
+                   OR ("metadata"::jsonb #>> '{provider_reference}') = :ref
+                ORDER BY "createdAt" DESC
+                LIMIT 1
+                `,
+                { replacements: { ref: reference }, type: QueryTypes.SELECT }
+            );
+            transactionId = rows?.[0]?.id || null;
+        }
+
+        const dbTxn = await sequelize.transaction();
+        try {
+            const found = transactionId
+                ? await Transaction.findByPk(transactionId, { transaction: dbTxn, lock: dbTxn.LOCK.UPDATE })
+                : await Transaction.findOne({ where: { reference }, transaction: dbTxn, lock: dbTxn.LOCK.UPDATE });
+
+            if (!found) {
+                await dbTxn.commit();
+                await webhookEventService.markProcessed(webhookEvent.id, { ok: true, matched: false });
+                return res.status(200).json({ success: true });
+            }
+
+            const meta = found.metadata && typeof found.metadata === 'object' ? found.metadata : {};
+            found.metadata = {
+                ...meta,
+                service_provider: meta.service_provider || 'ogdams',
+                provider_reference: meta.provider_reference || reference,
+                provider_webhook: {
+                    receivedAt: new Date().toISOString(),
+                    status: status || null,
+                }
+            };
+
+            const normalized = status || '';
+            if (normalized === 'success' || normalized === 'successful' || normalized === 'completed') {
+                if (String(found.status || '').toLowerCase() !== 'completed') {
+                    found.status = 'completed';
+                    found.completed_at = found.completed_at || new Date();
+                    found.smeplug_response = { provider: 'ogdams', data: payload };
+                    await found.save({ transaction: dbTxn });
+                }
+            } else if (normalized === 'failed' || normalized === 'failure' || normalized === 'reversed') {
+                await transactionIntegrityService.failAndRefund(found, 'OGDAMS webhook reports failure', dbTxn, {
+                    flagAsAnomaly: true,
+                    auditEvent: 'airtime_delivery_failed',
+                });
+            } else {
+                if (!['completed', 'refunded', 'failed'].includes(String(found.status || '').toLowerCase())) {
+                    found.status = 'queued';
+                    await found.save({ transaction: dbTxn });
+                }
+            }
+
+            await dbTxn.commit();
+            await webhookEventService.markProcessed(webhookEvent.id, { ok: true, matched: true });
+            return res.status(200).json({ success: true });
+        } catch (error) {
+            if (dbTxn && !dbTxn.finished) await dbTxn.rollback();
+            await webhookEventService.markFailed(webhookEvent.id, { error: error.message });
+            return res.status(200).json({ success: true });
+        }
+    } catch (error) {
+        logger.error(`[Webhook] OGDAMS error: ${error.message}`);
+        return res.sendStatus(500);
+    }
+};
+
 const handleBillstackWebhook = async (req, res) => {
     try {
         const payload = req.body;
@@ -767,5 +889,6 @@ module.exports = {
     handlePayvesselWebhook,
     handleMonnifyWebhook,
     handleSmeplugWebhook,
+    handleOgdamsWebhook,
     handleBillstackWebhook
 };
