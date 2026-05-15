@@ -759,6 +759,8 @@ class DataPurchaseService {
         return base * (2 ** Math.max(0, attempt - 1)) + jitter;
       };
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const allowSmeplugFallback =
+        String(process.env.AIRTIME_OGDAMS_FALLBACK_TO_SMEPLUG || 'true').toLowerCase() !== 'false';
       const networkId = this.getNetworkId(cleanNetwork);
       const createOgdamsRequestReference = () => {
         const ts = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
@@ -854,6 +856,54 @@ class DataPurchaseService {
         }
       };
 
+      const attemptSmeplugFallback = async (contextLabel) => {
+        if (!allowSmeplugFallback) return null;
+        const smeplugStart = Date.now();
+        try {
+          logger.warn('[Airtime] Falling back to SMEPlug after Ogdams failure', {
+            reference: transaction.reference,
+            reason: contextLabel,
+          });
+
+          const smeplugResponse = await this.withTimeout(
+            smeplugService.purchaseVTU(cleanNetwork, cleanPhone, vendAmount),
+            smeplugTimeoutMs,
+            'SMEPLUG',
+          );
+
+          const ok = !!smeplugResponse?.success;
+          await recordAttempt({
+            provider: 'smeplug',
+            ok,
+            latency_ms: Date.now() - smeplugStart,
+            route: 'api_fallback',
+            status_code: smeplugResponse?.status_code,
+          });
+
+          if (!ok) {
+            throw new Error(smeplugResponse?.error || 'Smeplug returned non-success response');
+          }
+
+          await persistSuccess({
+            provider: 'smeplug',
+            reference: smeplugResponse.data?.reference || smeplugResponse.data?.transaction_id,
+            response: smeplugResponse.data,
+            switchedFrom: 'ogdams',
+          });
+
+          return { provider: 'smeplug', response: smeplugResponse.data, switched: true };
+        } catch (fallbackError) {
+          await recordAttempt({
+            provider: 'smeplug',
+            ok: false,
+            latency_ms: Date.now() - smeplugStart,
+            route: 'api_fallback',
+            error: fallbackError?.message || 'SMEPlug fallback failed',
+          });
+          return null;
+        }
+      };
+
       try {
       const requestReference = createOgdamsRequestReference();
       const vend = await attemptOgdamsVend(1, requestReference);
@@ -940,6 +990,8 @@ class DataPurchaseService {
               return { provider: 'ogdams', pending: true, response: vend.response };
             }
             if (!vend.ok) {
+              const fallback = await attemptSmeplugFallback('ogdams_duplicate_reference_retry_non_success');
+              if (fallback) return fallback;
               await persistFailure('Ogdams duplicate reference retry returned non-success');
               return { provider: 'ogdams', failed: true };
             }
@@ -952,6 +1004,8 @@ class DataPurchaseService {
             logger.info('[Airtime] Provider success after duplicate reference retry', { provider: 'ogdams', reference: transaction.reference });
             return { provider: 'ogdams', response: vend.response, retried: true };
           } catch (retryError) {
+            const fallback = await attemptSmeplugFallback('ogdams_duplicate_reference_retry_threw');
+            if (fallback) return fallback;
             await persistFailure('Ogdams duplicate reference retry failed');
             return { provider: 'ogdams', failed: true };
           }
@@ -1049,6 +1103,8 @@ class DataPurchaseService {
           return { provider: 'ogdams', pending: true };
         }
 
+        const fallback = await attemptSmeplugFallback('ogdams_confirmed_failure');
+        if (fallback) return fallback;
         await persistFailure(ogReason);
         return { provider: 'ogdams', failed: true };
       }
