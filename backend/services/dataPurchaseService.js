@@ -7,6 +7,7 @@ const simManagementService = require('./simManagementService');
 const affiliateService = require('./affiliateService');
 const transactionIntegrityService = require('./transactionIntegrityService');
 const logger = require('../utils/logger');
+const crypto = require('crypto');
 
 class DataPurchaseService {
   getAirtimeProviderConfig() {
@@ -758,10 +759,14 @@ class DataPurchaseService {
         return base * (2 ** Math.max(0, attempt - 1)) + jitter;
       };
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const createOgdamsRequestReference = () =>
-        this.generateReference('OGD', { maxLength: 40, randomFirst: true, randomBytes: 10 });
+      const networkId = this.getNetworkId(cleanNetwork);
+      const createOgdamsRequestReference = () => {
+        const ts = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+        const rand = crypto.randomBytes(6).toString('hex').toUpperCase();
+        return `OGD|${networkId}|${ts}|${rand}`;
+      };
       const buildOgdamsPayload = (requestReference) => ({
-        networkId: this.getNetworkId(cleanNetwork),
+        networkId,
         amount: vendAmount,
         phoneNumber: ogdamsPhone,
         type: 'VTU',
