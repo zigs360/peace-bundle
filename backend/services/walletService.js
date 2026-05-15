@@ -490,7 +490,7 @@ class WalletService {
    * Generate unique transaction reference
    * @returns {string}
    */
-  generateReference(prefix = 'WLT') {
+  generateReference(prefix = 'WLT', options = {}) {
     const normalizedPrefix = String(prefix || 'WLT')
       .trim()
       .toUpperCase()
@@ -507,8 +507,25 @@ class WalletService {
 
     const ts = now.toString(36).toUpperCase();
     const ctr = referenceState.counter.toString(36).toUpperCase();
-    const rand = crypto.randomBytes(10).toString('hex').toUpperCase();
-    let candidate = `${normalizedPrefix}-${ts}-${ctr}-${rand}`;
+    const maxLength = Number.isFinite(Number(options?.maxLength)) ? Number(options.maxLength) : 64;
+    const randomFirst = Boolean(options?.randomFirst);
+    const randomBytesRequested = Number.isFinite(Number(options?.randomBytes)) ? Number(options.randomBytes) : 10;
+    const randomBytes = Math.max(6, Math.min(16, Math.floor(randomBytesRequested)));
+
+    const fixedLength =
+      normalizedPrefix.length +
+      1 +
+      ts.length +
+      1 +
+      ctr.length +
+      1;
+    const maxRandChars = Math.max(12, maxLength - fixedLength);
+    const randChars = Math.min(maxRandChars, randomBytes * 2);
+    const rand = crypto.randomBytes(Math.ceil(randChars / 2)).toString('hex').toUpperCase().slice(0, randChars);
+
+    let candidate = randomFirst
+      ? `${normalizedPrefix}-${rand}-${ts}-${ctr}`
+      : `${normalizedPrefix}-${ts}-${ctr}-${rand}`;
 
     const cutoff = now - 60_000;
     for (const [key, createdAt] of referenceState.recent.entries()) {
@@ -516,7 +533,10 @@ class WalletService {
     }
 
     while (referenceState.recent.has(candidate)) {
-      candidate = `${normalizedPrefix}-${ts}-${ctr}-${crypto.randomBytes(10).toString('hex').toUpperCase()}`;
+      const nextRand = crypto.randomBytes(Math.ceil(randChars / 2)).toString('hex').toUpperCase().slice(0, randChars);
+      candidate = randomFirst
+        ? `${normalizedPrefix}-${nextRand}-${ts}-${ctr}`
+        : `${normalizedPrefix}-${ts}-${ctr}-${nextRand}`;
     }
 
     referenceState.recent.set(candidate, now);

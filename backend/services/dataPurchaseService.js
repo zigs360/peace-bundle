@@ -758,6 +758,8 @@ class DataPurchaseService {
         return base * (2 ** Math.max(0, attempt - 1)) + jitter;
       };
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const createOgdamsRequestReference = () =>
+        this.generateReference('OGD', { maxLength: 40, randomFirst: true, randomBytes: 10 });
       const buildOgdamsPayload = (requestReference) => ({
         networkId: this.getNetworkId(cleanNetwork),
         amount: vendAmount,
@@ -847,7 +849,7 @@ class DataPurchaseService {
       };
 
       try {
-      const requestReference = this.generateReference('OGD');
+      const requestReference = createOgdamsRequestReference();
       const vend = await attemptOgdamsVend(1, requestReference);
 
       if (!vend.ok && (vend.isAccepted || vend.isPendingStatus)) {
@@ -904,7 +906,7 @@ class DataPurchaseService {
           await sleep(delay);
 
           try {
-            const retryReference = this.generateReference('OGD');
+            const retryReference = createOgdamsRequestReference();
             const vend = await attemptOgdamsVend(2, retryReference);
             if (!vend.ok && (vend.isAccepted || vend.isPendingStatus)) {
               await transaction.update(
