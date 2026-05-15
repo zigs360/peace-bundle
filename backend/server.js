@@ -84,17 +84,24 @@ if (process.env.NODE_ENV === 'development') {
 app.use((req, res, next) => {
   const timeoutMsRaw = Number.parseInt(process.env.REQUEST_TIMEOUT_MS || '30000', 10);
   const defaultTimeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? timeoutMsRaw : 30000;
+  const urlPath = req.originalUrl || req.url || req.path || '';
   const timeoutMs = req.path.startsWith('/api/admin/virtual-accounts/health')
     ? 120000
     : req.path.startsWith('/api/transactions/stats')
+      ? Math.max(defaultTimeoutMs, 60000)
+    : urlPath.startsWith('/api/purchase/unified') || req.path === '/unified'
       ? Math.max(defaultTimeoutMs, 60000)
     : req.path.startsWith('/api/admin')
       ? Math.max(defaultTimeoutMs, 60000)
       : defaultTimeoutMs;
   res.setTimeout(timeoutMs, () => {
     if (res.headersSent || res.writableEnded) return;
+    res.locals.requestTimedOut = true;
     logger.warn('Request timeout:', { method: req.method, url: req.url });
     res.status(408).json({ success: false, message: 'Request Timeout' });
+    try {
+      if (typeof req.destroy === 'function') req.destroy();
+    } catch (_) {}
   });
   next();
 });

@@ -254,6 +254,10 @@ const purchaseUnified = async (req, res) => {
           logger.error('Rollback Error:', rbErr.message);
         }
       }
+
+      if (res.headersSent || res.writableEnded || res.locals.requestTimedOut) {
+        return;
+      }
       
       const errorMessage = error.message || 'Internal Server Error';
       const isClientError = errorMessage.includes('selected') || 
@@ -282,6 +286,9 @@ const purchaseUnified = async (req, res) => {
 
   } catch (error) {
     logger.error('Unified Purchase Outer Error:', { error: error.message, stack: error.stack, userId });
+    if (res.headersSent || res.writableEnded || res.locals.requestTimedOut) {
+      return;
+    }
     res.status(500).json({ 
       success: false, 
       message: 'Critical Server Error: ' + error.message 

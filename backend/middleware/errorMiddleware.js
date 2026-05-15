@@ -41,6 +41,10 @@ const errorHandler = (err, req, res, next) => {
       logger.error(err.stack);
   }
 
+  if (res.headersSent || res.writableEnded) {
+    return next(err);
+  }
+
   res.status(statusCode);
   res.json({
     success: false,
