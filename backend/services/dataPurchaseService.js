@@ -762,8 +762,9 @@ class DataPurchaseService {
       const networkId = this.getNetworkId(cleanNetwork);
       const createOgdamsRequestReference = () => {
         const ts = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
-        const rand = crypto.randomBytes(6).toString('hex').toUpperCase();
-        return `OGD|${networkId}|${ts}|${rand}`;
+        const n = crypto.randomBytes(4).readUInt32BE(0) % 1000000;
+        const rand6 = String(n).padStart(6, '0');
+        return `OGD|${networkId}|${rand6}|${ts}`;
       };
       const buildOgdamsPayload = (requestReference) => ({
         networkId,
