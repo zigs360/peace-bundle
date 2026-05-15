@@ -561,8 +561,8 @@ class DataPurchaseService {
    * Generate transaction reference
    * @returns {string}
    */
-  generateReference(prefix = 'TXN') {
-    return walletService.generateReference(prefix);
+  generateReference(prefix = 'TXN', options = {}) {
+    return walletService.generateReference(prefix, options);
   }
 
   /**
@@ -574,8 +574,8 @@ class DataPurchaseService {
     const map = {
       'mtn': 1,
       'airtel': 2,
-      '9mobile': 3,
-      'glo': 4
+      'glo': 3,
+      '9mobile': 4
     };
     return map[provider.toLowerCase()] || 1;
   }
