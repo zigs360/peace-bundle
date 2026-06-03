@@ -12,7 +12,8 @@ const {
     revealVirtualAccountNumber,
     auditVirtualAccountAccess,
     fetchDualVirtualAccounts,
-    getDualVirtualAccountsSnapshot
+    getDualVirtualAccountsSnapshot,
+    updateFcmToken
 } = require('../controllers/userController');
 const dataPurchaseController = require('../controllers/dataPurchaseController');
 const bulkDataController = require('../controllers/bulkDataController');
@@ -56,5 +57,6 @@ router.post('/apikey/regenerate', protect, regenerateApiKey);
 router.get('/beneficiaries/:userId', protect, getBeneficiaries);
 router.post('/beneficiaries', protect, addBeneficiary);
 router.delete('/beneficiaries/:userId/:beneficiaryId', protect, deleteBeneficiary);
+router.post('/fcm-token', protect, updateFcmToken);
 
 module.exports = router;

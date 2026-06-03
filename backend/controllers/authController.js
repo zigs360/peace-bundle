@@ -71,8 +71,15 @@ const attachRecoveredWallet = async (user) => {
     return wallet;
 };
 
-// Generate JWT
+// Generate JWT Access Token (short-lived)
 const generateToken = (id) => {
+    return jwt.sign({ id }, process.env.JWT_SECRET, {
+        expiresIn: '15m',
+    });
+};
+
+// Generate JWT Refresh Token (long-lived)
+const generateRefreshToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
         expiresIn: '30d',
     });
@@ -161,8 +168,23 @@ const registerUser = async (req, res) => {
             });
         }
 
+        const token = generateToken(user.id);
+        const refreshToken = generateRefreshToken(user.id);
+
+        // Save refresh token to user metadata
+        const userMeta = user.metadata || {};
+        const refreshTokens = userMeta.refreshTokens || [];
+        refreshTokens.push(refreshToken);
+        await user.update({
+            metadata: {
+                ...userMeta,
+                refreshTokens,
+            }
+        }, { transaction: t });
+
         res.status(201).json({
-            token: generateToken(user.id),
+            token,
+            refreshToken,
             user: mapUserForClient({ ...user.toJSON(), wallet: { balance: 0.00 } }),
             message: 'Registration successful'
         });
@@ -230,10 +252,23 @@ const loginUser = async (req, res) => {
                 lockout_until: null
             });
 
-            logger.info(`[Auth] User logged in: ${user.email} (${user.id})`);
+            const token = generateToken(user.id);
+            const refreshToken = generateRefreshToken(user.id);
+
+            // Save refresh token to user metadata
+            const userMeta = user.metadata || {};
+            const refreshTokens = userMeta.refreshTokens || [];
+            refreshTokens.push(refreshToken);
+            await user.update({
+                metadata: {
+                    ...userMeta,
+                    refreshTokens,
+                }
+            });
 
             res.json({
-                token: generateToken(user.id),
+                token,
+                refreshToken,
                 user: mapUserForClient(user),
                 message: 'Login successful'
             });
@@ -565,6 +600,118 @@ const submitKyc = async (req, res) => {
     }
 };
 
+// @desc    Refresh access token
+// @route   POST /api/auth/refresh
+// @access  Public
+const refreshUserToken = async (req, res) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+        return res.status(400).json({
+            success: false,
+            message: 'Refresh token is required',
+        });
+    }
+
+    try {
+        // Verify refresh token signature
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        
+        // Find user
+        const user = await User.findByPk(decoded.id);
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid refresh token - User not found',
+            });
+        }
+
+        const userMeta = user.metadata || {};
+        const refreshTokens = userMeta.refreshTokens || [];
+
+        // Check if token exists in user's active list
+        if (!refreshTokens.includes(refreshToken)) {
+            // Potential token reuse / theft attack!
+            // Clear all refresh tokens for security
+            await user.update({
+                metadata: {
+                    ...userMeta,
+                    refreshTokens: [],
+                }
+            });
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid refresh token - Potential reuse detected',
+            });
+        }
+
+        // Generate new tokens
+        const newToken = generateToken(user.id);
+        const newRefreshToken = generateRefreshToken(user.id);
+
+        // Rotate token (replace old refresh token with new one)
+        const updatedTokens = refreshTokens.filter(t => t !== refreshToken);
+        updatedTokens.push(newRefreshToken);
+
+        await user.update({
+            metadata: {
+                ...userMeta,
+                refreshTokens: updatedTokens,
+            }
+        });
+
+        res.json({
+            success: true,
+            token: newToken,
+            refreshToken: newRefreshToken,
+        });
+    } catch (error) {
+        logger.error(`[Auth] Token refresh error: ${error.message}`);
+        return res.status(401).json({
+            success: false,
+            message: 'Invalid or expired refresh token',
+        });
+    }
+};
+
+// @desc    Logout and invalidate refresh token
+// @route   POST /api/auth/logout
+// @access  Private
+const logoutUser = async (req, res) => {
+    const { refreshToken } = req.body;
+
+    try {
+        if (req.user) {
+            const user = await User.findByPk(req.user.id);
+            if (user) {
+                const userMeta = user.metadata || {};
+                let refreshTokens = userMeta.refreshTokens || [];
+                if (refreshToken) {
+                    refreshTokens = refreshTokens.filter(t => t !== refreshToken);
+                } else {
+                    refreshTokens = []; // Clear all if not specified
+                }
+                await user.update({
+                    metadata: {
+                        ...userMeta,
+                        refreshTokens,
+                    }
+                });
+            }
+        }
+        res.json({
+            success: true,
+            message: 'Logged out successfully',
+        });
+    } catch (error) {
+        logger.error(`[Auth] Logout error: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: 'Logout failed',
+        });
+    }
+};
+
 module.exports = {
     registerUser,
     loginUser,
@@ -572,5 +719,7 @@ module.exports = {
     getAllUsers,
     updateProfile,
     changePassword,
-    submitKyc
+    submitKyc,
+    refreshUserToken,
+    logoutUser
 };

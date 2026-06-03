@@ -534,6 +534,52 @@ const deleteBeneficiary = async (req, res) => {
     }
 };
 
+// @desc    Update user's Firebase Cloud Messaging token
+// @route   POST /api/users/fcm-token
+// @access  Private
+const updateFcmToken = async (req, res) => {
+    const userId = req.user.id;
+    const { token } = req.body;
+
+    if (!token) {
+        return res.status(400).json({
+            success: false,
+            message: 'FCM Token is required'
+        });
+    }
+
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        const userMeta = user.metadata || {};
+        await user.update({
+            metadata: {
+                ...userMeta,
+                fcmToken: token
+            }
+        });
+
+        logger.info(`[FCM] Token updated for user ${userId}`);
+
+        res.json({
+            success: true,
+            message: 'FCM Token updated successfully'
+        });
+    } catch (error) {
+        logger.error(`[FCM] Token update failed for user ${userId}: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update FCM Token'
+        });
+    }
+};
+
 module.exports = {
     getBeneficiaries,
     addBeneficiary,
@@ -546,5 +592,6 @@ module.exports = {
     revealVirtualAccountNumber,
     auditVirtualAccountAccess,
     fetchDualVirtualAccounts,
-    getDualVirtualAccountsSnapshot
+    getDualVirtualAccountsSnapshot,
+    updateFcmToken
 };

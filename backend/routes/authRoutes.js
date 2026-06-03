@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { body } = require('express-validator');
-const { registerUser, loginUser, getMe, getAllUsers, updateProfile, changePassword, submitKyc } = require('../controllers/authController');
+const { registerUser, loginUser, getMe, getAllUsers, updateProfile, changePassword, submitKyc, refreshUserToken, logoutUser } = require('../controllers/authController');
 const {
   getTransactionPinStatus,
   createTransactionPin,
@@ -58,5 +58,7 @@ router.put('/transaction-pin', protect, changeTransactionPin);
 router.post('/transaction-pin/recovery/otp', protect, requestTransactionPinRecoveryOtp);
 router.post('/transaction-pin/recover', protect, recoverTransactionPin);
 router.post('/transaction-pin/session', protect, createTransactionPinSession);
+router.post('/refresh', refreshUserToken);
+router.post('/logout', protect, logoutUser);
 
 module.exports = router;

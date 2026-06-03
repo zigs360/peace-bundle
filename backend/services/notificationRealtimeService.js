@@ -97,6 +97,12 @@ class NotificationService {
         logger.info(`Real-time notification sent to user ${key}`);
       }
 
+      // Trigger Firebase push notification (non-blocking)
+      const pushNotificationService = require('./pushNotificationService');
+      pushNotificationService.sendPushToUser(key, title, message, { type, priority }).catch(err => {
+        logger.error(`[PushNotification] Failed to trigger push inside notificationRealtimeService: ${err.message}`);
+      });
+
       return notification;
     } catch (error) {
       logger.error(`Failed to send notification to user ${userId}: ${error.message}`);
