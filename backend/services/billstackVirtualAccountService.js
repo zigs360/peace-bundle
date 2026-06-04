@@ -99,7 +99,7 @@ class BillstackVirtualAccountService {
       firstName,
       lastName,
       phone: this.normalizePhone(user.phone),
-      bank: bank || 'PALMPAY',
+      bank: bank || 'WEMA',
     };
 
     try {
@@ -151,7 +151,7 @@ class BillstackVirtualAccountService {
   async generateVirtualAccountForUserId(userId, options = {}) {
     const user = await User.findByPk(userId);
     if (!user) throw new Error('User not found');
-    const bank = options.bank || process.env.BILLSTACK_BANK || 'PALMPAY';
+    const bank = options.bank || process.env.BILLSTACK_BANK || 'WEMA';
     return this.generateVirtualAccount(user, bank, { timeoutMs: options.timeoutMs });
   }
 }
