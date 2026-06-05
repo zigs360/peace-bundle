@@ -87,19 +87,65 @@ class BillstackVirtualAccountService {
     return raw;
   }
 
+  normalizeBankCode(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const cleaned = raw.toUpperCase().replace(/[^A-Z0-9_]/g, '');
+    const aliases = {
+      PALM_PAY: 'PALMPAY',
+      PALMPAYBANK: 'PALMPAY',
+    };
+    return aliases[cleaned] || cleaned;
+  }
+
+  getAllowedBanks() {
+    const fromEnv = String(process.env.BILLSTACK_ALLOWED_BANKS || '')
+      .split(',')
+      .map((s) => this.normalizeBankCode(s))
+      .filter(Boolean);
+    if (fromEnv.length) return fromEnv;
+    return ['PALMPAY', 'WEMA', 'PROVIDUS'];
+  }
+
+  sanitizePayloadForLogs(payload) {
+    const email = String(payload?.email || '').trim();
+    const phone = String(payload?.phone || '').trim();
+    const safeEmail = email.includes('@') ? `***@${email.split('@').slice(-1)[0]}` : null;
+    const phoneDigits = phone.replace(/\D/g, '');
+    const phoneLast4 = phoneDigits.length >= 4 ? phoneDigits.slice(-4) : null;
+    return {
+      email: safeEmail,
+      reference: payload?.reference || null,
+      firstName: payload?.firstName || null,
+      lastName: payload?.lastName || null,
+      phoneLast4,
+      bank: payload?.bank || null,
+    };
+  }
+
   async generateVirtualAccount(user, bank, options = {}) {
     if (!this.isConfigured()) {
       throw new Error('BillStack virtual account is not configured');
     }
 
     const { firstName, lastName } = this.splitName(user.name);
+    const normalizedBank = this.normalizeBankCode(bank || '');
+    const allowedBanks = this.getAllowedBanks();
+    if (!normalizedBank || !allowedBanks.includes(normalizedBank)) {
+      const err = new Error('Bank cannot be identified!');
+      err.code = 'BILLSTACK_BANK_INVALID';
+      err.details = { bank: normalizedBank || null, allowedBanks };
+      throw err;
+    }
+
+    const reference = options.reference ? String(options.reference) : `PB-${user.id}`;
     const payload = {
       email: user.email,
-      reference: `PB-${user.id}`,
+      reference,
       firstName,
       lastName,
       phone: this.normalizePhone(user.phone),
-      bank: bank || 'WEMA',
+      bank: normalizedBank,
     };
 
     try {
@@ -123,9 +169,10 @@ class BillstackVirtualAccountService {
       };
     } catch (e) {
       const status = e.response?.status;
-      const payload = e.response?.data;
-      const message = payload?.message || e.message || 'BillStack generateVirtualAccount failed';
-      logger.error('[BillStack] generateVirtualAccount failed', { userId: user.id, status, message });
+      const providerBody = e.response?.data;
+      const message = providerBody?.message || e.message || 'BillStack generateVirtualAccount failed';
+      const safeRequest = this.sanitizePayloadForLogs(payload);
+      logger.error('[BillStack] generateVirtualAccount failed', { userId: user.id, status, message, request: safeRequest });
       throw new Error(message);
     }
   }

@@ -4,6 +4,7 @@ const SystemSetting = require('../models/SystemSetting');
 const payvesselService = require('./payvesselService');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database'); // Added sequelize import
+const crypto = require('crypto');
 
 const notificationService = require('./notificationService');
 const billstackVirtualAccountService = require('./billstackVirtualAccountService');
@@ -37,6 +38,68 @@ class VirtualAccountService {
     constructor() {
         this.monnifyBaseUrl = process.env.MONNIFY_BASE_URL || 'https://sandbox.monnify.com';
         this.paystackBaseUrl = 'https://api.paystack.co';
+    }
+
+    getInflightMap() {
+        const key = '__peacebundle_va_inflight';
+        if (!globalThis[key]) globalThis[key] = new Map();
+        return globalThis[key];
+    }
+
+    getBillstackBankBreaker() {
+        const key = '__peacebundle_billstack_bank_breaker';
+        if (!globalThis[key]) {
+            globalThis[key] = new Map();
+        }
+        return globalThis[key];
+    }
+
+    getBillstackBreakerConfig() {
+        const threshold = parseInt(String(process.env.BILLSTACK_BREAKER_THRESHOLD || '3'), 10);
+        const windowMs = parseInt(String(process.env.BILLSTACK_BREAKER_WINDOW_MS || String(2 * 60 * 1000)), 10);
+        const openMs = parseInt(String(process.env.BILLSTACK_BREAKER_OPEN_MS || String(5 * 60 * 1000)), 10);
+        return {
+            threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 3,
+            windowMs: Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 2 * 60 * 1000,
+            openMs: Number.isFinite(openMs) && openMs > 0 ? openMs : 5 * 60 * 1000,
+        };
+    }
+
+    isBankCircuitOpen(bankCode) {
+        const breaker = this.getBillstackBankBreaker();
+        const entry = breaker.get(String(bankCode || '').toUpperCase()) || null;
+        if (!entry?.openUntil) return false;
+        return entry.openUntil > Date.now();
+    }
+
+    markBankAttemptFailure(bankCode) {
+        const code = String(bankCode || '').toUpperCase();
+        if (!code) return;
+        const { threshold, windowMs, openMs } = this.getBillstackBreakerConfig();
+        const breaker = this.getBillstackBankBreaker();
+        const now = Date.now();
+        const entry = breaker.get(code) || { count: 0, windowStart: now, openUntil: 0 };
+        const withinWindow = entry.windowStart && now - entry.windowStart <= windowMs;
+        const next = withinWindow ? { ...entry, count: entry.count + 1 } : { count: 1, windowStart: now, openUntil: entry.openUntil || 0 };
+        if (next.count >= threshold) {
+            next.openUntil = now + openMs;
+        }
+        breaker.set(code, next);
+    }
+
+    markBankAttemptSuccess(bankCode) {
+        const code = String(bankCode || '').toUpperCase();
+        if (!code) return;
+        const breaker = this.getBillstackBankBreaker();
+        breaker.delete(code);
+    }
+
+    buildBillstackRequestReference(userId, bankCode) {
+        const uid = String(userId || '').replace(/-/g, '').slice(0, 12).toUpperCase();
+        const bank = String(bankCode || '').toUpperCase().slice(0, 8);
+        const ts = Date.now().toString(36).toUpperCase();
+        const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
+        return `PBVA-${uid}-${bank}-${ts}-${rand}`.slice(0, 64);
     }
 
     normalizeBillstackBank(value) {
@@ -651,7 +714,22 @@ class VirtualAccountService {
     }
 
     async assignVirtualAccount(user, options = {}) {
-        const { transaction } = options;
+        const { transaction, force = false } = options;
+
+        const inflight = this.getInflightMap();
+        const inflightKey = String(user?.id || '');
+        if (inflightKey && inflight.has(inflightKey)) {
+            return await inflight.get(inflightKey);
+        }
+        const run = (async () => {
+            if (!user) throw new Error('User not found.');
+            const metaNow = user.metadata || {};
+            if (!force && metaNow.va_status === 'pending' && metaNow.va_next_retry_at) {
+                const nextRetryAt = new Date(metaNow.va_next_retry_at);
+                if (Number.isFinite(nextRetryAt.getTime()) && nextRetryAt.getTime() > Date.now()) {
+                    throw new Error('Virtual account generation is temporarily unavailable. Please try again later.');
+                }
+            }
         
         if (user.virtual_account_number && this.isDisplayableVirtualAccount(user)) {
             return null;
@@ -714,9 +792,24 @@ class VirtualAccountService {
                 const attempted = [];
                 let lastError = null;
                 for (const candidate of candidates) {
+                    if (this.isBankCircuitOpen(candidate)) {
+                        logger.warn('[VirtualAccount] BillStack bank circuit open; skipping', { userId: user.id, bank: candidate });
+                        continue;
+                    }
                     attempted.push(candidate);
                     try {
-                        const billstack = await billstackVirtualAccountService.generateVirtualAccount(user, candidate);
+                        const requestReference = this.buildBillstackRequestReference(user.id, candidate);
+                        user.metadata = {
+                            ...(user.metadata || {}),
+                            billstack_last_request_reference: requestReference,
+                            billstack_last_bank: candidate,
+                        };
+                        await user.save({ transaction });
+
+                        const billstack = await billstackVirtualAccountService.generateVirtualAccount(user, candidate, {
+                            reference: requestReference,
+                        });
+                        this.markBankAttemptSuccess(candidate);
                         return {
                             accountNumber: billstack.accountNumber,
                             bankName: billstack.bankName,
@@ -730,6 +823,9 @@ class VirtualAccountService {
                         lastError = e;
                         const msg = String(e?.message || '');
                         const transient = this.isTransientProviderError(msg);
+                        if (transient) {
+                            this.markBankAttemptFailure(candidate);
+                        }
                         if (!transient && candidate === candidates[0]) {
                             break;
                         }
@@ -851,6 +947,14 @@ class VirtualAccountService {
         } catch (error) {
             logger.error(`[VirtualAccount] Failed to assign virtual account for user ${user.id}:`, error.message);
             throw error;
+        }
+        })();
+
+        if (inflightKey) inflight.set(inflightKey, run);
+        try {
+            return await run;
+        } finally {
+            if (inflightKey) inflight.delete(inflightKey);
         }
     }
 
