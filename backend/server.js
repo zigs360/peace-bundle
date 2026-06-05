@@ -127,6 +127,81 @@ app.get('/api/meta', (req, res) => {
   });
 });
 
+const safeUrlHost = (value) => {
+  try {
+    if (!value) return null;
+    return new URL(String(value)).host || null;
+  } catch (_) {
+    return null;
+  }
+};
+
+app.get('/api/config', async (req, res) => {
+  try {
+    const SystemSetting = require('./models/SystemSetting');
+    const enabled = await SystemSetting.get('virtual_account_generation_enabled');
+    const provider = await SystemSetting.get('virtual_account_provider');
+    const allowMockBvn = await SystemSetting.get('allow_mock_bvn');
+
+    return res.json({
+      success: true,
+      env: process.env.NODE_ENV || 'development',
+      commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
+      time: new Date().toISOString(),
+      features: {
+        virtual_account_generation_enabled: enabled !== null ? enabled : true,
+        virtual_account_provider: provider || null,
+        allow_mock_bvn: allowMockBvn || null,
+      },
+    });
+  } catch (e) {
+    return res.status(200).json({
+      success: true,
+      env: process.env.NODE_ENV || 'development',
+      commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
+      time: new Date().toISOString(),
+      features: {},
+    });
+  }
+});
+
+app.get('/api/env', (req, res) => {
+  const billstackHost =
+    safeUrlHost(process.env.BILLSTACK_BASE_URL) ||
+    safeUrlHost(process.env.BILL_STACK_BASE_URL) ||
+    safeUrlHost(process.env.Bill_Stack_BASE_URL) ||
+    safeUrlHost(process.env.BillSTACK_BASE_URL);
+  const payvesselHost = safeUrlHost(process.env.PAYVESSEL_BASE_URL);
+
+  return res.json({
+    success: true,
+    env: process.env.NODE_ENV || 'development',
+    commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
+    time: new Date().toISOString(),
+    providers: {
+      billstack: {
+        host: billstackHost,
+        configured: Boolean(
+          billstackHost &&
+            (process.env.BILLSTACK_SECRET_KEY ||
+              process.env.BILL_STACK_SECRET_KEY ||
+              process.env.Bill_Stack_SECRET_KEY ||
+              process.env.BillSTACK_SECRET_KEY),
+        ),
+      },
+      payvessel: {
+        host: payvesselHost,
+        configured: Boolean(
+          payvesselHost &&
+            process.env.PAYVESSEL_API_KEY &&
+            process.env.PAYVESSEL_SECRET_KEY &&
+            process.env.PAYVESSEL_BUSINESS_ID,
+        ),
+      },
+    },
+  });
+});
+
 app.get('/api/health', async (req, res) => {
   const includeSchema = String(req.query.schema || '').toLowerCase() === 'true';
   const diagnostics = await databaseDiagnosticsService.getDiagnostics({ includeSchema });
