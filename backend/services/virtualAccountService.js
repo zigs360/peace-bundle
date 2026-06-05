@@ -39,6 +39,47 @@ class VirtualAccountService {
         this.paystackBaseUrl = 'https://api.paystack.co';
     }
 
+    normalizeBillstackBank(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        return raw.toUpperCase().replace(/[^A-Z0-9_]/g, '');
+    }
+
+    parseBillstackBanks(value) {
+        return String(value || '')
+            .split(',')
+            .map((s) => this.normalizeBillstackBank(s))
+            .filter(Boolean);
+    }
+
+    getBillstackBankCandidates(primaryBank = null, banksOverride = null) {
+        const primary = this.normalizeBillstackBank(primaryBank);
+        const override = this.parseBillstackBanks(banksOverride);
+        const banksFromEnv = this.parseBillstackBanks(process.env.BILLSTACK_BANKS || '');
+        const base = override.length ? override : (banksFromEnv.length ? banksFromEnv : [primary || 'PALMPAY']);
+        const uniq = [];
+        for (const b of base) {
+            if (!b) continue;
+            if (!uniq.includes(b)) uniq.push(b);
+        }
+        if (uniq.includes('PALMPAY')) {
+            for (const fallback of ['WEMA', 'PROVIDUS']) {
+                if (!uniq.includes(fallback)) uniq.push(fallback);
+            }
+        }
+        return uniq;
+    }
+
+    isTransientProviderError(message) {
+        const msg = String(message || '').trim();
+        if (!msg) return false;
+        const lower = msg.toLowerCase();
+        if (lower.includes('cannot reserve') && (lower.includes('palmpay') || lower.includes('account'))) return true;
+        if (lower.includes('temporarily') && (lower.includes('unavailable') || lower.includes('moment'))) return true;
+        if (lower.includes('timeout') || lower.includes('timed out')) return true;
+        return false;
+    }
+
     getApprovedProviders() {
         return ['payvessel', 'billstack'];
     }
@@ -281,12 +322,21 @@ class VirtualAccountService {
             }
             const attempts = parseInt(String(meta.va_failed_attempts || 0), 10);
             const nextAttempts = Number.isFinite(attempts) ? attempts + 1 : 1;
+            const errorText = String(errorMessage || 'Unknown error').slice(0, 500);
+            const transient = this.isTransientProviderError(errorText);
+            const baseDelayMs = 5 * 60 * 1000;
+            const maxDelayMs = 6 * 60 * 60 * 1000;
+            const exp = Math.min(6, Math.max(0, nextAttempts - 1));
+            const backoffMs = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, exp));
+            const jitterMs = Math.floor(Math.random() * 15 * 1000);
+            const nextRetryAt = new Date(Date.now() + backoffMs + jitterMs).toISOString();
             const next = {
                 ...meta,
-                va_status: 'failed',
+                va_status: transient ? 'pending' : 'failed',
                 va_failed_attempts: nextAttempts,
                 va_last_failed_at: new Date().toISOString(),
-                va_last_error: String(errorMessage || 'Unknown error').slice(0, 500)
+                va_last_error: errorText,
+                va_next_retry_at: transient ? nextRetryAt : meta.va_next_retry_at || null,
             };
             await user.update({ metadata: next });
 
@@ -294,7 +344,9 @@ class VirtualAccountService {
             await Notification.create({
                 userId: user.id,
                 title: 'Virtual account pending',
-                message: `We could not generate your virtual account yet. ${next.va_last_error}`,
+                message: transient
+                    ? 'We are currently unable to reserve a virtual account from our bank partner. Please try again later.'
+                    : `We could not generate your virtual account yet. ${next.va_last_error}`,
                 type: 'warning',
                 priority: 'high',
                 link: '/dashboard/fund',
@@ -657,14 +709,39 @@ class VirtualAccountService {
             const tryBillstack = async () => {
                 const bankSetting = await this.getSetting('billstack_bank');
                 const bank = bankSetting ? String(bankSetting) : process.env.BILLSTACK_BANK;
-                const billstack = await billstackVirtualAccountService.generateVirtualAccount(user, bank);
-                return {
-                    accountNumber: billstack.accountNumber,
-                    bankName: billstack.bankName,
-                    accountName: billstack.accountName,
-                    trackingReference: billstack.trackingReference,
-                    raw: billstack.raw
-                };
+                const banksSetting = await this.getSetting('billstack_banks');
+                const candidates = this.getBillstackBankCandidates(bank, banksSetting);
+                const attempted = [];
+                let lastError = null;
+                for (const candidate of candidates) {
+                    attempted.push(candidate);
+                    try {
+                        const billstack = await billstackVirtualAccountService.generateVirtualAccount(user, candidate);
+                        return {
+                            accountNumber: billstack.accountNumber,
+                            bankName: billstack.bankName,
+                            accountName: billstack.accountName,
+                            trackingReference: billstack.trackingReference,
+                            raw: billstack.raw,
+                            billstackBank: candidate,
+                            attemptedBanks: attempted,
+                        };
+                    } catch (e) {
+                        lastError = e;
+                        const msg = String(e?.message || '');
+                        const transient = this.isTransientProviderError(msg);
+                        if (!transient && candidate === candidates[0]) {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+                const suffix = attempted.length ? ` (attempted banks: ${attempted.join(', ')})` : '';
+                if (lastError) {
+                    const msg = String(lastError?.message || 'BillStack failed');
+                    throw new Error(`${msg}${suffix}`);
+                }
+                throw new Error(`BillStack virtual account creation failed${suffix}`);
             };
 
             let payvesselUsedMockBvn = false;
@@ -696,7 +773,14 @@ class VirtualAccountService {
                     continue;
                 }
                 try {
-                    if (p === 'payvessel') accountDetails = await tryPayvessel();
+                    if (p === 'payvessel') {
+                        const kycOk = await this.isPayvesselKycSatisfied(user);
+                        if (!kycOk) {
+                            providerErrors[p] = new Error('KYC/BVN verification is required to generate a PayVessel virtual account');
+                            continue;
+                        }
+                        accountDetails = await tryPayvessel();
+                    }
                     if (p === 'billstack') accountDetails = await tryBillstack();
                     if (accountDetails) {
                         user.metadata = { ...user.metadata, va_provider: p };
@@ -749,7 +833,8 @@ class VirtualAccountService {
                         ...user.metadata,
                         va_provider: effectiveProvider,
                         payvessel_tracking_reference: effectiveProvider === 'payvessel' ? accountDetails.trackingReference : user.metadata?.payvessel_tracking_reference,
-                        billstack_reference: effectiveProvider === 'billstack' ? accountDetails.trackingReference : user.metadata?.billstack_reference
+                        billstack_reference: effectiveProvider === 'billstack' ? accountDetails.trackingReference : user.metadata?.billstack_reference,
+                        billstack_bank_used: effectiveProvider === 'billstack' ? (accountDetails.billstackBank || null) : user.metadata?.billstack_bank_used,
                     };
                 } else {
                     user.metadata = { ...user.metadata, va_provider: effectiveProvider };

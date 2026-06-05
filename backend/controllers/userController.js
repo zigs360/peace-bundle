@@ -85,11 +85,21 @@ const requestVirtualAccount = async (req, res) => {
         const lower = msg.toLowerCase();
         const isKyc = lower.includes('kyc') || lower.includes('bvn');
         const isConfig = lower.includes('configured') || lower.includes('provider');
+        const isTransient = typeof virtualAccountService.isTransientProviderError === 'function'
+            ? virtualAccountService.isTransientProviderError(msg)
+            : false;
         if (isKyc) {
             return res.json({ success: false, code: 'KYC_REQUIRED', message: 'KYC/BVN verification is required to generate a virtual account.' });
         }
         if (isConfig) {
             return res.json({ success: false, code: 'PROVIDER_NOT_CONFIGURED', message: msg });
+        }
+        if (isTransient) {
+            return res.status(503).json({
+                success: false,
+                code: 'PROVIDER_TEMPORARILY_UNAVAILABLE',
+                message: 'Virtual account generation is temporarily unavailable. Please try again later.',
+            });
         }
         return res.status(500).json({ 
             success: false, 
@@ -120,6 +130,17 @@ const getVirtualAccountSummary = async (req, res) => {
                 const ageMs = Date.now() - lastAttemptAt.getTime();
                 if (ageMs >= 0 && ageMs < 2 * 60 * 1000) {
                     return res.json({ success: true, hasVirtualAccount: false, message: 'Your virtual account is being generated. Please refresh in a few minutes.' });
+                }
+            }
+            if (meta.va_status === 'pending' && meta.va_next_retry_at) {
+                const nextRetryAt = new Date(meta.va_next_retry_at);
+                if (Number.isFinite(nextRetryAt.getTime()) && nextRetryAt.getTime() > Date.now()) {
+                    return res.json({
+                        success: true,
+                        hasVirtualAccount: false,
+                        message: 'Virtual account generation is temporarily unavailable. Please try again later.',
+                        nextRetryAt: nextRetryAt.toISOString(),
+                    });
                 }
             }
             const readiness = await virtualAccountService.getProvisioningReadiness(user);

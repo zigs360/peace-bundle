@@ -22,8 +22,12 @@ const serviceEnvVars = [
 const validateEnv = () => {
   const missingCritical = criticalEnvVars.filter((key) => !process.env[key]);
   if (missingCritical.length > 0) {
-    logger.error(`CRITICAL: Missing essential environment variables: ${missingCritical.join(', ')}. App cannot start.`);
-    process.exit(1);
+    const msg = `CRITICAL: Missing essential environment variables: ${missingCritical.join(', ')}. App cannot start.`;
+    if (process.env.NODE_ENV === 'test') {
+      logger.warn(msg);
+      return;
+    }
+    throw new Error(msg);
   }
 
   const shouldWarnServices = String(process.env.REQUIRE_SERVICE_KEYS || 'false').toLowerCase() === 'true';
