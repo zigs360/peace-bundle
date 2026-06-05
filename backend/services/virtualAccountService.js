@@ -206,6 +206,21 @@ class VirtualAccountService {
         }
 
         if (user.virtual_account_number && this.isDisplayableVirtualAccount(user)) {
+            try {
+                const meta = user.metadata && typeof user.metadata === 'object' ? user.metadata : {};
+                if (meta.va_status !== 'assigned') {
+                    user.metadata = {
+                        ...meta,
+                        va_status: 'assigned',
+                        va_assigned_at: meta.va_assigned_at || new Date().toISOString(),
+                        va_last_error: null,
+                        va_next_retry_at: null,
+                    };
+                    await user.save();
+                }
+            } catch (e) {
+                void e;
+            }
             return {
                 canAttempt: false,
                 code: 'ALREADY_ASSIGNED',
