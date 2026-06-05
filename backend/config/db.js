@@ -119,6 +119,34 @@ const ensureUsersOperationalIndexes = async () => {
   }
 };
 
+const ensureAdminWalletDeductionIndexes = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS "admin_wallet_deductions_user_id_created_at_idx"
+        ON "admin_wallet_deductions" ("user_id", "createdAt" DESC);
+    `);
+  } catch (e) {
+    void e;
+  }
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS "admin_wallet_deductions_admin_id_created_at_idx"
+        ON "admin_wallet_deductions" ("admin_id", "createdAt" DESC);
+    `);
+  } catch (e) {
+    void e;
+  }
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS "admin_wallet_deductions_status_created_at_idx"
+        ON "admin_wallet_deductions" ("status", "createdAt" DESC);
+    `);
+  } catch (e) {
+    void e;
+  }
+};
+
 const ensureTransactionIntegrityMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
@@ -435,6 +463,7 @@ const connectDB = async () => {
       await ensureCallSubscriptionModuleMigrationApplied();
       await ensureTransactionsDashboardIndexes();
       await ensureUsersOperationalIndexes();
+      await ensureAdminWalletDeductionIndexes();
 
       try {
         const { getTransactionSchemaCompatibility } = require('../services/transactionSchemaCompatibilityService');

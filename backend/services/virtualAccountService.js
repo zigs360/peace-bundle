@@ -950,6 +950,7 @@ class VirtualAccountService {
                 user.virtual_account_number = accountDetails.accountNumber;
                 user.virtual_account_bank = accountDetails.bankName;
                 user.virtual_account_name = accountDetails.accountName;
+                const nowIso = new Date().toISOString();
                 if (accountDetails.trackingReference) {
                     user.metadata = {
                         ...user.metadata,
@@ -957,9 +958,20 @@ class VirtualAccountService {
                         payvessel_tracking_reference: effectiveProvider === 'payvessel' ? accountDetails.trackingReference : user.metadata?.payvessel_tracking_reference,
                         billstack_reference: effectiveProvider === 'billstack' ? accountDetails.trackingReference : user.metadata?.billstack_reference,
                         billstack_bank_used: effectiveProvider === 'billstack' ? (accountDetails.billstackBank || null) : user.metadata?.billstack_bank_used,
+                        va_status: 'assigned',
+                        va_assigned_at: user.metadata?.va_assigned_at || nowIso,
+                        va_last_error: null,
+                        va_next_retry_at: null,
                     };
                 } else {
-                    user.metadata = { ...user.metadata, va_provider: effectiveProvider };
+                    user.metadata = {
+                        ...user.metadata,
+                        va_provider: effectiveProvider,
+                        va_status: 'assigned',
+                        va_assigned_at: user.metadata?.va_assigned_at || nowIso,
+                        va_last_error: null,
+                        va_next_retry_at: null,
+                    };
                 }
                 if (effectiveProvider === 'payvessel' && payvesselUsedMockBvn) {
                     user.metadata = { ...user.metadata, mock_bvn_status: 'mock' };
