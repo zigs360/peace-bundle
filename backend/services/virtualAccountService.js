@@ -125,11 +125,6 @@ class VirtualAccountService {
             if (!b) continue;
             if (!uniq.includes(b)) uniq.push(b);
         }
-        if (uniq.includes('PALMPAY')) {
-            for (const fallback of ['WEMA', 'PROVIDUS']) {
-                if (!uniq.includes(fallback)) uniq.push(fallback);
-            }
-        }
         return uniq;
     }
 

@@ -104,7 +104,7 @@ class BillstackVirtualAccountService {
       .map((s) => this.normalizeBankCode(s))
       .filter(Boolean);
     if (fromEnv.length) return fromEnv;
-    return ['PALMPAY', 'WEMA', 'PROVIDUS'];
+    return ['PALMPAY', 'PROVIDUS'];
   }
 
   sanitizePayloadForLogs(payload) {
