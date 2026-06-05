@@ -95,6 +95,19 @@ const requestVirtualAccount = async (req, res) => {
             return res.json({ success: false, code: 'PROVIDER_NOT_CONFIGURED', message: msg });
         }
         if (isTransient) {
+            try {
+                const fresh = await User.findByPk(userId);
+                const meta = fresh?.metadata && typeof fresh.metadata === 'object' ? fresh.metadata : {};
+                const nextRetryAt = meta.va_next_retry_at || null;
+                return res.status(503).json({
+                    success: false,
+                    code: 'PROVIDER_TEMPORARILY_UNAVAILABLE',
+                    message: 'Virtual account generation is temporarily unavailable. Please try again later.',
+                    nextRetryAt,
+                });
+            } catch (e) {
+                void e;
+            }
             return res.status(503).json({
                 success: false,
                 code: 'PROVIDER_TEMPORARILY_UNAVAILABLE',

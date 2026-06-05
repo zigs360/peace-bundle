@@ -521,9 +521,11 @@ class VirtualAccountService {
             total_found: 0,
             processed: 0,
             created: 0,
+            pending: 0,
             skipped_inactive: 0,
             skipped_existing: 0,
             skipped_ineligible: 0,
+            skipped_pending_cooldown: 0,
             failed: 0,
             errors: []
         };
@@ -577,6 +579,15 @@ class VirtualAccountService {
                     continue;
                 }
 
+                const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+                if (meta.va_status === 'pending' && meta.va_next_retry_at) {
+                    const nextRetryAt = new Date(meta.va_next_retry_at);
+                    if (Number.isFinite(nextRetryAt.getTime()) && nextRetryAt.getTime() > Date.now()) {
+                        summary.skipped_pending_cooldown++;
+                        continue;
+                    }
+                }
+
                 const readiness = await this.getProvisioningReadiness(row);
                 if (!readiness.canAttempt) {
                     if (readiness.code === 'ALREADY_ASSIGNED') {
@@ -623,10 +634,18 @@ class VirtualAccountService {
                         await this.recordProvisioningSuccess(row.id);
                     }
                 } catch (err) {
+                    const msg = String(err?.message || '');
+                    const transient = typeof this.isTransientProviderError === 'function' ? this.isTransientProviderError(msg) : false;
+                    if (transient) {
+                        summary.pending++;
+                        logger.warn(`[VirtualAccount] Bulk assignment pending for user ${row.id}: ${msg}`);
+                        await this.recordProvisioningFailure(row.id, msg);
+                        continue;
+                    }
                     summary.failed++;
-                    summary.errors.push({ userId: row.id, email: row.email, error: err.message });
-                    logger.error(`[VirtualAccount] Bulk assignment failed for user ${row.id}: ${err.message}`);
-                    await this.recordProvisioningFailure(row.id, err.message);
+                    summary.errors.push({ userId: row.id, email: row.email, error: msg });
+                    logger.error(`[VirtualAccount] Bulk assignment failed for user ${row.id}: ${msg}`);
+                    await this.recordProvisioningFailure(row.id, msg);
                 }
             }
 
@@ -952,7 +971,13 @@ class VirtualAccountService {
                 throw new Error(`Provider ${provider} returned no account details`);
             }
         } catch (error) {
-            logger.error(`[VirtualAccount] Failed to assign virtual account for user ${user.id}:`, error.message);
+            const msg = String(error?.message || '');
+            const transient = typeof this.isTransientProviderError === 'function' ? this.isTransientProviderError(msg) : false;
+            if (transient) {
+                logger.warn('[VirtualAccount] Failed to assign virtual account (transient)', { userId: user.id, message: msg });
+            } else {
+                logger.error('[VirtualAccount] Failed to assign virtual account', { userId: user.id, message: msg });
+            }
             throw error;
         }
         })();

@@ -90,6 +90,35 @@ const ensureTransactionsDashboardIndexes = async () => {
   }
 };
 
+const ensureUsersOperationalIndexes = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+  try {
+    await sequelize.query(`CREATE INDEX IF NOT EXISTS "users_role_idx" ON "Users" ("role");`);
+  } catch (e) {
+    void e;
+  }
+  try {
+    await sequelize.query(`CREATE INDEX IF NOT EXISTS "users_account_status_idx" ON "Users" ("account_status");`);
+  } catch (e) {
+    void e;
+  }
+  try {
+    await sequelize.query(`CREATE INDEX IF NOT EXISTS "users_kyc_status_idx" ON "Users" ("kyc_status");`);
+  } catch (e) {
+    void e;
+  }
+  try {
+    await sequelize.query(`CREATE INDEX IF NOT EXISTS "users_virtual_account_number_idx" ON "Users" ("virtual_account_number");`);
+  } catch (e) {
+    void e;
+  }
+  try {
+    await sequelize.query(`CREATE INDEX IF NOT EXISTS "users_created_at_idx" ON "Users" ("createdAt" DESC);`);
+  } catch (e) {
+    void e;
+  }
+};
+
 const ensureTransactionIntegrityMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
@@ -405,6 +434,7 @@ const connectDB = async () => {
       await ensureTransactionIntegrityMigrationApplied();
       await ensureCallSubscriptionModuleMigrationApplied();
       await ensureTransactionsDashboardIndexes();
+      await ensureUsersOperationalIndexes();
 
       try {
         const { getTransactionSchemaCompatibility } = require('../services/transactionSchemaCompatibilityService');
