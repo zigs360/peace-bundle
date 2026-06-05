@@ -41,7 +41,7 @@ let cache = {
   result: null,
 };
 
-const CACHE_TTL_MS = Number.parseInt(process.env.TRANSACTION_SCHEMA_CACHE_TTL_MS || '30000', 10);
+const CACHE_TTL_MS = Number.parseInt(process.env.TRANSACTION_SCHEMA_CACHE_TTL_MS || '600000', 10);
 
 async function getTransactionSchemaCompatibility({ forceRefresh = false } = {}) {
   const now = Date.now();

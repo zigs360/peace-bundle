@@ -198,8 +198,8 @@ class BillstackVirtualAccountService {
   async generateVirtualAccountForUserId(userId, options = {}) {
     const user = await User.findByPk(userId);
     if (!user) throw new Error('User not found');
-    const bank = options.bank || process.env.BILLSTACK_BANK || 'WEMA';
-    return this.generateVirtualAccount(user, bank, { timeoutMs: options.timeoutMs });
+    const bank = options.bank || process.env.BILLSTACK_BANK || this.getAllowedBanks()[0] || 'PALMPAY';
+    return this.generateVirtualAccount(user, bank, { timeoutMs: options.timeoutMs, reference: options.reference });
   }
 }
 

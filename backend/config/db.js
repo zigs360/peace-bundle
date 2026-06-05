@@ -70,6 +70,26 @@ const applySqlMigrationFile = async ({ id, filePath }) => {
   return { applied: true, id };
 };
 
+const ensureTransactionsDashboardIndexes = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS "transactions_wallet_id_idx"
+        ON "transactions" ("walletId");
+    `);
+  } catch (e) {
+    void e;
+  }
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS "transactions_wallet_id_created_at_idx"
+        ON "transactions" ("walletId", "createdAt" DESC);
+    `);
+  } catch (e) {
+    void e;
+  }
+};
+
 const ensureTransactionIntegrityMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
@@ -384,6 +404,14 @@ const connectDB = async () => {
 
       await ensureTransactionIntegrityMigrationApplied();
       await ensureCallSubscriptionModuleMigrationApplied();
+      await ensureTransactionsDashboardIndexes();
+
+      try {
+        const { getTransactionSchemaCompatibility } = require('../services/transactionSchemaCompatibilityService');
+        await getTransactionSchemaCompatibility();
+      } catch (e) {
+        void e;
+      }
 
       try {
         await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL');

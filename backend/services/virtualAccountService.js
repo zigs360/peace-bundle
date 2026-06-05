@@ -125,7 +125,19 @@ class VirtualAccountService {
             if (!b) continue;
             if (!uniq.includes(b)) uniq.push(b);
         }
-        return uniq;
+        const strict = String(process.env.BILLSTACK_STRICT_BANK_LIST || 'false').toLowerCase() === 'true';
+        const allowed = (billstackVirtualAccountService.getAllowedBanks?.() || [])
+            .map((b) => this.normalizeBillstackBank(b))
+            .filter(Boolean);
+        const filtered = allowed.length ? uniq.filter((b) => allowed.includes(b)) : uniq;
+        if (strict) return filtered;
+        if (!allowed.length) return filtered;
+        if (filtered.length <= 1) {
+            for (const b of allowed) {
+                if (!filtered.includes(b)) filtered.push(b);
+            }
+        }
+        return filtered;
     }
 
     isTransientProviderError(message) {
