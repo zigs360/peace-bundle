@@ -37,6 +37,35 @@ const requestVirtualAccount = async (req, res) => {
             });
         }
 
+        const metaNow = user.metadata && typeof user.metadata === 'object' ? user.metadata : {};
+        if (metaNow.va_status === 'processing') {
+            const lastAttemptAt = metaNow.va_last_attempt_at ? new Date(metaNow.va_last_attempt_at) : null;
+            if (lastAttemptAt && Number.isFinite(lastAttemptAt.getTime())) {
+                const ageMs = Date.now() - lastAttemptAt.getTime();
+                if (ageMs >= 0 && ageMs < 60 * 1000) {
+                    return res.status(202).json({
+                        success: false,
+                        code: 'PROVIDER_PROCESSING',
+                        message: 'Virtual account generation is currently processing. Please check again shortly.',
+                    });
+                }
+            }
+        }
+        if (metaNow.va_status === 'pending' && metaNow.va_next_retry_at) {
+            const nextRetryAt = new Date(metaNow.va_next_retry_at);
+            if (Number.isFinite(nextRetryAt.getTime()) && nextRetryAt.getTime() > Date.now()) {
+                const retryAfterSeconds = Math.max(1, Math.ceil((nextRetryAt.getTime() - Date.now()) / 1000));
+                res.set('Retry-After', String(retryAfterSeconds));
+                return res.json({
+                    success: false,
+                    code: 'PROVIDER_TEMPORARILY_UNAVAILABLE',
+                    message: 'Virtual account generation is temporarily unavailable. Please try again later.',
+                    nextRetryAt: nextRetryAt.toISOString(),
+                    retryAfterSeconds,
+                });
+            }
+        }
+
         if (user.virtual_account_number) {
             if (!virtualAccountService.isDisplayableVirtualAccount(user)) {
                 await virtualAccountService.quarantineUnauthorizedVirtualAccount(user);
@@ -98,17 +127,23 @@ const requestVirtualAccount = async (req, res) => {
             try {
                 const fresh = await User.findByPk(userId);
                 const meta = fresh?.metadata && typeof fresh.metadata === 'object' ? fresh.metadata : {};
-                const nextRetryAt = meta.va_next_retry_at || null;
-                return res.status(503).json({
+                const nextRetryAt = meta.va_next_retry_at ? new Date(meta.va_next_retry_at) : null;
+                const retryAfterSeconds =
+                    nextRetryAt && Number.isFinite(nextRetryAt.getTime()) && nextRetryAt.getTime() > Date.now()
+                        ? Math.max(1, Math.ceil((nextRetryAt.getTime() - Date.now()) / 1000))
+                        : null;
+                if (retryAfterSeconds) res.set('Retry-After', String(retryAfterSeconds));
+                return res.json({
                     success: false,
                     code: 'PROVIDER_TEMPORARILY_UNAVAILABLE',
                     message: 'Virtual account generation is temporarily unavailable. Please try again later.',
-                    nextRetryAt,
+                    nextRetryAt: nextRetryAt && Number.isFinite(nextRetryAt.getTime()) ? nextRetryAt.toISOString() : null,
+                    retryAfterSeconds,
                 });
             } catch (e) {
                 void e;
             }
-            return res.status(503).json({
+            return res.json({
                 success: false,
                 code: 'PROVIDER_TEMPORARILY_UNAVAILABLE',
                 message: 'Virtual account generation is temporarily unavailable. Please try again later.',
