@@ -227,7 +227,8 @@ const getDataPlans = async (req, res) => {
         const { items } = await loadCatalogPlans(req);
         const legacyVisiblePlans = items.filter((plan) => {
             const telecoPrice = toFiniteNumber(plan.teleco_price, NaN);
-            return Number.isFinite(telecoPrice) && telecoPrice > 0;
+            const ourPrice = toFiniteNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, NaN);
+            return Number.isFinite(ourPrice) && ourPrice > 0;
         });
 
         if (req.query.grouped === 'true' || req.query.view === 'hierarchy') {

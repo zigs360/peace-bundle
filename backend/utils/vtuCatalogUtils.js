@@ -70,7 +70,15 @@ function containsAny(text, parts) {
   return parts.some((part) => text.includes(String(part).toLowerCase()));
 }
 
-function getRawCategory(planName) {
+function getRawCategory(planName, planCategory) {
+  if (planCategory) {
+    const cat = normalizeText(planCategory);
+    if (containsAny(cat, ['sme'])) return 'SME_THRYVE';
+    if (containsAny(cat, ['share', 'data_share'])) return 'DATA_SHARE';
+    if (containsAny(cat, ['cg', 'corporate'])) return 'CORPORATE';
+    if (containsAny(cat, ['gifting'])) return 'GIFTING';
+  }
+
   const text = normalizeText(planName);
 
   if (containsAny(text, ['share'])) return 'DATA_SHARE';
@@ -81,7 +89,7 @@ function getRawCategory(planName) {
   if (containsAny(text, ['unlimited'])) return 'UNLIMITED';
   if (containsAny(text, ['router'])) return 'ROUTER';
   if (containsAny(text, ['roamlike', 'roamone', 'roamtheworld', 'roam'])) return 'ROAMING';
-  if (containsAny(text, ['thryvetalk', 'thryvedata'])) return 'SME_THRYVE';
+  if (containsAny(text, ['thryvetalk', 'thryvedata', 'sme'])) return 'SME_THRYVE';
   if (containsAny(text, ['[awoof]', 'awoof'])) return 'AWOOF';
   if (containsAny(text, ['[gifting]', 'gifting', 'special', 'glomega', 'xtradata'])) return 'GIFTING';
   if (containsAny(text, ['social', 'facebook', 'whatsapp', 'tiktok', 'instagram', 'youtube', 'ayoba', 'pulse', 'nightlife', 'buffet'])) return 'SOCIAL';
@@ -222,7 +230,7 @@ function compareCatalogPlans(left, right) {
 
 function enrichCatalogPlan(plan) {
   const networkKey = normalizeText(plan.provider || plan.network);
-  const rawCategory = getRawCategory(plan.name || plan.plan);
+  const rawCategory = getRawCategory(plan.name || plan.plan, plan.category || plan.category_name);
   const categoryKey = mapCategoryForNetwork(networkKey, rawCategory);
   const dataAmount = extractDataAmount(plan);
   const minutesLabel = extractMinutes(plan.name || plan.plan);
