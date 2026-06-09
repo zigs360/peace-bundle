@@ -329,7 +329,8 @@ const getMe = async (req, res) => {
         // Transform response to flat structure expected by frontend
         const userResponse = user.toJSON();
         userResponse.balance = user.wallet ? user.wallet.balance : 0;
-        userResponse.hasTransactionPin = Boolean(user.transaction_pin_hash);
+        const userFull = await User.findByPk(req.user.id, { attributes: ['transaction_pin_hash'] });
+        userResponse.hasTransactionPin = Boolean(userFull && userFull.transaction_pin_hash);
         Object.assign(userResponse, await buildVirtualAccountProfileState(user));
         
         res.json(userResponse);
