@@ -37,7 +37,7 @@ describe('payvesselService', () => {
         nock('https://sandbox.payvessel.com', {
             reqheaders: {
                 'api-key': 'pv_test_key',
-                'api-secret': 'pv_test_secret',
+                'api-secret': 'Bearer pv_test_secret',
                 'content-type': 'application/json',
             },
         })
@@ -100,5 +100,10 @@ describe('payvesselService', () => {
             status: 404,
             provider: 'payvessel',
         });
+    });
+
+    it('does not duplicate the Bearer prefix when the secret already includes it', () => {
+        expect(payvesselService.formatSecretHeader('Bearer pv_test_secret')).toBe('Bearer pv_test_secret');
+        expect(payvesselService.formatSecretHeader('pv_test_secret')).toBe('Bearer pv_test_secret');
     });
 });

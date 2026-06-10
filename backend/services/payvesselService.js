@@ -33,6 +33,12 @@ class PayVesselService {
         }
     }
 
+    formatSecretHeader(value) {
+        const secret = String(value || '').trim();
+        if (!secret) return '';
+        return /^Bearer\s+/i.test(secret) ? secret : `Bearer ${secret}`;
+    }
+
     normalizeBankName(value) {
         return String(value || '')
             .trim()
@@ -165,7 +171,7 @@ class PayVesselService {
                 {
                     headers: {
                         'api-key': this.apiKey,
-                        'api-secret': this.secretKey,
+                        'api-secret': this.formatSecretHeader(this.secretKey),
                         'Content-Type': 'application/json'
                     },
                     timeout: Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000
@@ -258,7 +264,7 @@ class PayVesselService {
                 {
                     headers: {
                         'api-key': this.apiKey,
-                        'api-secret': this.secretKey,
+                        'api-secret': this.formatSecretHeader(this.secretKey),
                         'Content-Type': 'application/json'
                     }
                 }
