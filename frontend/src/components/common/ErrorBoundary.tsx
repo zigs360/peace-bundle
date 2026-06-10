@@ -40,6 +40,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
                   try {
                     localStorage.removeItem('user');
                     localStorage.removeItem('token');
+                    localStorage.removeItem('refreshToken');
                     localStorage.removeItem('wallet_balance');
                   } catch {
                     void 0;

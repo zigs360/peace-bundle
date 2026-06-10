@@ -247,6 +247,7 @@ export default function UserLayout() {
             to="/login" 
             onClick={() => {
               localStorage.removeItem('token');
+              localStorage.removeItem('refreshToken');
               localStorage.removeItem('user');
             }}
             className={`flex items-center rounded-2xl px-4 py-3 text-sm font-medium text-red-600 transition-colors duration-200 hover:bg-red-50 ${isCollapsed ? 'justify-center' : ''}`}
@@ -390,6 +391,7 @@ export default function UserLayout() {
                       <button 
                         onClick={() => {
                           localStorage.removeItem('token');
+                          localStorage.removeItem('refreshToken');
                           localStorage.removeItem('user');
                           window.location.href = '/login';
                         }}

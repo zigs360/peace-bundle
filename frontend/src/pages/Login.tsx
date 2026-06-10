@@ -7,6 +7,7 @@ import AuthShell from '../components/ui/AuthShell';
 
 interface AuthResponse {
   token: string;
+  refreshToken?: string;
   user: {
     id: string;
     fullName: string;
@@ -35,6 +36,9 @@ export default function Login() {
     try {
       const res = await api.post<AuthResponse>('/auth/login', { emailOrPhone, password });
       localStorage.setItem('token', res.data.token);
+      if (res.data.refreshToken) {
+        localStorage.setItem('refreshToken', res.data.refreshToken);
+      }
       const userForStorage = { ...res.data.user };
       delete userForStorage.virtual_account_number;
       delete userForStorage.virtual_account_bank;
