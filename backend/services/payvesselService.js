@@ -7,12 +7,30 @@ class PayVesselService {
         this.apiKey = process.env.PAYVESSEL_API_KEY;
         this.secretKey = process.env.PAYVESSEL_SECRET_KEY;
         this.businessId = process.env.PAYVESSEL_BUSINESS_ID;
-        // Base URL for PayVessel External API
-        this.baseUrl = process.env.PAYVESSEL_BASE_URL || 'https://api.payvessel.com/pms/api/external/request';
+        // Accept either the host-only env value from the docs or the full API prefix.
+        this.baseUrl = this.normalizeBaseUrl(process.env.PAYVESSEL_BASE_URL);
         this.bankCodeMap = {
             PALMPAY: '999991',
             '9PSB': '120001',
         };
+    }
+
+    getApiBasePath() {
+        return '/pms/api/external/request';
+    }
+
+    normalizeBaseUrl(value) {
+        const fallbackOrigin = 'https://api.payvessel.com';
+        const raw = String(value || fallbackOrigin).trim();
+
+        try {
+            const url = new URL(raw);
+            const path = url.pathname.replace(/\/+$/, '');
+            url.pathname = path && path !== '/' ? path : this.getApiBasePath();
+            return `${url.origin}${url.pathname}`;
+        } catch (_error) {
+            return `${fallbackOrigin}${this.getApiBasePath()}`;
+        }
     }
 
     normalizeBankName(value) {
@@ -147,7 +165,7 @@ class PayVesselService {
                 {
                     headers: {
                         'api-key': this.apiKey,
-                        'api-secret': `Bearer ${this.secretKey}`,
+                        'api-secret': this.secretKey,
                         'Content-Type': 'application/json'
                     },
                     timeout: Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000
@@ -208,7 +226,12 @@ class PayVesselService {
                 return this.createVirtualAccount(user, retryCount + 1, options);
             }
 
-            throw new Error(`PayVessel Error: ${errorData?.message || error.message}`);
+            const providerError = new Error(`PayVessel Error: ${errorData?.message || error.message}`);
+            providerError.status = status || null;
+            providerError.code = error?.code || null;
+            providerError.provider = 'payvessel';
+            providerError.details = errorData || null;
+            throw providerError;
         }
     }
 
@@ -235,7 +258,7 @@ class PayVesselService {
                 {
                     headers: {
                         'api-key': this.apiKey,
-                        'api-secret': `Bearer ${this.secretKey}`,
+                        'api-secret': this.secretKey,
                         'Content-Type': 'application/json'
                     }
                 }
