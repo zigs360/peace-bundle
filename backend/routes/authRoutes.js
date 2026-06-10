@@ -2,7 +2,20 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { body } = require('express-validator');
-const { registerUser, loginUser, getMe, getAllUsers, updateProfile, changePassword, submitKyc, refreshUserToken, logoutUser } = require('../controllers/authController');
+const {
+  registerUser,
+  loginUser,
+  getMe,
+  getAllUsers,
+  updateProfile,
+  changePassword,
+  submitKyc,
+  refreshUserToken,
+  logoutUser,
+  requestPasswordReset,
+  validatePasswordResetToken,
+  completePasswordReset,
+} = require('../controllers/authController');
 const {
   getTransactionPinStatus,
   createTransactionPin,
@@ -44,8 +57,54 @@ const loginValidation = [
   body('password').exists().withMessage('Password is required')
 ];
 
+const passwordResetRequestLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 3,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+      const normalizedEmail = String(req.body?.email || '').trim().toLowerCase();
+      return `password-reset:${normalizedEmail || 'unknown-email'}`;
+    },
+    message: {
+      success: false,
+      message: 'Too many password reset requests for this email. Please try again in about 1 hour.',
+    },
+});
+
+const passwordResetRequestValidation = [
+  body('email')
+    .trim()
+    .notEmpty()
+    .withMessage('Email is required')
+    .bail()
+    .isEmail()
+    .withMessage('Please include a valid email')
+    .normalizeEmail(),
+];
+
+const passwordResetCompleteValidation = [
+  body('token').trim().notEmpty().withMessage('Reset token is required'),
+  body('newPassword').isString().withMessage('New password is required'),
+  body('confirmPassword').isString().withMessage('Password confirmation is required'),
+];
+
+const enforceSensitiveHttps = (req, res, next) => {
+  if (process.env.NODE_ENV !== 'production') return next();
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const isSecure = req.secure || forwardedProto === 'https';
+  if (isSecure) return next();
+  return res.status(403).json({
+    success: false,
+    message: 'This password reset action is only available over HTTPS.',
+  });
+};
+
 router.post('/register', authLimiter, validate(registerValidation), registerUser);
 router.post('/login', authLimiter, validate(loginValidation), loginUser);
+router.post('/password-reset/request', enforceSensitiveHttps, passwordResetRequestLimiter, validate(passwordResetRequestValidation), requestPasswordReset);
+router.get('/password-reset/validate', enforceSensitiveHttps, validatePasswordResetToken);
+router.post('/password-reset/complete', enforceSensitiveHttps, validate(passwordResetCompleteValidation), completePasswordReset);
 router.get('/me', protect, getMe);
 router.get('/profile', protect, getMe); // Alias for frontend compatibility
 router.get('/users', protect, admin, getAllUsers);

@@ -91,15 +91,15 @@ const getTransporter = () => {
     return cachedTransporter;
 };
 
-const sendEmail = async (to, subject, text, html) => {
+const sendEmail = async (to, subject, text, html, options = {}) => {
     try {
-        if (process.env.NODE_ENV === 'test') return;
-        if (!to) return;
+        if (process.env.NODE_ENV === 'test') return { success: true, skipped: true, reason: 'test_mode' };
+        if (!to) return { success: false, skipped: true, reason: 'missing_recipient' };
 
         const transporter = getTransporter();
         if (!transporter) {
             logger.info('[Mock Email] SMTP not configured', { to, subject });
-            return;
+            return { success: false, skipped: true, reason: 'smtp_not_configured' };
         }
 
         const { from } = resolveSmtpSettings();
@@ -109,11 +109,16 @@ const sendEmail = async (to, subject, text, html) => {
             subject, // Subject line
             text, // plain text body
             html: html || undefined, // html body
+            replyTo: options.replyTo || undefined,
+            headers: options.headers || undefined,
         });
 
         logger.info('Email sent', { messageId: info.messageId, to });
+        return { success: true, messageId: info.messageId };
     } catch (error) {
         logger.error('Error sending email', { error: error.message });
+        if (options.throwOnError) throw error;
+        return { success: false, reason: error.message };
     }
 };
 

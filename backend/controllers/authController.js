@@ -12,6 +12,8 @@ const path = require('path');
 const { encrypt } = require('../utils/cryptoUtils');
 const logger = require('../utils/logger');
 const walletService = require('../services/walletService');
+const passwordResetService = require('../services/passwordResetService');
+const welcomeEmailService = require('../services/welcomeEmailService');
 
 const SENSITIVE_USER_FIELDS = [
     'password',
@@ -144,10 +146,12 @@ const registerUser = async (req, res) => {
         const salt = await bcrypt.genSalt(saltRounds);
         const hashedPassword = await bcrypt.hash(password, salt);
 
+        const tokenPayloadEmail = String(email || '').trim().toLowerCase();
+
         // Create user
         const user = await User.create({
             name: userName,
-            email,
+            email: tokenPayloadEmail,
             phone,
             password: hashedPassword,
             referral_code: generatedRefCode,
@@ -156,17 +160,6 @@ const registerUser = async (req, res) => {
             package: 'Standard',
             kyc_status: 'none'
         }, { transaction: t });
-
-        await t.commit();
-
-        logger.info(`[Auth] New user registered: ${email} (${user.id})`);
-
-        // Track referral reward if applicable
-        if (referrerObj) {
-            ReferralService.trackReferral(referrerObj, user).catch(err => {
-                logger.error(`[Referral] Failed to track referral reward for user ${user.id}: ${err.message}`);
-            });
-        }
 
         const token = generateToken(user.id);
         const refreshToken = generateRefreshToken(user.id);
@@ -181,6 +174,36 @@ const registerUser = async (req, res) => {
                 refreshTokens,
             }
         }, { transaction: t });
+
+        await t.commit();
+
+        logger.info(`[Auth] New user registered: ${tokenPayloadEmail} (${user.id})`);
+
+        const emailValidationPassed = welcomeEmailService.isValidEmail(tokenPayloadEmail);
+
+        // Track referral reward if applicable
+        if (referrerObj) {
+            ReferralService.trackReferral(referrerObj, user).catch(err => {
+                logger.error(`[Referral] Failed to track referral reward for user ${user.id}: ${err.message}`);
+            });
+        }
+
+        if (emailValidationPassed) {
+            welcomeEmailService.sendWelcomeEmailForUser(user, {
+                ip: req.ip || null,
+                userAgent: req.get('user-agent') || null,
+            }).catch((err) => {
+                logger.error('[Auth] Welcome email dispatch error', {
+                    userId: user.id,
+                    message: err.message,
+                });
+            });
+        } else {
+            logger.warn('[Auth] Skipping welcome email due to invalid email format', {
+                userId: user.id,
+                email: tokenPayloadEmail,
+            });
+        }
 
         res.status(201).json({
             token,
@@ -713,6 +736,59 @@ const logoutUser = async (req, res) => {
     }
 };
 
+// @desc    Request a password reset email
+// @route   POST /api/auth/password-reset/request
+// @access  Public
+const requestPasswordReset = async (req, res) => {
+    try {
+        const response = await passwordResetService.requestPasswordReset(req.body.email, req);
+        return res.status(200).json(response);
+    } catch (error) {
+        logger.error('[Auth] Password reset request error', { message: error.message, ip: req.ip || null });
+        return res.status(500).json({
+            success: false,
+            message: 'Unable to process password reset right now. Please try again later.',
+        });
+    }
+};
+
+// @desc    Validate a password reset token
+// @route   GET /api/auth/password-reset/validate
+// @access  Public
+const validatePasswordResetToken = async (req, res) => {
+    try {
+        const response = await passwordResetService.validateResetToken(req.query.token, req);
+        return res.status(200).json(response);
+    } catch (error) {
+        return res.status(error.status || 400).json({
+            success: false,
+            code: error.code || 'PASSWORD_RESET_TOKEN_INVALID',
+            message: error.message || 'This password reset link is invalid.',
+        });
+    }
+};
+
+// @desc    Complete a password reset
+// @route   POST /api/auth/password-reset/complete
+// @access  Public
+const completePasswordReset = async (req, res) => {
+    const { token, newPassword, confirmPassword } = req.body;
+
+    try {
+        const response = await passwordResetService.completePasswordReset(token, newPassword, confirmPassword, req);
+        return res.status(200).json(response);
+    } catch (error) {
+        return res.status(error.status || 400).json({
+            success: false,
+            code: error.code || 'PASSWORD_RESET_FAILED',
+            message: error.message || 'Unable to reset password.',
+            passwordChecks: error.code === 'PASSWORD_TOO_WEAK'
+                ? passwordResetService.getPasswordRuleChecks(newPassword)
+                : undefined,
+        });
+    }
+};
+
 module.exports = {
     registerUser,
     loginUser,
@@ -722,5 +798,8 @@ module.exports = {
     changePassword,
     submitKyc,
     refreshUserToken,
-    logoutUser
+    logoutUser,
+    requestPasswordReset,
+    validatePasswordResetToken,
+    completePasswordReset,
 };

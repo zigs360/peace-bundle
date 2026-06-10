@@ -41,7 +41,10 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     // Handle 401 Unauthorized (Token expired or invalid)
-    if (error.response && error.response.status === 401) {
+    const hasStoredToken = Boolean(localStorage.getItem('token'));
+    const publicPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
+    const isPublicPath = publicPaths.some((path) => window.location.pathname.startsWith(path));
+    if (error.response && error.response.status === 401 && hasStoredToken && !isPublicPath) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       clearTransactionPinSession('financial');

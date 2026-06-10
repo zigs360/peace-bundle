@@ -91,9 +91,9 @@ export default function Login() {
               <label className="block text-sm font-medium text-slate-700">
                 {t('auth.password')}
               </label>
-              <a href="#" className="text-sm font-medium text-primary-600 hover:text-primary-500">
+              <Link to="/forgot-password" className="text-sm font-medium text-primary-600 hover:text-primary-500">
                 {t('auth.forgotPassword')}
-              </a>
+              </Link>
             </div>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
