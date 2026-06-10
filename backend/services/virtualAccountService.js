@@ -1,13 +1,13 @@
 const axios = require('axios');
 const User = require('../models/User');
 const SystemSetting = require('../models/SystemSetting');
-const payvesselService = require('./payvesselService');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database'); // Added sequelize import
 const crypto = require('crypto');
 
 const notificationService = require('./notificationService');
 const billstackVirtualAccountService = require('./billstackVirtualAccountService');
+const safeHavenVirtualAccountService = require('./safeHavenVirtualAccountService');
 
 const { Op, QueryTypes } = require('sequelize');
 
@@ -150,8 +150,116 @@ class VirtualAccountService {
         return false;
     }
 
+    classifyProvisioningFailure(error) {
+        const code = String(error?.code || '').trim().toUpperCase();
+        const status = Number.isFinite(Number(error?.status)) ? Number(error.status) : Number(error?.response?.status || 0);
+        const message = String(error?.message || '').trim();
+        const lower = message.toLowerCase();
+
+        let category = 'unknown';
+        if (
+            code === 'BILLSTACK_BANK_INVALID' ||
+            lower.includes('invalid') ||
+            lower.includes('malformed') ||
+            lower.includes('required') ||
+            lower.includes('unauthorized virtual account provider')
+        ) {
+            category = 'invalid_request';
+        } else if (
+            lower.includes('reject') ||
+            lower.includes('declin') ||
+            lower.includes('cannot reserve') ||
+            lower.includes('failed dependency')
+        ) {
+            category = 'rejection';
+        } else if (
+            status >= 500 ||
+            lower.includes('service unavailable') ||
+            lower.includes('temporarily unavailable') ||
+            lower.includes('temporarily') ||
+            lower.includes('timeout') ||
+            lower.includes('timed out') ||
+            lower.includes('network') ||
+            lower.includes('socket hang up')
+        ) {
+            category = 'service_unavailable';
+        } else if (
+            lower.includes('internal server error') ||
+            lower.includes('system error') ||
+            lower.includes('unexpected')
+        ) {
+            category = 'system_error';
+        }
+
+        return {
+            code,
+            status: status || null,
+            message,
+            category,
+            isTransient: category === 'service_unavailable' || this.isTransientProviderError(message),
+            confirmedFailure: category !== 'unknown' || Boolean(message),
+            fallbackEligible: ['service_unavailable', 'system_error', 'rejection'].includes(category),
+        };
+    }
+
+    appendProvisioningAudit(user, entry) {
+        const meta = user.metadata && typeof user.metadata === 'object' ? user.metadata : {};
+        const attempts = Array.isArray(meta.va_provisioning_attempts) ? meta.va_provisioning_attempts.slice(-19) : [];
+        attempts.push(entry);
+        user.metadata = {
+            ...meta,
+            va_provisioning_attempts: attempts,
+        };
+    }
+
+    buildProvisioningAuditEntry(step, status, extra = {}) {
+        return {
+            at: new Date().toISOString(),
+            tier: step.tier,
+            workflow: step.workflow,
+            provider: step.provider,
+            bank: step.bank || null,
+            status,
+            ...extra,
+        };
+    }
+
+    getSecondaryWorkflowOrder(requestedProvider = null) {
+        const raw = String(process.env.VA_SECONDARY_WORKFLOWS || '').trim();
+        const configured = raw
+            .split(',')
+            .map((item) => String(item || '').trim().toLowerCase())
+            .filter(Boolean);
+        const preferred = String(requestedProvider || '').trim().toLowerCase();
+        const base = configured.length ? configured : (preferred === 'payvessel' ? ['9psb', 'safehaven'] : ['safehaven', '9psb']);
+        return [...new Set(base.filter((item) => ['safehaven', '9psb'].includes(item)))];
+    }
+
+    normalizeVirtualAccountResult(accountDetails, context = {}) {
+        const accountNumber = String(accountDetails?.accountNumber || '').replace(/\D/g, '');
+        const bankName = String(accountDetails?.bankName || context.bankName || context.bank || '').trim().toUpperCase();
+        const accountName = String(accountDetails?.accountName || '').trim().replace(/\s+/g, ' ');
+        const trackingReference = accountDetails?.trackingReference ? String(accountDetails.trackingReference).trim() : null;
+        if (!accountNumber || accountNumber.length < 10) {
+            throw new Error(`Virtual account generation returned an invalid account number for ${context.provider || 'provider'}`);
+        }
+        if (!bankName) {
+            throw new Error(`Virtual account generation returned no bank name for ${context.provider || 'provider'}`);
+        }
+        if (!accountName) {
+            throw new Error(`Virtual account generation returned no account name for ${context.provider || 'provider'}`);
+        }
+        return {
+            ...accountDetails,
+            accountNumber,
+            bankName,
+            accountName,
+            trackingReference,
+        };
+    }
+
     getApprovedProviders() {
-        return ['payvessel', 'billstack'];
+        return ['payvessel', 'billstack', 'safehaven'];
     }
 
     getUserProvider(user) {
@@ -247,7 +355,8 @@ class VirtualAccountService {
 
         const hasPayvessel = this.isPayvesselConfigured();
         const hasBillstack = this.isBillstackConfigured();
-        if (!hasPayvessel && !hasBillstack) {
+        const hasSafeHaven = this.isSafeHavenConfigured();
+        if (!hasPayvessel && !hasBillstack && !hasSafeHaven) {
             return {
                 canAttempt: false,
                 code: 'PROVIDER_NOT_CONFIGURED',
@@ -256,11 +365,19 @@ class VirtualAccountService {
         }
 
         const payvesselKycOk = await this.isPayvesselKycSatisfied(user);
-        if (!hasBillstack && hasPayvessel && !payvesselKycOk) {
+        const hasSafeHavenIdentity = Boolean(user?.bvn || user?.nin);
+        if (!hasBillstack && !hasSafeHaven && hasPayvessel && !payvesselKycOk) {
             return {
                 canAttempt: false,
                 code: 'KYC_REQUIRED',
                 message: 'KYC/BVN verification is required to generate a virtual account.',
+            };
+        }
+        if (!hasBillstack && !hasPayvessel && hasSafeHaven && !hasSafeHavenIdentity) {
+            return {
+                canAttempt: false,
+                code: 'KYC_REQUIRED',
+                message: 'BVN or NIN is required to generate a Safe Haven virtual account.',
             };
         }
 
@@ -340,6 +457,10 @@ class VirtualAccountService {
 
     isBillstackConfigured() {
         return billstackVirtualAccountService.isConfigured();
+    }
+
+    isSafeHavenConfigured() {
+        return safeHavenVirtualAccountService.isConfigured();
     }
 
     /**
@@ -794,216 +915,100 @@ class VirtualAccountService {
             return null;
         }
 
-        // Prefer approved providers only
         try {
             const requestedProvider = (await this.getSetting('virtual_account_provider')) || 'payvessel';
-            const normalizeProvider = (p) => String(p || '').trim().toLowerCase();
-            const configuredProviders = [];
-            if (this.isPayvesselConfigured()) configuredProviders.push('payvessel');
-            if (this.isBillstackConfigured()) configuredProviders.push('billstack');
+            const referenceBase = this.buildBillstackRequestReference(user.id, 'VA');
 
-            const requestedNormalized = normalizeProvider(requestedProvider);
-            const provider = configuredProviders.includes(requestedNormalized)
-                ? normalizeProvider(requestedProvider)
-                : configuredProviders[0];
-            if (!provider) {
-                throw new Error('No approved virtual account provider is configured');
-            }
-            
-            let accountDetails;
-            
-            const existingPayvesselRef = user.metadata?.payvessel_tracking_reference;
-            if (existingPayvesselRef && provider === 'payvessel') {
-                logger.info(`[VirtualAccount] User ${user.id} already has a pending/existing PayVessel reference: ${existingPayvesselRef}. Skipping new creation.`);
-                // In a real scenario, we might want to query PayVessel for this ref, 
-                // but for now, we prevent a redundant POST.
-                if (user.virtual_account_number) return null; 
-            }
-            const existingBillstackRef = user.metadata?.billstack_reference;
-            if (existingBillstackRef && provider === 'billstack') {
-                logger.info(`[VirtualAccount] User ${user.id} already has a pending/existing BillStack reference: ${existingBillstackRef}. Skipping new creation.`);
-                if (user.virtual_account_number) return null;
-            }
+            const routed = await billstackVirtualAccountService.generateVirtualAccountRouted(user, {
+                referenceBase,
+                priorityOrder: process.env.VA_ROUTER_PRIORITY || undefined,
+            });
 
-            const tryBillstack = async () => {
-                const bankSetting = await this.getSetting('billstack_bank');
-                const bank = bankSetting ? String(bankSetting) : process.env.BILLSTACK_BANK;
-                const banksSetting = await this.getSetting('billstack_banks');
-                const candidates = this.getBillstackBankCandidates(bank, banksSetting);
-                const attempted = [];
-                let lastError = null;
-                for (const candidate of candidates) {
-                    if (this.isBankCircuitOpen(candidate)) {
-                        logger.warn('[VirtualAccount] BillStack bank circuit open; skipping', { userId: user.id, bank: candidate });
-                        continue;
-                    }
-                    attempted.push(candidate);
-                    try {
-                        const requestReference = this.buildBillstackRequestReference(user.id, candidate);
-                        user.metadata = {
-                            ...(user.metadata || {}),
-                            billstack_last_request_reference: requestReference,
-                            billstack_last_bank: candidate,
-                        };
-                        await user.save({ transaction });
+            const accountDetails = this.normalizeVirtualAccountResult(routed, {
+                provider: routed.provider,
+                bank: routed.bank,
+                bankName: routed.bank,
+            });
 
-                        const billstack = await billstackVirtualAccountService.generateVirtualAccount(user, candidate, {
-                            reference: requestReference,
-                        });
-                        this.markBankAttemptSuccess(candidate);
-                        return {
-                            accountNumber: billstack.accountNumber,
-                            bankName: billstack.bankName,
-                            accountName: billstack.accountName,
-                            trackingReference: billstack.trackingReference,
-                            raw: billstack.raw,
-                            billstackBank: candidate,
-                            attemptedBanks: attempted,
-                        };
-                    } catch (e) {
-                        lastError = e;
-                        const msg = String(e?.message || '');
-                        const transient = this.isTransientProviderError(msg);
-                        if (transient) {
-                            this.markBankAttemptFailure(candidate);
-                        }
-                        if (!transient && candidate === candidates[0]) {
-                            break;
-                        }
-                        continue;
-                    }
-                }
-                const suffix = attempted.length ? ` (attempted banks: ${attempted.join(', ')})` : '';
-                if (lastError) {
-                    const msg = String(lastError?.message || 'BillStack failed');
-                    throw new Error(`${msg}${suffix}`);
-                }
-                throw new Error(`BillStack virtual account creation failed${suffix}`);
-            };
-
-            let payvesselUsedMockBvn = false;
-            const tryPayvessel = async () => {
-                const kycOk = await this.isPayvesselKycSatisfied(user);
-                if (!kycOk) {
-                    throw new Error('KYC/BVN verification is required to generate a PayVessel virtual account');
-                }
-                if (process.env.NODE_ENV !== 'test' && !user.bvn && !user.nin) {
-                    payvesselUsedMockBvn = true;
-                }
-                return payvesselService.createVirtualAccount(user);
-            };
-
-            const shouldTryRemote = provider === 'payvessel' || provider === 'billstack';
-            const payvesselKycOk = provider === 'payvessel' ? await this.isPayvesselKycSatisfied(user) : true;
-            const preferBillstackForNoKyc = provider === 'payvessel' && !payvesselKycOk && this.isBillstackConfigured();
-            const fallbacks = shouldTryRemote
-                ? (provider === 'billstack' || preferBillstackForNoKyc ? ['billstack', 'payvessel'] : ['payvessel', 'billstack'])
-                : [];
-            const providerErrors = {};
-            for (const p of fallbacks) {
-                if (p === 'payvessel' && !this.isPayvesselConfigured()) {
-                    logger.warn('[VirtualAccount] PayVessel not configured; skipping', { userId: user.id });
-                    continue;
-                }
-                if (p === 'billstack' && !this.isBillstackConfigured()) {
-                    logger.warn('[VirtualAccount] BillStack not configured; skipping', { userId: user.id });
-                    continue;
-                }
-                try {
-                    if (p === 'payvessel') {
-                        const kycOk = await this.isPayvesselKycSatisfied(user);
-                        if (!kycOk) {
-                            providerErrors[p] = new Error('KYC/BVN verification is required to generate a PayVessel virtual account');
-                            continue;
-                        }
-                        accountDetails = await tryPayvessel();
-                    }
-                    if (p === 'billstack') accountDetails = await tryBillstack();
-                    if (accountDetails) {
-                        user.metadata = { ...user.metadata, va_provider: p };
-                        break;
-                    }
-                } catch (e) {
-                    logger.warn(`[VirtualAccount] Provider attempt failed (${p}) for user ${user.id}: ${e.message}`);
-                    providerErrors[p] = e;
-                }
-            }
-
-            if (!accountDetails && (provider === 'payvessel' || provider === 'billstack')) {
-                const preferredError = providerErrors[provider];
-                if (preferredError) {
-                    throw preferredError;
-                }
-
-                const fallbackError = provider === 'payvessel' ? providerErrors.billstack : providerErrors.payvessel;
-                if (fallbackError) {
-                    throw fallbackError;
-                }
-
-                const missing = [];
-                if (provider === 'payvessel') {
-                    if (!this.isPayvesselConfigured()) missing.push('PAYVESSEL_API_KEY/PAYVESSEL_SECRET_KEY/PAYVESSEL_BUSINESS_ID');
-                } else if (provider === 'billstack') {
-                    if (!this.isBillstackConfigured()) missing.push('BILLSTACK_BASE_URL/BILLSTACK_SECRET_KEY');
-                }
-                if (!missing.length) {
-                    throw new Error(`Provider ${provider} returned no account details`);
-                }
-                throw new Error(`No virtual account provider is properly configured (${missing.join(', ')})`);
-            }
-
-            if (!accountDetails) {
-                throw new Error(`Provider ${provider} returned no account details`);
-            }
-
-            const effectiveProvider = user.metadata?.va_provider || provider;
+            const effectiveProvider = String(routed.provider || '').trim().toLowerCase();
             if (!this.isApprovedProvider(effectiveProvider)) {
                 throw new Error(`Unauthorized virtual account provider: ${effectiveProvider}`);
             }
 
-            if (accountDetails) {
-                user.virtual_account_number = accountDetails.accountNumber;
-                user.virtual_account_bank = accountDetails.bankName;
-                user.virtual_account_name = accountDetails.accountName;
-                const nowIso = new Date().toISOString();
-                if (accountDetails.trackingReference) {
-                    user.metadata = {
-                        ...user.metadata,
-                        va_provider: effectiveProvider,
-                        payvessel_tracking_reference: effectiveProvider === 'payvessel' ? accountDetails.trackingReference : user.metadata?.payvessel_tracking_reference,
-                        billstack_reference: effectiveProvider === 'billstack' ? accountDetails.trackingReference : user.metadata?.billstack_reference,
-                        billstack_bank_used: effectiveProvider === 'billstack' ? (accountDetails.billstackBank || null) : user.metadata?.billstack_bank_used,
-                        va_status: 'assigned',
-                        va_assigned_at: user.metadata?.va_assigned_at || nowIso,
-                        va_last_error: null,
-                        va_next_retry_at: null,
-                    };
-                } else {
-                    user.metadata = {
-                        ...user.metadata,
-                        va_provider: effectiveProvider,
-                        va_status: 'assigned',
-                        va_assigned_at: user.metadata?.va_assigned_at || nowIso,
-                        va_last_error: null,
-                        va_next_retry_at: null,
-                    };
-                }
-                if (effectiveProvider === 'payvessel' && payvesselUsedMockBvn) {
-                    user.metadata = { ...user.metadata, mock_bvn_status: 'mock' };
-                }
-                await user.save({ transaction });
-                logger.info(`[VirtualAccount] Assigned ${effectiveProvider} account for user ${user.id}`);
-                return accountDetails;
-            } else {
-                throw new Error(`Provider ${provider} returned no account details`);
+            const attempts = Array.isArray(routed?.routing?.attempts) ? routed.routing.attempts : [];
+            for (const a of attempts) {
+                const step = {
+                    tier: a.tier || null,
+                    workflow: `${a.tier || 'tier'}_${a.provider || 'provider'}_${a.bank || 'bank'}`,
+                    provider: a.provider || null,
+                    bank: a.bank || null,
+                };
+                this.appendProvisioningAudit(
+                    user,
+                    this.buildProvisioningAuditEntry(step, a.status === 'success' ? 'success' : (a.status === 'skipped' ? 'skipped' : 'failed'), {
+                        reason: a.reason || null,
+                        failureCategory: a.failure?.category || null,
+                        failureCode: a.failure?.code || null,
+                        failureStatus: a.failure?.status || null,
+                        message: a.failure?.message ? String(a.failure.message).slice(0, 300) : null,
+                    }),
+                );
             }
+
+            const primaryFailures = Array.isArray(routed?.routing?.primaryFailures) ? routed.routing.primaryFailures : [];
+            const attemptedWorkflows = attempts.map((a) => `${a.provider || ''}:${a.bank || ''}`).filter(Boolean);
+
+            user.virtual_account_number = accountDetails.accountNumber;
+            user.virtual_account_bank = accountDetails.bankName;
+            user.virtual_account_name = accountDetails.accountName;
+
+            const nowIso = new Date().toISOString();
+            user.metadata = {
+                ...(user.metadata || {}),
+                va_provider: effectiveProvider,
+                va_primary_provider_tier: attempts.find((a) => a.status === 'success')?.tier || null,
+                va_assignment_workflow: attempts.find((a) => a.status === 'success')
+                    ? `${attempts.find((a) => a.status === 'success').provider}_${attempts.find((a) => a.status === 'success').bank}`
+                    : null,
+                va_fallback_used: Boolean(attempts.find((a) => a.status === 'success' && a.tier === 'secondary')),
+                va_last_workflow_attempts: attemptedWorkflows,
+                va_primary_failures: primaryFailures.slice(-10),
+                payvessel_tracking_reference:
+                    effectiveProvider === 'payvessel' ? accountDetails.trackingReference : user.metadata?.payvessel_tracking_reference,
+                billstack_reference:
+                    effectiveProvider === 'billstack' ? accountDetails.trackingReference : user.metadata?.billstack_reference,
+                safehaven_reference:
+                    effectiveProvider === 'safehaven' ? accountDetails.trackingReference : user.metadata?.safehaven_reference,
+                billstack_bank_used:
+                    effectiveProvider === 'billstack' ? (accountDetails.billstackBank || routed.bank || null) : user.metadata?.billstack_bank_used,
+                va_status: 'assigned',
+                va_assigned_at: user.metadata?.va_assigned_at || nowIso,
+                va_last_error: null,
+                va_next_retry_at: null,
+            };
+
+            const payvesselUsedMockBvn = effectiveProvider === 'payvessel' && process.env.NODE_ENV !== 'test' && !user.bvn && !user.nin;
+            if (payvesselUsedMockBvn) {
+                user.metadata = { ...user.metadata, mock_bvn_status: 'mock' };
+            }
+
+            await user.save({ transaction });
+            logger.info('[VirtualAccount] Assigned virtual account', {
+                userId: user.id,
+                provider: effectiveProvider,
+                requestedProvider,
+                bank: user.virtual_account_bank,
+                usedFallback: Boolean(user.metadata?.va_fallback_used),
+            });
+            return accountDetails;
         } catch (error) {
             const msg = String(error?.message || '');
+            const attemptedBanks = Array.isArray(error?.details?.attemptedBanks) ? error.details.attemptedBanks : [];
             const transient = typeof this.isTransientProviderError === 'function' ? this.isTransientProviderError(msg) : false;
             if (transient) {
-                logger.warn('[VirtualAccount] Failed to assign virtual account (transient)', { userId: user.id, message: msg });
+                logger.warn('[VirtualAccount] Failed to assign virtual account (transient)', { userId: user.id, message: msg, attemptedBanks });
             } else {
-                logger.error('[VirtualAccount] Failed to assign virtual account', { userId: user.id, message: msg });
+                logger.error('[VirtualAccount] Failed to assign virtual account', { userId: user.id, message: msg, attemptedBanks });
             }
             throw error;
         }

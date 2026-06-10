@@ -5,6 +5,7 @@ const { connectDB, User } = require('../config/db');
 const SystemSetting = require('../models/SystemSetting');
 const payvesselService = require('../services/payvesselService');
 const billstackVirtualAccountService = require('../services/billstackVirtualAccountService');
+const safeHavenVirtualAccountService = require('../services/safeHavenVirtualAccountService');
 
 describe('Virtual Account Request', () => {
   beforeAll(async () => {
@@ -13,6 +14,10 @@ describe('Virtual Account Request', () => {
     await SystemSetting.set('virtual_account_provider', 'payvessel', 'string', 'api');
     await SystemSetting.set('allow_mock_bvn', true, 'boolean', 'api');
     process.env.JWT_SECRET = process.env.JWT_SECRET || 'peace_bundle_secret_key_123';
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
   });
 
   it('allows a regular user to request a virtual account for themselves', async () => {
@@ -196,6 +201,114 @@ describe('Virtual Account Request', () => {
     billstackSpy.mockRestore();
     billstackVirtualAccountService.secretKey = prevBillstack.secretKey;
     billstackVirtualAccountService.baseUrl = prevBillstack.baseUrl;
+    process.env.NODE_ENV = prevEnv;
+  });
+
+  it('falls back to 9PSB after PALMPAY and PROVIDUS primary failures', async () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    process.env.PAYVESSEL_API_KEY = process.env.PAYVESSEL_API_KEY || 'test';
+    process.env.PAYVESSEL_SECRET_KEY = process.env.PAYVESSEL_SECRET_KEY || 'test';
+    process.env.PAYVESSEL_BUSINESS_ID = process.env.PAYVESSEL_BUSINESS_ID || 'test';
+
+    await SystemSetting.set('virtual_account_generation_enabled', true, 'boolean', 'api');
+    await SystemSetting.set('virtual_account_provider', 'payvessel', 'string', 'api');
+
+    jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
+    jest.spyOn(safeHavenVirtualAccountService, 'isConfigured').mockReturnValue(false);
+    const billstackSpy = jest.spyOn(billstackVirtualAccountService, 'generateVirtualAccount').mockImplementation(async (_user, bank) => {
+      throw new Error(`Cannot reserve ${bank} account at the moment.`);
+    });
+    const payvesselSpy = jest.spyOn(payvesselService, 'createVirtualAccount').mockImplementation(async (_user, _retryCount, options = {}) => {
+      expect(options.preferredBankName).toBe('9PSB');
+      return {
+        accountNumber: `24${String(Date.now()).slice(-8)}`,
+        bankName: '9PSB',
+        accountName: 'Fallback User',
+        trackingReference: `PV-9PSB-${Date.now()}`,
+      };
+    });
+
+    const user = await User.create({
+      name: 'Fallback User',
+      email: `fallback_9psb_${Date.now()}@test.com`,
+      phone: `080${String(Date.now()).slice(-8)}`,
+      bvn: '12345678901',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+    });
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    const res = await request(app)
+      .post('/api/users/virtual-account/request')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.accountNumber).toBeTruthy();
+    expect(payvesselSpy).toHaveBeenCalledTimes(1);
+    expect(billstackSpy).toHaveBeenCalledTimes(2);
+    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', 'PROVIDUS']);
+
+    const updated = await User.findByPk(user.id);
+    expect(updated.metadata?.va_provider).toBe('payvessel');
+    expect(updated.metadata?.va_fallback_used).toBe(true);
+    expect(updated.metadata?.va_assignment_workflow).toBe('payvessel_9PSB');
+    expect(updated.metadata?.va_primary_failures).toHaveLength(2);
+    expect(updated.metadata?.va_primary_failures?.map((entry) => entry.bank)).toEqual(['PALMPAY', 'PROVIDUS']);
+
+    process.env.NODE_ENV = prevEnv;
+  });
+
+  it('uses Safe Haven as the preferred secondary workflow when configured', async () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    await SystemSetting.set('virtual_account_generation_enabled', true, 'boolean', 'api');
+    await SystemSetting.set('virtual_account_provider', 'payvessel', 'string', 'api');
+
+    jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
+    jest.spyOn(safeHavenVirtualAccountService, 'isConfigured').mockReturnValue(true);
+    const billstackSpy = jest.spyOn(billstackVirtualAccountService, 'generateVirtualAccount').mockImplementation(async () => {
+      throw new Error('Cannot reserve account at the moment.');
+    });
+    const safeHavenSpy = jest.spyOn(safeHavenVirtualAccountService, 'createVirtualAccount').mockResolvedValue({
+      accountNumber: `31${String(Date.now()).slice(-8)}`,
+      bankName: 'Safe Haven',
+      accountName: 'Safe Haven User',
+      trackingReference: `SH-${Date.now()}`,
+    });
+    const payvesselSpy = jest.spyOn(payvesselService, 'createVirtualAccount');
+
+    const user = await User.create({
+      name: 'Safe Haven User',
+      email: `fallback_safehaven_${Date.now()}@test.com`,
+      phone: `081${String(Date.now()).slice(-8)}`,
+      bvn: '12345678901',
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+    });
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    const res = await request(app)
+      .post('/api/users/virtual-account/request')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    expect(res.statusCode).toBe(200);
+    expect(billstackSpy).toHaveBeenCalledTimes(2);
+    expect(safeHavenSpy).toHaveBeenCalledTimes(1);
+    expect(payvesselSpy).not.toHaveBeenCalled();
+
+    const updated = await User.findByPk(user.id);
+    expect(updated.metadata?.va_provider).toBe('safehaven');
+    expect(updated.metadata?.va_fallback_used).toBe(true);
+    expect(updated.metadata?.va_assignment_workflow).toBe('safehaven_SAFEHAVEN');
+    expect(updated.metadata?.safehaven_reference).toBeTruthy();
+    expect(updated.virtual_account_bank).toBe('SAFE HAVEN');
+
     process.env.NODE_ENV = prevEnv;
   });
 });

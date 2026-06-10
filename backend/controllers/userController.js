@@ -92,11 +92,18 @@ const requestVirtualAccount = async (req, res) => {
             });
         }
 
+        // #region debug-point A:manual-request-entry
+        (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'A',location:'backend/controllers/userController.js:manual-request',msg:'[DEBUG] manual VA request entering assignVirtualAccount',data:{userId,hasExistingVa:Boolean(user.virtual_account_number),vaStatus:user.metadata?.va_status||null},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         logger.info(`[VirtualAccount] Manual request initiated by user ${userId} (${user.email})`);
         await virtualAccountService.recordProvisioningAttempt(userId);
         
         const account = await virtualAccountService.assignVirtualAccount(user);
         await virtualAccountService.recordProvisioningSuccess(userId);
+
+        // #region debug-point B:manual-request-success
+        (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'B',location:'backend/controllers/userController.js:manual-request',msg:'[DEBUG] manual VA request completed successfully',data:{userId,bankName:account?.bankName||null,accountNumberLast4:String(account?.accountNumber||'').slice(-4)||null},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
 
         res.json({
             message: 'Virtual account generated successfully!',
@@ -108,6 +115,9 @@ const requestVirtualAccount = async (req, res) => {
             });
         });
     } catch (error) {
+        // #region debug-point C:manual-request-error
+        (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'C',location:'backend/controllers/userController.js:manual-request',msg:'[DEBUG] manual VA request threw error',data:{userId,errorMessage:String(error?.message||''),attemptedBanks:Array.isArray(error?.details?.attemptedBanks)?error.details.attemptedBanks:[],code:error?.code||null},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         logger.error(`[VirtualAccount] Manual request failed for user ${userId}: ${error.message}`);
         await virtualAccountService.recordProvisioningFailure(userId, error.message);
         const msg = String(error.message || '');

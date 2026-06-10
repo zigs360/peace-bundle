@@ -1514,6 +1514,9 @@ const upgradeBillstackVirtualAccount = async (req, res) => {
 
 const retryUserVirtualAccount = async (req, res) => {
     try {
+        // #region debug-point A:admin-retry-entry
+        (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'A',location:'backend/controllers/adminController.js:retryUserVirtualAccount',msg:'[DEBUG] admin VA retry entered',data:{targetUserId:req.params.id},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         const user = await User.findByPk(req.params.id);
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
@@ -1535,14 +1538,34 @@ const retryUserVirtualAccount = async (req, res) => {
         await virtualAccountService.recordProvisioningAttempt(user.id);
         const details = await virtualAccountService.assignVirtualAccount(user);
         await virtualAccountService.recordProvisioningSuccess(user.id);
-        try {
-            await virtualAccountService.notifyUserOfNewAccount(user);
-        } catch (e) {
-            void e;
-        }
-
+        // #region debug-point B:admin-retry-assigned
+        (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'B',location:'backend/controllers/adminController.js:retryUserVirtualAccount',msg:'[DEBUG] admin VA retry assigned account before notify',data:{targetUserId:req.params.id,bankName:details?.bankName||null,accountNumberLast4:String(details?.accountNumber||'').slice(-4)||null},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
+        // #region debug-point E:admin-retry-response
+        (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/controllers/adminController.js:retryUserVirtualAccount',msg:'[DEBUG] admin VA retry about to send success response',data:{targetUserId:req.params.id},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
+        setImmediate(() => {
+            // #region debug-point C:admin-retry-notify-start
+            (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'post-fix',hypothesisId:'C',location:'backend/controllers/adminController.js:retryUserVirtualAccount',msg:'[DEBUG] admin VA retry notify start (async)',data:{targetUserId:req.params.id},ts:Date.now()})}).catch(()=>{})})();
+            // #endregion
+            virtualAccountService.notifyUserOfNewAccount(user)
+                .then(() => {
+                    // #region debug-point C:admin-retry-notify-done
+                    (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'post-fix',hypothesisId:'C',location:'backend/controllers/adminController.js:retryUserVirtualAccount',msg:'[DEBUG] admin VA retry notify done (async)',data:{targetUserId:req.params.id},ts:Date.now()})}).catch(()=>{})})();
+                    // #endregion
+                })
+                .catch((e) => {
+                    // #region debug-point D:admin-retry-notify-error
+                    (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e2=fs.readFileSync(p,'utf8');u=e2.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e2.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'post-fix',hypothesisId:'D',location:'backend/controllers/adminController.js:retryUserVirtualAccount',msg:'[DEBUG] admin VA retry notify error (async)',data:{targetUserId:req.params.id,errorMessage:String(e?.message||'')},ts:Date.now()})}).catch(()=>{})})();
+                    // #endregion
+                    logger.warn(`[Admin] Async VA notification failed for user ${req.params.id}: ${e.message}`);
+                });
+        });
         return res.json({ success: true, message: 'Virtual account generated', data: details, user: await User.findByPk(user.id) });
     } catch (e) {
+        // #region debug-point E:admin-retry-catch
+        (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e2=fs.readFileSync(p,'utf8');u=e2.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e2.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/controllers/adminController.js:retryUserVirtualAccount',msg:'[DEBUG] admin VA retry threw error',data:{targetUserId:req.params.id,errorMessage:String(e?.message||'')},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         logger.error(`[Admin] Virtual account retry failed for user ${req.params.id}: ${e.message}`);
         try {
             const virtualAccountService = require('../services/virtualAccountService');
@@ -1585,6 +1608,14 @@ const getVirtualAccountHealth = async (req, res) => {
             payvesselHost = payvesselBaseUrl ? new URL(payvesselBaseUrl).host : null;
         } catch (e) {
             payvesselHost = null;
+        }
+
+        const safeHavenBaseUrl = process.env.SAFEHAVEN_BASE_URL || null;
+        let safeHavenHost = null;
+        try {
+            safeHavenHost = safeHavenBaseUrl ? new URL(safeHavenBaseUrl).host : null;
+        } catch (e) {
+            safeHavenHost = null;
         }
 
         return res.json({
@@ -1630,6 +1661,11 @@ const getVirtualAccountHealth = async (req, res) => {
                     configured: Boolean(process.env.PAYVESSEL_API_KEY && process.env.PAYVESSEL_SECRET_KEY && process.env.PAYVESSEL_BUSINESS_ID),
                     baseUrlHost: payvesselHost,
                     businessIdSet: Boolean(process.env.PAYVESSEL_BUSINESS_ID)
+                },
+                safehaven: {
+                    configured: Boolean(process.env.SAFEHAVEN_BASE_URL && process.env.SAFEHAVEN_ACCESS_TOKEN && process.env.SAFEHAVEN_CLIENT_ID),
+                    baseUrlHost: safeHavenHost,
+                    clientIdSet: Boolean(process.env.SAFEHAVEN_CLIENT_ID)
                 }
             },
             webhooks: {

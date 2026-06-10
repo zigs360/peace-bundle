@@ -9,6 +9,69 @@ class PayVesselService {
         this.businessId = process.env.PAYVESSEL_BUSINESS_ID;
         // Base URL for PayVessel External API
         this.baseUrl = process.env.PAYVESSEL_BASE_URL || 'https://api.payvessel.com/pms/api/external/request';
+        this.bankCodeMap = {
+            PALMPAY: '999991',
+            '9PSB': '120001',
+        };
+    }
+
+    normalizeBankName(value) {
+        return String(value || '')
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, '');
+    }
+
+    getBankCodeForName(name) {
+        const normalized = this.normalizeBankName(name);
+        return this.bankCodeMap[normalized] || null;
+    }
+
+    getDefaultBankCodes() {
+        return ['PALMPAY', '9PSB']
+            .map((name) => this.getBankCodeForName(name))
+            .filter(Boolean);
+    }
+
+    buildBankCodeList(options = {}) {
+        const requestedNames = Array.isArray(options.bankNames) ? options.bankNames : [];
+        const requestedCodes = Array.isArray(options.bankCodes) ? options.bankCodes : [];
+        const preferredCode = options.preferredBankCode ? String(options.preferredBankCode).trim() : '';
+        const preferredNameCode = options.preferredBankName ? this.getBankCodeForName(options.preferredBankName) : '';
+        const raw = [
+            preferredCode,
+            preferredNameCode,
+            ...requestedCodes.map((code) => String(code || '').trim()),
+            ...requestedNames.map((name) => this.getBankCodeForName(name)),
+        ].filter(Boolean);
+        const source = raw.length ? raw : this.getDefaultBankCodes();
+        return [...new Set(source)];
+    }
+
+    selectPreferredBank(banks, options = {}) {
+        const list = Array.isArray(banks) ? banks : (banks ? [banks] : []);
+        if (!list.length) return null;
+
+        const preferredCode = String(options.preferredBankCode || this.getBankCodeForName(options.preferredBankName) || '').trim();
+        const preferredName = this.normalizeBankName(options.preferredBankName);
+
+        if (preferredCode) {
+            const match = list.find((bank) => {
+                const bankCode = String(bank?.bankCode || bank?.bank_code || bank?.bankcode || '').trim();
+                return bankCode === preferredCode;
+            });
+            if (match) return match;
+        }
+
+        if (preferredName) {
+            const match = list.find((bank) => {
+                const bankName = this.normalizeBankName(bank?.bankName || bank?.bank_name || '');
+                return bankName === preferredName;
+            });
+            if (match) return match;
+        }
+
+        return list[0];
     }
 
     /**
@@ -47,11 +110,12 @@ class PayVesselService {
                 throw new Error('PayVessel credentials are not configured');
             }
 
+            const bankCodes = this.buildBankCodeList(options);
             const payload = {
                 email: user.email,
                 name: fullName.toUpperCase(),
                 phoneNumber: phone,
-                bankcode: ["999991", "120001"], // PalmPay, 9PSB
+                bankcode: bankCodes,
                 account_type: "STATIC",
                 businessid: this.businessId
             };
@@ -109,13 +173,17 @@ class PayVesselService {
                     throw new Error('PayVessel: Success response but no bank accounts returned');
                 }
 
-                const primaryBank = Array.isArray(banks) ? banks[0] : banks;
+                const primaryBank = this.selectPreferredBank(banks, options);
+                if (!primaryBank) {
+                    throw new Error('PayVessel: No preferred bank account returned');
+                }
                 
                 return {
                     accountNumber: primaryBank.accountNumber || primaryBank.account_number,
                     bankName: primaryBank.bankName || primaryBank.bank_name,
                     accountName: primaryBank.accountName || primaryBank.account_name,
-                    trackingReference: primaryBank.trackingReference || primaryBank.tracking_reference
+                    trackingReference: primaryBank.trackingReference || primaryBank.tracking_reference,
+                    providerBankCode: primaryBank.bankCode || primaryBank.bank_code || primaryBank.bankcode || null,
                 };
             } else {
                 const errorMsg = response.data.message || response.data.error || 'Unknown error from PayVessel';

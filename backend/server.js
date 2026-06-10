@@ -172,6 +172,7 @@ app.get('/api/env', (req, res) => {
     safeUrlHost(process.env.Bill_Stack_BASE_URL) ||
     safeUrlHost(process.env.BillSTACK_BASE_URL);
   const payvesselHost = safeUrlHost(process.env.PAYVESSEL_BASE_URL);
+  const safeHavenHost = safeUrlHost(process.env.SAFEHAVEN_BASE_URL);
 
   return res.json({
     success: true,
@@ -196,6 +197,14 @@ app.get('/api/env', (req, res) => {
             process.env.PAYVESSEL_API_KEY &&
             process.env.PAYVESSEL_SECRET_KEY &&
             process.env.PAYVESSEL_BUSINESS_ID,
+        ),
+      },
+      safehaven: {
+        host: safeHavenHost,
+        configured: Boolean(
+          safeHavenHost &&
+            process.env.SAFEHAVEN_ACCESS_TOKEN &&
+            process.env.SAFEHAVEN_CLIENT_ID,
         ),
       },
     },
