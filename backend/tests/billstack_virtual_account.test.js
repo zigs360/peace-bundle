@@ -18,6 +18,50 @@ describe('BillStack virtual account provider', () => {
     jest.restoreAllMocks();
   });
 
+  it('accepts the documented BillStack banks including 9PSB and BANKLY', async () => {
+    jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
+    const post = jest.fn()
+      .mockResolvedValueOnce({
+        data: {
+          status: true,
+          data: {
+            reference: 'R-9PSB',
+            account: [{ account_number: '0000000001', account_name: 'Alias-Test User', bank_name: '9PSB Bank' }],
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          status: true,
+          data: {
+            reference: 'R-BANKLY',
+            account: [{ account_number: '0000000002', account_name: 'Alias-Test User', bank_name: 'Bankly Bank' }],
+          },
+        },
+      });
+    jest.spyOn(billstackVirtualAccountService, 'clientWithTimeout').mockReturnValue({ post });
+
+    const user = {
+      id: 'billstack-doc-bank-user',
+      name: 'Test User',
+      email: 'billstack_doc_bank@test.com',
+      phone: '09012345678',
+    };
+
+    await expect(billstackVirtualAccountService.generateVirtualAccount(user, '9PSB')).resolves.toMatchObject({
+      accountNumber: '0000000001',
+      bankName: '9PSB Bank',
+      trackingReference: 'R-9PSB',
+    });
+    await expect(billstackVirtualAccountService.generateVirtualAccount(user, 'BANKLY')).resolves.toMatchObject({
+      accountNumber: '0000000002',
+      bankName: 'Bankly Bank',
+      trackingReference: 'R-BANKLY',
+    });
+
+    expect(post.mock.calls.map((call) => call[1].bank)).toEqual(['9PSB', 'BANKLY']);
+  });
+
   it('assigns billstack virtual account and stores metadata reference', async () => {
     jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
     jest.spyOn(billstackVirtualAccountService, 'generateVirtualAccount').mockResolvedValue({
@@ -79,7 +123,7 @@ describe('BillStack virtual account provider', () => {
       }),
     });
 
-    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', 'PROVIDUS']);
+    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB']);
     expect(safeHavenSpy).toHaveBeenCalledTimes(1);
     expect(payvesselSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(

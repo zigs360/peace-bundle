@@ -290,6 +290,12 @@ class BillstackVirtualAccountService {
     const aliases = {
       PALM_PAY: 'PALMPAY',
       PALMPAYBANK: 'PALMPAY',
+      SAFEHAVENMFB: 'SAFEHAVEN',
+      NINEPSB: '9PSB',
+      NINEPAYMENTSERVICEBANK: '9PSB',
+      '9PAYMENTSERVICEBANK': '9PSB',
+      AMPERSAND: 'BANKLY',
+      AMPERSANDBANK: 'BANKLY',
     };
     return aliases[cleaned] || cleaned;
   }
@@ -300,7 +306,7 @@ class BillstackVirtualAccountService {
       .map((s) => this.normalizeBankCode(s))
       .filter(Boolean);
     if (fromEnv.length) return fromEnv;
-    return ['PALMPAY', 'PROVIDUS'];
+    return ['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB', 'BANKLY'];
   }
 
   sanitizePayloadForLogs(payload) {
@@ -397,6 +403,7 @@ class BillstackVirtualAccountService {
     const canUseBillstack = this.isConfigured() && (billstackHttpOk !== false);
     const canUseSafeHaven = safeHavenVirtualAccountService.isConfigured() && (safehavenHttpOk !== false);
     const canUsePayvessel = (isTest ? true : Boolean(process.env.PAYVESSEL_API_KEY && process.env.PAYVESSEL_SECRET_KEY && process.env.PAYVESSEL_BUSINESS_ID)) && (payvesselHttpOk !== false);
+    const billstackBanks = this.getAllowedBanks();
 
     const primaryFailures = [];
     let lastError = null;
@@ -409,42 +416,49 @@ class BillstackVirtualAccountService {
       (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router starting bank/provider attempt',data:{userId:user?.id||null,bank:key,attemptedSoFar:attempts.map((a)=>a.bank)},ts:Date.now()})}).catch(()=>{})})();
       // #endregion
 
-      if (key === 'PALMPAY' || key === 'PROVIDUS') {
+      if (billstackBanks.includes(key)) {
         const circuitKey = `BILLSTACK:${key}`;
-        if (!canUseBillstack) continue;
-        if (this.isCircuitOpen(circuitKey)) {
-          attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'skipped', reason: 'circuit_open' });
-          continue;
-        }
-        try {
-          const reference = referenceBase ? `${referenceBase}-${key}`.slice(0, 64) : options.reference;
-          const result = await this.generateVirtualAccount(user, key, { timeoutMs, reference });
-          this.markCircuitSuccess(circuitKey);
-          const validated = this.validateProvisioningResult(result, { provider: 'billstack', bank: key });
-          attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'success' });
-          // #region debug-point D:router-success
-          (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router succeeded on primary provider',data:{userId:user?.id||null,bank:key,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
-          // #endregion
-          if (attempts.length > 1) {
-            logger.warn('[VA Router] Fallback occurred (primary)', { userId: user?.id, selected: { provider: 'billstack', bank: key }, attempts });
+        const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB';
+        if (canUseBillstack) {
+          if (this.isCircuitOpen(circuitKey)) {
+            attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'skipped', reason: 'circuit_open' });
+            if (!supportsDirectProviderFallback) continue;
+          } else {
+            try {
+              const reference = referenceBase ? `${referenceBase}-${key}`.slice(0, 64) : options.reference;
+              const result = await this.generateVirtualAccount(user, key, { timeoutMs, reference });
+              this.markCircuitSuccess(circuitKey);
+              const validated = this.validateProvisioningResult(result, { provider: 'billstack', bank: key });
+              attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'success' });
+              // #region debug-point D:router-success
+              (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router succeeded on primary provider',data:{userId:user?.id||null,bank:key,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
+              // #endregion
+              if (attempts.length > 1) {
+                logger.warn('[VA Router] Fallback occurred (primary)', { userId: user?.id, selected: { provider: 'billstack', bank: key }, attempts });
+              }
+              return {
+                provider: 'billstack',
+                bank: key,
+                ...validated,
+                routing: { attempts, primaryFailures, health },
+              };
+            } catch (e) {
+              lastError = e;
+              const failure = this.classifyRoutingFailure(e);
+              this.markCircuitFailure(circuitKey);
+              attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'failed', failure });
+              // #region debug-point E:router-attempt-failed
+              (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router attempt failed',data:{userId:user?.id||null,bank:key,failureCategory:failure.category,message:failure.message,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
+              // #endregion
+              primaryFailures.push({ ...failure, bank: key, provider: 'billstack', at: new Date().toISOString() });
+              logger.warn('[VA Router] Primary allocation failed', { userId: user?.id, provider: 'billstack', bank: key, failureCategory: failure.category, status: failure.status, message: failure.message });
+              if (!supportsDirectProviderFallback) {
+                if (!failure.fallbackEligible && failure.confirmedFailure) break;
+                continue;
+              }
+            }
           }
-          return {
-            provider: 'billstack',
-            bank: key,
-            ...validated,
-            routing: { attempts, primaryFailures, health },
-          };
-        } catch (e) {
-          lastError = e;
-          const failure = this.classifyRoutingFailure(e);
-          this.markCircuitFailure(circuitKey);
-          attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'failed', failure });
-          // #region debug-point E:router-attempt-failed
-          (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router attempt failed',data:{userId:user?.id||null,bank:key,failureCategory:failure.category,message:failure.message,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
-          // #endregion
-          primaryFailures.push({ ...failure, bank: key, provider: 'billstack', at: new Date().toISOString() });
-          logger.warn('[VA Router] Primary allocation failed', { userId: user?.id, provider: 'billstack', bank: key, failureCategory: failure.category, status: failure.status, message: failure.message });
-          if (!failure.fallbackEligible && failure.confirmedFailure) break;
+        } else if (!supportsDirectProviderFallback) {
           continue;
         }
       }

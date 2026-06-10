@@ -204,7 +204,7 @@ describe('Virtual Account Request', () => {
     process.env.NODE_ENV = prevEnv;
   });
 
-  it('falls back to 9PSB after PALMPAY and PROVIDUS primary failures', async () => {
+  it('falls back to PayVessel 9PSB only after BillStack exhausts its documented banks', async () => {
     const prevEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     process.env.PAYVESSEL_API_KEY = process.env.PAYVESSEL_API_KEY || 'test';
@@ -248,15 +248,15 @@ describe('Virtual Account Request', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.accountNumber).toBeTruthy();
     expect(payvesselSpy).toHaveBeenCalledTimes(1);
-    expect(billstackSpy).toHaveBeenCalledTimes(2);
-    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', 'PROVIDUS']);
+    expect(billstackSpy).toHaveBeenCalledTimes(4);
+    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB']);
 
     const updated = await User.findByPk(user.id);
     expect(updated.metadata?.va_provider).toBe('payvessel');
     expect(updated.metadata?.va_fallback_used).toBe(true);
     expect(updated.metadata?.va_assignment_workflow).toBe('payvessel_9PSB');
-    expect(updated.metadata?.va_primary_failures).toHaveLength(2);
-    expect(updated.metadata?.va_primary_failures?.map((entry) => entry.bank)).toEqual(['PALMPAY', 'PROVIDUS']);
+    expect(updated.metadata?.va_primary_failures).toHaveLength(4);
+    expect(updated.metadata?.va_primary_failures?.map((entry) => entry.bank)).toEqual(['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB']);
 
     process.env.NODE_ENV = prevEnv;
   });
@@ -298,7 +298,7 @@ describe('Virtual Account Request', () => {
       .send({});
 
     expect(res.statusCode).toBe(200);
-    expect(billstackSpy).toHaveBeenCalledTimes(2);
+    expect(billstackSpy).toHaveBeenCalledTimes(3);
     expect(safeHavenSpy).toHaveBeenCalledTimes(1);
     expect(payvesselSpy).not.toHaveBeenCalled();
 
