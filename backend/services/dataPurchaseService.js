@@ -3,6 +3,7 @@ const sequelize = require('../config/database');
 const walletService = require('./walletService');
 const smeplugService = require('./smeplugService');
 const ogdamsService = require('./ogdamsService');
+const ogdamsFailoverService = require('./ogdamsFailoverService');
 const simManagementService = require('./simManagementService');
 const affiliateService = require('./affiliateService');
 const transactionIntegrityService = require('./transactionIntegrityService');
@@ -72,6 +73,19 @@ class DataPurchaseService {
       return true;
     }
     if (code === 'OGDAMS_DUPLICATE_REFERENCE') return true;
+    if (Number.isFinite(statusCode) && statusCode >= 500) return true;
+    return false;
+  }
+
+  isOgdamsAvailabilityError(error) {
+    const code = String(error?.code || '').toUpperCase();
+    const statusCode = Number(error?.statusCode);
+    if (code === 'OGDAMS_DUPLICATE_REFERENCE' || code === 'OGDAMS_INSUFFICIENT_BALANCE') {
+      return false;
+    }
+    if (code === 'ECONNRESET' || code === 'EAI_AGAIN' || code === 'ENOTFOUND' || code === 'ECONNREFUSED' || code === 'EHOSTUNREACH') {
+      return true;
+    }
     if (Number.isFinite(statusCode) && statusCode >= 500) return true;
     return false;
   }
@@ -951,6 +965,14 @@ class DataPurchaseService {
         }
       };
 
+      const failoverSnapshot = ogdamsFailoverService.getSnapshot();
+      if (failoverSnapshot.active) {
+        const fallback = await attemptSmeplugFallback(`ogdams_failover_active:${failoverSnapshot.reason || 'unknown'}`);
+        if (fallback) return fallback;
+        await persistFailure(`Ogdams failover active (${failoverSnapshot.reason || 'unknown'}) and SMEPlug fallback failed`);
+        return { provider: 'smeplug', failed: true, failoverActive: true };
+      }
+
       try {
       const requestReference = createOgdamsRequestReference();
       const vend = await attemptOgdamsVend(1, requestReference);
@@ -990,12 +1012,29 @@ class DataPurchaseService {
         reference: vend.response?.reference || vend.response?.data?.reference || vend.requestReference,
         response: vend.response,
       });
+      await ogdamsFailoverService.markHealthy({
+        source: 'airtime_vend_success',
+        reference: transaction.reference,
+      });
       logger.info('[Airtime] Provider success', { provider: 'ogdams', reference: transaction.reference });
       return { provider: 'ogdams', response: vend.response };
       } catch (ogErr) {
         const ogReason = ogErr?.message || 'Ogdams failed';
         const ogCode = String(ogErr?.code || '').toUpperCase();
         const uncertain = this.isUncertainProviderStateError(ogErr);
+        const unavailable = this.isOgdamsAvailabilityError(ogErr);
+        const ogStatus = Number(ogErr?.statusCode || ogErr?.response?.status || 0) || null;
+        const isBalanceError = ogStatus === 424 && /insufficient balance/i.test(String(ogReason));
+
+        logger.warn('[Airtime] Ogdams failure classified', {
+          reference: transaction.reference,
+          status: ogStatus,
+          code: ogCode || null,
+          uncertain,
+          unavailable,
+          isBalanceError,
+          fallbackEnabled: allowSmeplugFallback,
+        });
 
         const { statusCheckEnabled } = this.getAirtimeReconcileConfig();
         if (ogCode === 'OGDAMS_DUPLICATE_REFERENCE') {
@@ -1048,6 +1087,10 @@ class DataPurchaseService {
               reference: vend.response?.reference || vend.response?.data?.reference || vend.requestReference,
               response: vend.response,
             });
+            await ogdamsFailoverService.markHealthy({
+              source: 'airtime_duplicate_retry_success',
+              reference: transaction.reference,
+            });
             logger.info('[Airtime] Provider success after duplicate reference retry', { provider: 'ogdams', reference: transaction.reference });
             return { provider: 'ogdams', response: vend.response, retried: true };
           } catch (retryError) {
@@ -1056,6 +1099,32 @@ class DataPurchaseService {
             await persistFailure('Ogdams duplicate reference retry failed');
             return { provider: 'ogdams', failed: true };
           }
+        }
+
+        if (ogCode === 'OGDAMS_INSUFFICIENT_BALANCE' || isBalanceError) {
+          await ogdamsFailoverService.markFailure('insufficient_balance', {
+            reference: transaction.reference,
+            status: ogStatus,
+            code: ogCode || null,
+            message: ogReason,
+          });
+          const fallback = await attemptSmeplugFallback('ogdams_insufficient_balance');
+          if (fallback) return fallback;
+          await persistFailure(ogReason);
+          return { provider: 'ogdams', failed: true, terminal: true };
+        }
+
+        if (unavailable) {
+          await ogdamsFailoverService.markFailure('unavailable', {
+            reference: transaction.reference,
+            status: ogStatus,
+            code: ogCode || null,
+            message: ogReason,
+          });
+          const fallback = await attemptSmeplugFallback('ogdams_unavailable');
+          if (fallback) return fallback;
+          await persistFailure(ogReason);
+          return { provider: 'ogdams', failed: true };
         }
 
         if (uncertain && statusCheckEnabled) {

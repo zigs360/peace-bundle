@@ -197,6 +197,9 @@ class OgdamsService {
             const isDuplicateReference =
                 Number(status) === 424 &&
                 (lower.includes('reference exists') || lower.includes('reference') && lower.includes('exists already'));
+            const isInsufficientBalance =
+                Number(status) === 424 &&
+                lower.includes('insufficient balance');
 
             const meta = {
                 reference: normalized.reference,
@@ -218,6 +221,8 @@ class OgdamsService {
             err.statusCode = status || 502;
             if (isDuplicateReference) {
                 err.code = 'OGDAMS_DUPLICATE_REFERENCE';
+            } else if (isInsufficientBalance) {
+                err.code = 'OGDAMS_INSUFFICIENT_BALANCE';
             }
             throw err;
         }
