@@ -154,15 +154,20 @@ class OgdamsService {
     }
 
     async purchaseAirtime(data) {
+        const normalized = {
+            ...(data && typeof data === 'object' ? data : {}),
+            type: (data && typeof data === 'object' && data.type ? data.type : 'VTU'),
+        };
         const schema = Joi.object({
             networkId: Joi.number().integer().min(1).max(4).required(),
             amount: Joi.number().integer().min(50).required(),
             phoneNumber: Joi.string().pattern(/^(0\d{10}|234\d{10})$/).required(),
             type: Joi.string().valid('VTU', 'vtu').required(),
             reference: Joi.string().required(),
+            sim_number: Joi.string().pattern(/^(0\d{10}|234\d{10})$/).optional(),
         });
 
-        const { error } = schema.validate(data);
+        const { error } = schema.validate(normalized);
         if (error) {
             throw new Error(`Invalid payload: ${error.details[0].message}`);
         }
@@ -172,12 +177,12 @@ class OgdamsService {
         const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
 
         try {
-            const { response, authStyle } = await this.requestWithAuthFallback({ method: 'post', url, data, headers });
+            const { response, authStyle } = await this.requestWithAuthFallback({ method: 'post', url, data: normalized, headers });
             logger.info('[OGDAMS] Airtime vend response', {
-                reference: data.reference,
+                reference: normalized.reference,
                 status: response.data?.status,
                 provider_reference: response.data?.reference || response.data?.data?.reference || null,
-                phone: this.maskPhone(data.phoneNumber),
+                phone: this.maskPhone(normalized.phoneNumber),
                 authStyle,
             });
             if (response.data && typeof response.data === 'object') {
@@ -194,10 +199,10 @@ class OgdamsService {
                 (lower.includes('reference exists') || lower.includes('reference') && lower.includes('exists already'));
 
             const meta = {
-                reference: data.reference,
+                reference: normalized.reference,
                 status,
                 error: responseData || message,
-                phone: this.maskPhone(data.phoneNumber),
+                phone: this.maskPhone(normalized.phoneNumber),
                 baseUrl: this.baseUrl,
                 path: url,
                 authAttempts: error.__ogdams_auth_attempts || undefined,

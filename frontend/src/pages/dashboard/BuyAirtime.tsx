@@ -14,6 +14,18 @@ const SERVICE_LABELS: Record<string, string> = {
   data: 'Data Bundle',
 };
 
+type PurchaseResult = {
+  message: string;
+  status: string;
+  reference: string;
+  network: string;
+  phone: string;
+  amount: number;
+  balance: number | null;
+  pending: boolean;
+  provider: string | null;
+};
+
 export default function BuyAirtime() {
   const [phone, setPhone] = useState('');
   const [network, setNetwork] = useState<string | null>(null);
@@ -22,9 +34,9 @@ export default function BuyAirtime() {
   const [planId, setPlanId] = useState('');
   const [loading, setLoading] = useState(false);
   const [dataPlans, setDataPlans] = useState<any[]>([]);
-  const [activationCode, setActivationCode] = useState<string | null>(null);
   const [isPhoneValid, setIsPhoneValid] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
+  const [purchaseResult, setPurchaseResult] = useState<PurchaseResult | null>(null);
   const { pricingVersion } = useNotifications();
   const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
@@ -83,7 +95,7 @@ export default function BuyAirtime() {
 
     await ensureTransactionPin(async () => {
       setLoading(true);
-      setActivationCode(null);
+      setPurchaseResult(null);
 
       try {
         let cleanPhone = phone.replace(/\D/g, '');
@@ -116,17 +128,32 @@ export default function BuyAirtime() {
           payload.amount = parseFloat(amount);
         }
 
-        const res = await api.post('/purchase/unified', payload);
+        const endpoint = serviceType === 'airtime' ? '/transactions/airtime' : '/purchase/unified';
+        const res = await api.post(endpoint, payload);
 
         if (res.data.success) {
           toast.success(res.data.message);
-          if (res.data.activationCode) {
-            setActivationCode(res.data.activationCode);
-          } else {
-            setPhone('');
-            setAmount('');
-            setPlanId('');
-          }
+          setPurchaseResult({
+            message: String(res.data.message || 'Purchase completed'),
+            status: String(res.data?.transaction?.status || (serviceType === 'airtime' ? 'completed' : 'processing')),
+            reference: String(res.data?.transaction?.reference || ''),
+            network: String(res.data?.transaction?.provider || network || ''),
+            phone: String(res.data?.transaction?.recipient_phone || cleanPhone),
+            amount: Number(
+              res.data?.transaction?.metadata?.vend_amount ??
+              res.data?.transaction?.amount ??
+              payload.amount ??
+              0,
+            ),
+            balance: typeof res.data?.balance === 'number' ? res.data.balance : Number.isFinite(Number(res.data?.balance)) ? Number(res.data.balance) : null,
+            pending: String(res.data?.transaction?.status || '').toLowerCase() === 'queued' || /queued/i.test(String(res.data.message || '')),
+            provider: res.data?.transaction?.metadata?.service_provider || res.data?.transaction?.smeplug_response?.provider || null,
+          });
+          setPhone('');
+          setAmount('');
+          setPlanId('');
+          setNetwork(null);
+          setManualOverride(false);
         }
       } catch (err: any) {
         toast.error(err.response?.data?.message || 'Purchase failed. Please try again.');
@@ -137,11 +164,6 @@ export default function BuyAirtime() {
       amountLabel: serviceType === 'data' ? 'bundle purchase' : `airtime purchase of NGN ${Number(amount || 0).toLocaleString()}`,
       actionLabel: 'Authorize purchase'
     });
-  };
-
-  const handleDeepLinkDial = (code: string) => {
-    const encodedCode = code.replace(/#/g, '%23');
-    window.location.href = `tel:${encodedCode}`;
   };
 
   const getProviderLogo = (provider: string) => {
@@ -162,12 +184,15 @@ export default function BuyAirtime() {
           <Zap className="w-8 h-8 text-primary-600" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Smart Purchase</h1>
-          <p className="text-gray-600">Auto-detect network & best bundles</p>
+          <h1 className="text-2xl font-bold text-gray-800">Buy Airtime</h1>
+          <p className="text-gray-600">Airtime purchases are charged from your platform wallet and processed through Ogdams first.</p>
         </div>
       </FadeIn>
 
       <SlideUp className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+        <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Airtime requests use the dedicated platform airtime route with server-side validation, transaction logging, and provider verification.
+        </div>
         <form onSubmit={handlePurchase}>
           <div className="mb-6">
             <label className="block text-gray-700 font-bold mb-2">Phone Number</label>
@@ -348,18 +373,57 @@ export default function BuyAirtime() {
                 )}
               </button>
 
-              {activationCode && (
-                <div className="mt-6 p-6 bg-green-50 rounded-2xl border-2 border-green-200 text-center animate-pulse">
-                  <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                  <h3 className="text-xl font-bold text-green-800 mb-2">Purchase Successful!</h3>
-                  <p className="text-green-700 mb-6 font-medium">To activate Call Sub, click the button below or dial <span className="font-bold">{activationCode}</span></p>
-                  <button
-                    type="button"
-                    onClick={() => handleDeepLinkDial(activationCode)}
-                    className="w-full bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-500/30 flex items-center justify-center"
-                  >
-                    Activate Call Sub (Dialer)
-                  </button>
+              {purchaseResult && (
+                <div
+                  className={`mt-6 rounded-2xl border-2 p-6 ${
+                    purchaseResult.pending
+                      ? 'border-amber-200 bg-amber-50'
+                      : 'border-green-200 bg-green-50'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className={`mt-0.5 w-8 h-8 ${purchaseResult.pending ? 'text-amber-500' : 'text-green-500'}`} />
+                    <div className="flex-1">
+                      <h3 className={`text-xl font-bold ${purchaseResult.pending ? 'text-amber-900' : 'text-green-800'}`}>
+                        {purchaseResult.pending ? 'Purchase Queued' : 'Purchase Successful'}
+                      </h3>
+                      <p className={`mt-2 text-sm ${purchaseResult.pending ? 'text-amber-800' : 'text-green-700'}`}>
+                        {purchaseResult.message}
+                      </p>
+                      <div className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+                        <div className="rounded-xl bg-white/80 px-4 py-3">
+                          <div className="text-xs uppercase tracking-wide text-gray-500">Reference</div>
+                          <div className="font-mono font-semibold text-gray-900">{purchaseResult.reference || 'Pending assignment'}</div>
+                        </div>
+                        <div className="rounded-xl bg-white/80 px-4 py-3">
+                          <div className="text-xs uppercase tracking-wide text-gray-500">Status</div>
+                          <div className="font-semibold text-gray-900 capitalize">{purchaseResult.status}</div>
+                        </div>
+                        <div className="rounded-xl bg-white/80 px-4 py-3">
+                          <div className="text-xs uppercase tracking-wide text-gray-500">Network</div>
+                          <div className="font-semibold text-gray-900 uppercase">{purchaseResult.network}</div>
+                        </div>
+                        <div className="rounded-xl bg-white/80 px-4 py-3">
+                          <div className="text-xs uppercase tracking-wide text-gray-500">Amount</div>
+                          <div className="font-semibold text-gray-900">₦{Number(purchaseResult.amount || 0).toLocaleString()}</div>
+                        </div>
+                        <div className="rounded-xl bg-white/80 px-4 py-3">
+                          <div className="text-xs uppercase tracking-wide text-gray-500">Phone</div>
+                          <div className="font-semibold text-gray-900">{purchaseResult.phone}</div>
+                        </div>
+                        <div className="rounded-xl bg-white/80 px-4 py-3">
+                          <div className="text-xs uppercase tracking-wide text-gray-500">Provider Route</div>
+                          <div className="font-semibold text-gray-900 uppercase">{purchaseResult.provider || 'processing'}</div>
+                        </div>
+                        {purchaseResult.balance !== null && (
+                          <div className="rounded-xl bg-white/80 px-4 py-3 md:col-span-2">
+                            <div className="text-xs uppercase tracking-wide text-gray-500">Updated Wallet Balance</div>
+                            <div className="font-semibold text-gray-900">₦{Number(purchaseResult.balance).toLocaleString()}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

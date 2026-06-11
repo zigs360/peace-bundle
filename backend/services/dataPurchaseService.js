@@ -10,6 +10,38 @@ const logger = require('../utils/logger');
 const crypto = require('crypto');
 
 class DataPurchaseService {
+  maskNotificationPhone(value) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.length < 4) return digits || 'unknown';
+    return `*******${digits.slice(-4)}`;
+  }
+
+  async notifyAirtimeUserStatus(transaction, title, message, type = 'info', priority = 'medium') {
+    if (!transaction?.userId) return;
+    try {
+      const notificationRealtimeService = require('./notificationRealtimeService');
+      await notificationRealtimeService.sendToUser(transaction.userId, {
+        title,
+        message,
+        type,
+        priority,
+        link: '/dashboard/transactions',
+        metadata: {
+          kind: 'airtime_purchase',
+          reference: transaction.reference || null,
+          status: transaction.status || null,
+          amount: transaction.amount || null,
+        },
+      });
+    } catch (error) {
+      logger.error('[Airtime] Failed to notify user', {
+        transactionId: transaction?.id || null,
+        reference: transaction?.reference || null,
+        error: error.message,
+      });
+    }
+  }
+
   getAirtimeProviderConfig() {
     const ogdamsTimeoutMsRaw = Number.parseInt(process.env.OGDAMS_TIMEOUT_MS || '12000', 10);
     const smeplugTimeoutMsRaw = Number.parseInt(process.env.SMEPLUG_TIMEOUT_MS || '15000', 10);
@@ -86,6 +118,14 @@ class DataPurchaseService {
             smeplug_response: { provider: 'ogdams', data: parsed.raw },
             metadata: { ...meta, service_provider: 'ogdams', provider_attempts: meta.provider_attempts || [], provider_reference: statusReference }
           });
+
+          await this.notifyAirtimeUserStatus(
+            txn,
+            'Airtime purchase verified',
+            `${String(txn.provider || '').toUpperCase()} airtime purchase to ${this.maskNotificationPhone(txn.recipient_phone)} was verified successfully. Ref: ${txn.reference}.`,
+            'success',
+            'high',
+          );
 
           try {
             const user = await User.findByPk(txn.userId);
@@ -467,6 +507,13 @@ class DataPurchaseService {
       flagAsAnomaly: true,
       auditEvent: 'airtime_delivery_failed',
     });
+    await this.notifyAirtimeUserStatus(
+      transaction,
+      'Airtime purchase reversed',
+      `${String(transaction?.provider || '').toUpperCase()} airtime purchase to ${this.maskNotificationPhone(transaction?.recipient_phone)} failed and was reversed. Ref: ${transaction?.reference || ''}.`,
+      'error',
+      'high',
+    );
   }
 
   /**

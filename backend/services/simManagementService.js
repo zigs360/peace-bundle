@@ -473,6 +473,7 @@ class SimManagementService {
             networkId,
             amount: costToSim,
             phoneNumber: recipientPhone,
+            type: 'VTU',
             reference: purchaseRef,
             sim_number: simNumber
           });

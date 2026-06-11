@@ -97,6 +97,38 @@ const buildAutoReversalMessage = (transaction, fallback) => {
     return reason;
 };
 
+const maskNotificationPhone = (value) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.length < 4) return digits || 'unknown';
+    return `*******${digits.slice(-4)}`;
+};
+
+const notifyAirtimePurchaseStatus = async ({ user, transaction, title, message, type = 'info', priority = 'medium' }) => {
+    if (!user?.id) return;
+    try {
+        const notificationRealtimeService = require('../services/notificationRealtimeService');
+        await notificationRealtimeService.sendToUser(user.id, {
+            title,
+            message,
+            type,
+            priority,
+            link: '/dashboard/transactions',
+            metadata: {
+                kind: 'airtime_purchase',
+                reference: transaction?.reference || null,
+                status: transaction?.status || null,
+                amount: transaction?.amount || null,
+            },
+        });
+    } catch (error) {
+        logger.error('[Airtime] Failed to send realtime status notification', {
+            userId: user.id,
+            reference: transaction?.reference || null,
+            error: error.message,
+        });
+    }
+};
+
 // @desc    Initialize Wallet Funding
 // @route   POST /api/transactions/fund/initialize
 // @access  Private
@@ -624,6 +656,14 @@ const buyAirtime = async (req, res) => {
         if (providerResult?.failed || ['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
             await t.commit();
             const updatedWallet = await walletService.getBalance(user);
+            await notifyAirtimePurchaseStatus({
+                user,
+                transaction: newTransaction,
+                title: 'Airtime purchase reversed',
+                message: `${network.toUpperCase()} airtime purchase to ${maskNotificationPhone(phone)} was reversed. Ref: ${newTransaction.reference}.`,
+                type: 'error',
+                priority: 'high',
+            });
             return res.status(502).json({
                 success: false,
                 message: buildAutoReversalMessage(newTransaction, 'Airtime purchase failed and was automatically reversed'),
@@ -633,7 +673,24 @@ const buyAirtime = async (req, res) => {
         }
 
         await t.commit();
-        if (!providerResult?.pending) {
+        if (providerResult?.pending) {
+            await notifyAirtimePurchaseStatus({
+                user,
+                transaction: newTransaction,
+                title: 'Airtime purchase queued',
+                message: `${network.toUpperCase()} airtime purchase to ${maskNotificationPhone(phone)} is pending provider verification. Ref: ${newTransaction.reference}.`,
+                type: 'warning',
+                priority: 'high',
+            });
+        } else {
+            await notifyAirtimePurchaseStatus({
+                user,
+                transaction: newTransaction,
+                title: 'Airtime purchase successful',
+                message: `${network.toUpperCase()} airtime purchase to ${maskNotificationPhone(phone)} completed successfully. Ref: ${newTransaction.reference}.`,
+                type: 'success',
+                priority: 'medium',
+            });
             await sendTransactionNotification(user, newTransaction);
         }
         
