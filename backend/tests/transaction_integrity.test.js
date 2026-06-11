@@ -108,6 +108,19 @@ describe('Transaction integrity safeguards', () => {
     expect(parseFloat(wallet.balance)).toBeCloseTo(1000, 2);
   });
 
+  it('keeps airtime on the Ogdams wallet route even when the preferred SIM is Ogdams-linked', () => {
+    const route = transactionIntegrityService.selectAirtimeRoute({
+      network: 'mtn',
+      preferredSim: { id: 'sim-1', ogdamsLinked: true },
+    });
+
+    expect(route).toEqual({
+      paymentChannel: 'ogdams_wallet',
+      fulfillmentRoute: 'ogdams_api',
+      provider: 'mtn',
+    });
+  });
+
   it('auto-refunds failed data purchases instead of leaving the user debited', async () => {
     const { user, token } = await createUserWithToken({ balance: 5000, prefix: 'data' });
     const pinToken = await createTransactionPinSession(token);

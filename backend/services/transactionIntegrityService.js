@@ -417,7 +417,7 @@ class TransactionIntegrityService {
 
   selectAirtimeRoute({ network, preferredSim = null }) {
     const strategy = String(process.env.AIRTIME_PRIMARY_ROUTE || 'ogdams').toLowerCase();
-    if (preferredSim && (strategy === 'sim' || (strategy === 'ogdams' && preferredSim.ogdamsLinked))) {
+    if (preferredSim && strategy === 'sim') {
       return {
         paymentChannel: 'connected_sim',
         fulfillmentRoute: 'sim_pool',
