@@ -926,7 +926,9 @@ class DataPurchaseService {
             reason: contextLabel,
           });
 
-          const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, vendAmount);
+          const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, vendAmount, {
+            requireSmeplugOnly: true,
+          });
           if (optimalSim) {
             try {
               const simResult = await this.withTimeout(

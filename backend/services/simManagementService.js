@@ -313,8 +313,9 @@ class SimManagementService {
    * @param {number} amount
    * @returns {Promise<Sim|null>}
    */
-  async getOptimalSim(provider, amount) {
+  async getOptimalSim(provider, amount, options = {}) {
     const preference = String(process.env.SIM_POOL_PREFERENCE || 'smeplug_first').toLowerCase();
+    const requireSmeplugOnly = options && options.requireSmeplugOnly === true;
     // Find active SIMs for provider (prefer connected, but allow disconnected as fallback)
     const sims = await Sim.findAll({
       where: {
@@ -330,6 +331,9 @@ class SimManagementService {
     });
 
     for (const sim of sims) {
+      if (requireSmeplugOnly && sim.ogdamsLinked) {
+        continue;
+      }
       // Check limits
       // 1. Check if low balance
       if (sim.isLowBalance()) {

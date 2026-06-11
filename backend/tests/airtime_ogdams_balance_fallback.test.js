@@ -194,6 +194,65 @@ describe('Airtime Ogdams insufficient balance handling', () => {
     expect(transaction.status).toBe('completed');
   });
 
+  it('skips Ogdams-linked SIMs during failover and uses SMEPlug wallet mode instead', async () => {
+    const transaction = {
+      id: 'txn-4',
+      reference: 'WLT-TEST-4',
+      provider: 'mtn',
+      recipient_phone: '08012012012',
+      fulfillment_route: 'ogdams_api',
+      payment_channel: 'ogdams_wallet',
+      metadata: {},
+      update: jest.fn(async function update(values) {
+        Object.assign(this, values);
+        return this;
+      }),
+    };
+
+    const ogErr = new Error('Insufficient balance');
+    ogErr.statusCode = 424;
+    ogErr.code = 'OGDAMS_INSUFFICIENT_BALANCE';
+
+    jest.spyOn(ogdamsService, 'purchaseAirtime').mockRejectedValueOnce(ogErr);
+    jest.spyOn(simManagementService, 'getOptimalSim').mockImplementationOnce(async (_provider, _amount, options) => {
+      expect(options).toEqual(expect.objectContaining({ requireSmeplugOnly: true }));
+      return null;
+    });
+    const simProcessSpy = jest.spyOn(simManagementService, 'processTransaction');
+    const smeplugSpy = jest.spyOn(smeplugService, 'purchaseVTU').mockResolvedValueOnce({
+      success: true,
+      data: { reference: 'SME-4', status: 'success' },
+    });
+    jest.spyOn(transactionIntegrityService, 'markProviderSuccess').mockImplementation(async (txn, payload) => {
+      txn.status = 'completed';
+      txn.smeplug_reference = payload.providerReference;
+      txn.smeplug_response = payload.response;
+      return txn;
+    });
+    jest.spyOn(ogdamsFailoverService, 'markFailure').mockResolvedValue({
+      active: true,
+      reason: 'insufficient_balance',
+      status: 'failedover',
+    });
+
+    const result = await dataPurchaseService.dispenseAirtimeWithFallback(
+      transaction,
+      { network: 'mtn', amount: 100, phoneNumber: '08012012012' },
+      { endpoint: 'test' },
+      null,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        provider: 'smeplug',
+        switched: true,
+      }),
+    );
+    expect(simProcessSpy).not.toHaveBeenCalled();
+    expect(smeplugSpy).toHaveBeenCalledTimes(1);
+    expect(transaction.status).toBe('completed');
+  });
+
   it('clears failover after a healthy Ogdams success', async () => {
     const store = ogdamsFailoverService.getStore();
     store.status = 'failedover';
