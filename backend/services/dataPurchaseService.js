@@ -926,6 +926,58 @@ class DataPurchaseService {
             reason: contextLabel,
           });
 
+          const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, vendAmount);
+          if (optimalSim) {
+            try {
+              const simResult = await this.withTimeout(
+                simManagementService.processTransaction(optimalSim, { provider: cleanNetwork, amount: vendAmount }, cleanPhone),
+                smeplugTimeoutMs,
+                'SMEPLUG_SIM',
+              );
+
+              if (simResult?.success) {
+                await transaction.update({ simId: optimalSim.id }, { transaction: t });
+                await recordAttempt({
+                  provider: 'smeplug',
+                  ok: true,
+                  latency_ms: Date.now() - smeplugStart,
+                  route: 'sim',
+                });
+
+                await persistSuccess({
+                  provider: 'smeplug',
+                  reference: simResult.reference,
+                  response: simResult,
+                  switchedFrom: 'ogdams',
+                });
+
+                return { provider: 'smeplug', response: simResult, switched: true, route: 'sim' };
+              }
+
+              await recordAttempt({
+                provider: 'smeplug',
+                ok: false,
+                latency_ms: Date.now() - smeplugStart,
+                route: 'sim',
+                error: simResult?.error || 'SMEPlug SIM fallback returned non-success',
+              });
+            } catch (simError) {
+              logger.error('[Airtime] SMEPlug SIM fallback failed', {
+                reference: transaction.reference,
+                reason: contextLabel,
+                error: simError.message,
+              });
+
+              await recordAttempt({
+                provider: 'smeplug',
+                ok: false,
+                latency_ms: Date.now() - smeplugStart,
+                route: 'sim',
+                error: simError?.message || 'SMEPlug SIM fallback failed',
+              });
+            }
+          }
+
           const smeplugResponse = await this.withTimeout(
             smeplugService.purchaseVTU(cleanNetwork, cleanPhone, vendAmount),
             smeplugTimeoutMs,

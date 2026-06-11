@@ -1,6 +1,7 @@
 const dataPurchaseService = require('../services/dataPurchaseService');
 const ogdamsService = require('../services/ogdamsService');
 const smeplugService = require('../services/smeplugService');
+const simManagementService = require('../services/simManagementService');
 const transactionIntegrityService = require('../services/transactionIntegrityService');
 const ogdamsFailoverService = require('../services/ogdamsFailoverService');
 
@@ -35,10 +36,15 @@ describe('Airtime Ogdams insufficient balance handling', () => {
     ogErr.code = 'OGDAMS_INSUFFICIENT_BALANCE';
 
     jest.spyOn(ogdamsService, 'purchaseAirtime').mockRejectedValueOnce(ogErr);
-    const smeplugSpy = jest.spyOn(smeplugService, 'purchaseVTU').mockResolvedValueOnce({
+    const optimalSim = { id: 'sim-1', phoneNumber: '08030000000', provider: 'mtn' };
+    jest.spyOn(simManagementService, 'getOptimalSim').mockResolvedValueOnce(optimalSim);
+    const simProcessSpy = jest.spyOn(simManagementService, 'processTransaction').mockResolvedValueOnce({
       success: true,
-      data: { reference: 'SME-1', status: 'success' },
+      reference: 'SIM-1',
+      details: { status: 'success' },
+      platform: 'smeplug',
     });
+    const smeplugSpy = jest.spyOn(smeplugService, 'purchaseVTU');
     const failAndRefundSpy = jest.spyOn(transactionIntegrityService, 'failAndRefund').mockImplementation(async (txn, reason) => {
       txn.status = 'refunded';
       txn.failure_reason = reason;
@@ -77,8 +83,10 @@ describe('Airtime Ogdams insufficient balance handling', () => {
     );
     expect(successSpy).toHaveBeenCalledTimes(1);
     expect(failAndRefundSpy).not.toHaveBeenCalled();
-    expect(smeplugSpy).toHaveBeenCalledTimes(1);
+    expect(simProcessSpy).toHaveBeenCalledTimes(1);
+    expect(smeplugSpy).not.toHaveBeenCalled();
     expect(transaction.status).toBe('completed');
+    expect(transaction.simId).toBe('sim-1');
   });
 
   it('bypasses Ogdams completely while failover is active', async () => {
@@ -102,6 +110,7 @@ describe('Airtime Ogdams insufficient balance handling', () => {
     };
 
     const ogSpy = jest.spyOn(ogdamsService, 'purchaseAirtime');
+    jest.spyOn(simManagementService, 'getOptimalSim').mockResolvedValueOnce(null);
     const smeplugSpy = jest.spyOn(smeplugService, 'purchaseVTU').mockResolvedValueOnce({
       success: true,
       data: { reference: 'SME-2', status: 'success' },
@@ -127,6 +136,60 @@ describe('Airtime Ogdams insufficient balance handling', () => {
       }),
     );
     expect(ogSpy).not.toHaveBeenCalled();
+    expect(smeplugSpy).toHaveBeenCalledTimes(1);
+    expect(transaction.status).toBe('completed');
+  });
+
+  it('falls back to SMEPlug wallet mode when no usable SMEPlug SIM route is available', async () => {
+    const transaction = {
+      id: 'txn-3',
+      reference: 'WLT-TEST-3',
+      provider: 'mtn',
+      recipient_phone: '08012012012',
+      fulfillment_route: 'ogdams_api',
+      payment_channel: 'ogdams_wallet',
+      metadata: {},
+      update: jest.fn(async function update(values) {
+        Object.assign(this, values);
+        return this;
+      }),
+    };
+
+    const ogErr = new Error('Insufficient balance');
+    ogErr.statusCode = 424;
+    ogErr.code = 'OGDAMS_INSUFFICIENT_BALANCE';
+
+    jest.spyOn(ogdamsService, 'purchaseAirtime').mockRejectedValueOnce(ogErr);
+    jest.spyOn(simManagementService, 'getOptimalSim').mockResolvedValueOnce(null);
+    const smeplugSpy = jest.spyOn(smeplugService, 'purchaseVTU').mockResolvedValueOnce({
+      success: true,
+      data: { reference: 'SME-3', status: 'success' },
+    });
+    jest.spyOn(transactionIntegrityService, 'markProviderSuccess').mockImplementation(async (txn, payload) => {
+      txn.status = 'completed';
+      txn.smeplug_reference = payload.providerReference;
+      txn.smeplug_response = payload.response;
+      return txn;
+    });
+    jest.spyOn(ogdamsFailoverService, 'markFailure').mockResolvedValue({
+      active: true,
+      reason: 'insufficient_balance',
+      status: 'failedover',
+    });
+
+    const result = await dataPurchaseService.dispenseAirtimeWithFallback(
+      transaction,
+      { network: 'mtn', amount: 100, phoneNumber: '08012012012' },
+      { endpoint: 'test' },
+      null,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        provider: 'smeplug',
+        switched: true,
+      }),
+    );
     expect(smeplugSpy).toHaveBeenCalledTimes(1);
     expect(transaction.status).toBe('completed');
   });
