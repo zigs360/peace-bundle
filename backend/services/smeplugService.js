@@ -270,24 +270,26 @@ class SmeplugService {
       }
 
       // #region debug-point smeplug-request-context
-      logger.info('[Smeplug][Debug] Request context', {
-        method,
-        endpoint,
-        retryCount,
-        baseUrl: currentBaseUrl,
-        authSource: auth.source,
-        payload: method.toUpperCase() === 'GET'
-          ? data
-          : {
-              network_id: data?.network_id ?? null,
-              amount: data?.amount ?? null,
-              phone: data?.phone ? `*******${String(data.phone).replace(/\D/g, '').slice(-4)}` : null,
-              phone_number: data?.phone_number ? `*******${String(data.phone_number).replace(/\D/g, '').slice(-4)}` : null,
-              mode: data?.mode ?? null,
-              hasSimNumber: Boolean(data?.sim_number),
-            },
-        authFingerprint: this.getApiKeyFingerprint(),
-      });
+      if (endpoint === '/api/v1/airtime/purchase' || endpoint === '/api/v1/vtu') {
+        logger.warn('[Smeplug][Debug] Request context', {
+          method,
+          endpoint,
+          retryCount,
+          baseUrl: currentBaseUrl,
+          authSource: auth.source,
+          payload: method.toUpperCase() === 'GET'
+            ? data
+            : {
+                network_id: data?.network_id ?? null,
+                amount: data?.amount ?? null,
+                phone: data?.phone ? `*******${String(data.phone).replace(/\D/g, '').slice(-4)}` : null,
+                phone_number: data?.phone_number ? `*******${String(data.phone_number).replace(/\D/g, '').slice(-4)}` : null,
+                mode: data?.mode ?? null,
+                hasSimNumber: Boolean(data?.sim_number),
+              },
+          authFingerprint: this.getApiKeyFingerprint(),
+        });
+      }
       // #endregion debug-point smeplug-request-context
 
       const response = await axios(config);

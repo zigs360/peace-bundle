@@ -926,11 +926,21 @@ class DataPurchaseService {
             reason: contextLabel,
           });
 
+          const simSelectStart = Date.now();
           const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, vendAmount, {
             requireSmeplugOnly: true,
           });
+          // #region debug-point smeplug-sim-selection-timing
+          logger.warn('[Airtime][Debug] SMEPlug SIM selection timing', {
+            reference: transaction.reference,
+            reason: contextLabel,
+            durationMs: Date.now() - simSelectStart,
+            selectedSimId: optimalSim?.id || null,
+            selectedSimOgdamsLinked: optimalSim?.ogdamsLinked === true,
+          });
+          // #endregion debug-point smeplug-sim-selection-timing
           // #region debug-point smeplug-fallback-selection
-          logger.info('[Airtime][Debug] SMEPlug fallback selection', {
+          logger.warn('[Airtime][Debug] SMEPlug fallback selection', {
             reference: transaction.reference,
             reason: contextLabel,
             network: cleanNetwork,
@@ -993,7 +1003,7 @@ class DataPurchaseService {
           }
 
           // #region debug-point smeplug-wallet-fallback-request
-          logger.info('[Airtime][Debug] SMEPlug wallet fallback request', {
+          logger.warn('[Airtime][Debug] SMEPlug wallet fallback request', {
             reference: transaction.reference,
             reason: contextLabel,
             network: cleanNetwork,
@@ -1009,6 +1019,15 @@ class DataPurchaseService {
           );
 
           const ok = !!smeplugResponse?.success;
+          // #region debug-point smeplug-wallet-fallback-result
+          logger.warn('[Airtime][Debug] SMEPlug wallet fallback result', {
+            reference: transaction.reference,
+            ok,
+            statusCode: smeplugResponse?.status_code || null,
+            hasReference: Boolean(smeplugResponse?.data?.reference || smeplugResponse?.data?.transaction_id),
+            error: ok ? null : (smeplugResponse?.error || null),
+          });
+          // #endregion debug-point smeplug-wallet-fallback-result
           await recordAttempt({
             provider: 'smeplug',
             ok,
