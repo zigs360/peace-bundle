@@ -23,6 +23,16 @@ class SmeplugService {
     this.timeout = parseInt(process.env.SMEPLUG_TIMEOUT) || 30000; // Default 30s
   }
 
+  getApiKeyFingerprint() {
+    const crypto = require('crypto');
+    const key = String(this.apiKey || this.secretKey || '');
+    if (!key) return { length: 0, sha256: null };
+    return {
+      length: key.length,
+      sha256: crypto.createHash('sha256').update(key).digest('hex').slice(0, 12),
+    };
+  }
+
   /**
    * Get account balance
    */
@@ -95,9 +105,27 @@ class SmeplugService {
       mode: options.mode || 'wallet',
       ...options
     };
-    
-    // Some SMEPlug versions use /api/v1/airtime/purchase for everything airtime-related
-    // Fallback to /api/v1/vtu if needed, but airtime/purchase is more standard
+
+    const primary = await this.makeRequest('POST', '/api/v1/vtu', data);
+    if (primary?.success) {
+      return primary;
+    }
+
+    const primaryStatus = Number(primary?.status_code || 0) || null;
+    const primaryReference = primary?.data?.reference || primary?.data?.transaction_id || null;
+    const shouldFallback =
+      !primaryReference &&
+      (primaryStatus === 400 || primaryStatus === 404 || primaryStatus === 405 || primaryStatus === 422 || primaryStatus === null);
+
+    if (!shouldFallback) {
+      return primary;
+    }
+
+    logger.warn('[Smeplug] VTU endpoint failed, retrying airtime purchase endpoint', {
+      status: primaryStatus,
+      error: primary?.error || null,
+    });
+
     return this.makeRequest('POST', '/api/v1/airtime/purchase', data);
   }
 
@@ -215,6 +243,26 @@ class SmeplugService {
         config.data = data;
       }
 
+      // #region debug-point smeplug-request-context
+      logger.info('[Smeplug][Debug] Request context', {
+        method,
+        endpoint,
+        retryCount,
+        baseUrl: currentBaseUrl,
+        payload: method.toUpperCase() === 'GET'
+          ? data
+          : {
+              network_id: data?.network_id ?? null,
+              amount: data?.amount ?? null,
+              phone: data?.phone ? `*******${String(data.phone).replace(/\D/g, '').slice(-4)}` : null,
+              phone_number: data?.phone_number ? `*******${String(data.phone_number).replace(/\D/g, '').slice(-4)}` : null,
+              mode: data?.mode ?? null,
+              hasSimNumber: Boolean(data?.sim_number),
+            },
+        authFingerprint: this.getApiKeyFingerprint(),
+      });
+      // #endregion debug-point smeplug-request-context
+
       const response = await axios(config);
 
       logger.info('Smeplug API Request', {
@@ -248,7 +296,16 @@ class SmeplugService {
         endpoint,
         error: error.message,
         response: errorResponse,
-        status: statusCode
+        status: statusCode,
+        // #region debug-point smeplug-api-error-context
+        request: {
+          method,
+          data,
+          retryCount,
+          baseUrl: currentBaseUrl,
+        },
+        authFingerprint: this.getApiKeyFingerprint(),
+        // #endregion debug-point smeplug-api-error-context
       });
 
       // Extract specific error messages if they exist in the response

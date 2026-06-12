@@ -929,6 +929,18 @@ class DataPurchaseService {
           const optimalSim = await simManagementService.getOptimalSim(cleanNetwork, vendAmount, {
             requireSmeplugOnly: true,
           });
+          // #region debug-point smeplug-fallback-selection
+          logger.info('[Airtime][Debug] SMEPlug fallback selection', {
+            reference: transaction.reference,
+            reason: contextLabel,
+            network: cleanNetwork,
+            amount: vendAmount,
+            phoneMasked: this.maskNotificationPhone(cleanPhone),
+            selectedSimId: optimalSim?.id || null,
+            selectedSimPhoneMasked: optimalSim?.phoneNumber ? this.maskNotificationPhone(optimalSim.phoneNumber) : null,
+            selectedSimOgdamsLinked: optimalSim?.ogdamsLinked === true,
+          });
+          // #endregion debug-point smeplug-fallback-selection
           if (optimalSim) {
             try {
               const simResult = await this.withTimeout(
@@ -980,6 +992,16 @@ class DataPurchaseService {
             }
           }
 
+          // #region debug-point smeplug-wallet-fallback-request
+          logger.info('[Airtime][Debug] SMEPlug wallet fallback request', {
+            reference: transaction.reference,
+            reason: contextLabel,
+            network: cleanNetwork,
+            amount: vendAmount,
+            phoneMasked: this.maskNotificationPhone(cleanPhone),
+            mode: 'wallet',
+          });
+          // #endregion debug-point smeplug-wallet-fallback-request
           const smeplugResponse = await this.withTimeout(
             smeplugService.purchaseVTU(cleanNetwork, cleanPhone, vendAmount),
             smeplugTimeoutMs,
