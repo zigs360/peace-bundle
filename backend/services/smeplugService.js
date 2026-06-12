@@ -23,6 +23,14 @@ class SmeplugService {
     this.timeout = parseInt(process.env.SMEPLUG_TIMEOUT) || 30000; // Default 30s
   }
 
+  getAuthToken() {
+    const privateKey = stripNonPrintable(process.env.SMEPLUG_PRIVATE_KEY || '');
+    if (privateKey) return { token: privateKey, source: 'private_key' };
+    if (this.secretKey) return { token: this.secretKey, source: 'secret_key' };
+    if (this.apiKey) return { token: this.apiKey, source: 'api_key' };
+    return { token: '', source: 'missing' };
+  }
+
   getApiKeyFingerprint() {
     const crypto = require('crypto');
     const key = String(this.apiKey || this.secretKey || '');
@@ -83,9 +91,13 @@ class SmeplugService {
       network_id: this.getNetworkId(provider),
       amount,
       phone,
-      mode,
-      ...options
     };
+    if (mode && mode !== 'wallet') {
+      data.mode = mode;
+    }
+    if (options && typeof options === 'object') {
+      Object.assign(data, options);
+    }
     return this.makeRequest('POST', '/api/v1/airtime/purchase', data);
   }
 
@@ -97,36 +109,47 @@ class SmeplugService {
    * @param {Object} [options={}] - Additional options like mode, sim_number
    */
   async purchaseVTU(provider, phone, amount, options = {}) {
-    const data = {
-      network_id: this.getNetworkId(provider),
-      phone: phone,
-      phone_number: phone, // Send both to be safe
-      amount: Math.round(amount),
-      mode: options.mode || 'wallet',
-      ...options
+    const mode = String(options?.mode || 'wallet').toLowerCase();
+    const network_id = this.getNetworkId(provider);
+    const roundedAmount = Math.round(amount);
+
+    if (mode === 'wallet' && !options?.sim_number) {
+      const primary = await this.makeRequest('POST', '/api/v1/airtime/purchase', {
+        network_id,
+        phone,
+        amount: roundedAmount,
+      });
+      if (primary?.success) return primary;
+
+      const primaryStatus = Number(primary?.status_code || 0) || null;
+      const primaryReference = primary?.data?.reference || primary?.data?.transaction_id || null;
+      const shouldFallback =
+        !primaryReference &&
+        (primaryStatus === 400 || primaryStatus === 404 || primaryStatus === 405 || primaryStatus === 422 || primaryStatus === null);
+      if (!shouldFallback) return primary;
+
+      logger.warn('[Smeplug] Airtime purchase endpoint failed, retrying VTU endpoint', {
+        status: primaryStatus,
+        error: primary?.error || null,
+      });
+
+      return this.makeRequest('POST', '/api/v1/vtu', {
+        network_id,
+        phone,
+        amount: roundedAmount,
+      });
+    }
+
+    const devicePayload = {
+      network_id,
+      phone,
+      phone_number: phone,
+      amount: roundedAmount,
+      mode: options?.mode || 'wallet',
+      ...options,
     };
 
-    const primary = await this.makeRequest('POST', '/api/v1/vtu', data);
-    if (primary?.success) {
-      return primary;
-    }
-
-    const primaryStatus = Number(primary?.status_code || 0) || null;
-    const primaryReference = primary?.data?.reference || primary?.data?.transaction_id || null;
-    const shouldFallback =
-      !primaryReference &&
-      (primaryStatus === 400 || primaryStatus === 404 || primaryStatus === 405 || primaryStatus === 422 || primaryStatus === null);
-
-    if (!shouldFallback) {
-      return primary;
-    }
-
-    logger.warn('[Smeplug] VTU endpoint failed, retrying airtime purchase endpoint', {
-      status: primaryStatus,
-      error: primary?.error || null,
-    });
-
-    return this.makeRequest('POST', '/api/v1/airtime/purchase', data);
+    return this.makeRequest('POST', '/api/v1/airtime/purchase', devicePayload);
   }
 
   /**
@@ -215,7 +238,8 @@ class SmeplugService {
   async makeRequest(method, endpoint, data = {}, retryCount = 0) {
     const maxRetries = 2;
     try {
-      const authHeader = this.apiKey || this.secretKey;
+      const auth = this.getAuthToken();
+      const authHeader = auth.token;
       if (!authHeader) {
         throw new Error('SMEPlug API/Secret Key is missing in environment variables');
       }
@@ -230,12 +254,14 @@ class SmeplugService {
         url: `${currentBaseUrl}${endpoint}`,
         headers: {
           'Authorization': `Bearer ${authHeader}`,
-          'Public-Key': this.publicKey,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
         timeout: this.timeout
       };
+      if (this.publicKey) {
+        config.headers['Public-Key'] = this.publicKey;
+      }
 
       if (method.toUpperCase() === 'GET') {
         config.params = data;
@@ -249,6 +275,7 @@ class SmeplugService {
         endpoint,
         retryCount,
         baseUrl: currentBaseUrl,
+        authSource: auth.source,
         payload: method.toUpperCase() === 'GET'
           ? data
           : {
@@ -268,7 +295,16 @@ class SmeplugService {
       logger.info('Smeplug API Request', {
         method,
         endpoint,
-        data,
+        data: method.toUpperCase() === 'GET'
+          ? data
+          : {
+              network_id: data?.network_id ?? null,
+              amount: data?.amount ?? null,
+              phone: data?.phone ? `*******${String(data.phone).replace(/\D/g, '').slice(-4)}` : null,
+              phone_number: data?.phone_number ? `*******${String(data.phone_number).replace(/\D/g, '').slice(-4)}` : null,
+              mode: data?.mode ?? null,
+              hasSimNumber: Boolean(data?.sim_number),
+            },
         status: response.status,
         response: response.data
       });
