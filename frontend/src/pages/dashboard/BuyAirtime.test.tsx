@@ -92,8 +92,53 @@ describe('BuyAirtime page', () => {
 
     expect(await screen.findByText('Purchase Successful')).toBeInTheDocument();
     expect(screen.getByText('AIR-12345')).toBeInTheDocument();
-    expect(screen.getByText('OGDAMS')).toBeInTheDocument();
+    expect(screen.getByText('ogdams')).toBeInTheDocument();
     expect(toastSuccess).toHaveBeenCalledWith('Airtime purchase successful');
   });
-});
 
+  it('shows refunded airtime result details and stores the updated balance when the request fails after auto-reversal', async () => {
+    apiPost.mockRejectedValueOnce({
+      response: {
+        data: {
+          success: false,
+          message: 'Provider failed. Transaction was automatically reversed',
+          balance: 5000,
+          transaction: {
+            reference: 'AIR-REFUND-123',
+            status: 'refunded',
+            provider: 'mtn',
+            recipient_phone: '08031234567',
+            amount: 100,
+            metadata: {
+              vend_amount: 100,
+              service_provider: 'smeplug',
+            },
+          },
+        },
+      },
+    });
+
+    render(<BuyAirtime />);
+
+    fireEvent.change(screen.getByPlaceholderText('08012345678 or +234...'), {
+      target: { value: '08031234567' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Select Service')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('Min 50'), {
+      target: { value: '100' },
+    });
+
+    fireEvent.submit(screen.getByRole('button', { name: 'Purchase Airtime' }).closest('form')!);
+
+    expect(await screen.findByText('Purchase Reversed')).toBeInTheDocument();
+    expect(screen.getByText('AIR-REFUND-123')).toBeInTheDocument();
+    expect(screen.getByText('smeplug')).toBeInTheDocument();
+    expect(screen.getByText('₦5,000')).toBeInTheDocument();
+    expect(localStorage.getItem('wallet_balance')).toBe('5000');
+    expect(toastError).toHaveBeenCalledWith('Provider failed. Transaction was automatically reversed');
+  });
+});

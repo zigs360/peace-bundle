@@ -26,6 +26,23 @@ type PurchaseResult = {
   provider: string | null;
 };
 
+const toPurchaseResult = (payload: any, fallbackPhone: string, fallbackNetwork: string | null, fallbackAmount: number): PurchaseResult => ({
+  message: String(payload?.message || 'Purchase completed'),
+  status: String(payload?.transaction?.status || 'processing'),
+  reference: String(payload?.transaction?.reference || ''),
+  network: String(payload?.transaction?.provider || fallbackNetwork || ''),
+  phone: String(payload?.transaction?.recipient_phone || fallbackPhone),
+  amount: Number(
+    payload?.transaction?.metadata?.vend_amount ??
+    payload?.transaction?.amount ??
+    fallbackAmount ??
+    0,
+  ),
+  balance: typeof payload?.balance === 'number' ? payload.balance : Number.isFinite(Number(payload?.balance)) ? Number(payload.balance) : null,
+  pending: String(payload?.transaction?.status || '').toLowerCase() === 'queued' || /queued/i.test(String(payload?.message || '')),
+  provider: payload?.transaction?.metadata?.service_provider || payload?.transaction?.smeplug_response?.provider || null,
+});
+
 export default function BuyAirtime() {
   const [phone, setPhone] = useState('');
   const [network, setNetwork] = useState<string | null>(null);
@@ -96,22 +113,20 @@ export default function BuyAirtime() {
     await ensureTransactionPin(async () => {
       setLoading(true);
       setPurchaseResult(null);
+      let cleanPhone = phone.replace(/\D/g, '');
+      if (cleanPhone.startsWith('234')) {
+        cleanPhone = '0' + cleanPhone.substring(3);
+      }
+      if (cleanPhone.length === 10 && !cleanPhone.startsWith('0')) {
+        cleanPhone = '0' + cleanPhone;
+      }
+      const payload: any = {
+        phone: cleanPhone,
+        serviceType,
+        network,
+      };
 
       try {
-        let cleanPhone = phone.replace(/\D/g, '');
-        if (cleanPhone.startsWith('234')) {
-          cleanPhone = '0' + cleanPhone.substring(3);
-        }
-        if (cleanPhone.length === 10 && !cleanPhone.startsWith('0')) {
-          cleanPhone = '0' + cleanPhone;
-        }
-
-        const payload: any = {
-          phone: cleanPhone,
-          serviceType,
-          network,
-        };
-
         if (serviceType === 'data') {
           if (!planId) {
             toast.error('Please select a data plan');
@@ -133,30 +148,22 @@ export default function BuyAirtime() {
 
         if (res.data.success) {
           toast.success(res.data.message);
-          setPurchaseResult({
-            message: String(res.data.message || 'Purchase completed'),
-            status: String(res.data?.transaction?.status || (serviceType === 'airtime' ? 'completed' : 'processing')),
-            reference: String(res.data?.transaction?.reference || ''),
-            network: String(res.data?.transaction?.provider || network || ''),
-            phone: String(res.data?.transaction?.recipient_phone || cleanPhone),
-            amount: Number(
-              res.data?.transaction?.metadata?.vend_amount ??
-              res.data?.transaction?.amount ??
-              payload.amount ??
-              0,
-            ),
-            balance: typeof res.data?.balance === 'number' ? res.data.balance : Number.isFinite(Number(res.data?.balance)) ? Number(res.data.balance) : null,
-            pending: String(res.data?.transaction?.status || '').toLowerCase() === 'queued' || /queued/i.test(String(res.data.message || '')),
-            provider: res.data?.transaction?.metadata?.service_provider || res.data?.transaction?.smeplug_response?.provider || null,
-          });
-          setPhone('');
+          setPurchaseResult(toPurchaseResult(res.data, cleanPhone, network, Number(payload.amount || 0)));
           setAmount('');
           setPlanId('');
-          setNetwork(null);
-          setManualOverride(false);
         }
       } catch (err: any) {
-        toast.error(err.response?.data?.message || 'Purchase failed. Please try again.');
+        const responseData = err.response?.data;
+        const refundedResult = responseData?.transaction ? toPurchaseResult(responseData, cleanPhone, network, Number(payload.amount || 0)) : null;
+        if (refundedResult) {
+          setPurchaseResult(refundedResult);
+          if (refundedResult.balance !== null) {
+            const now = Date.now();
+            localStorage.setItem('wallet_balance', String(refundedResult.balance));
+            localStorage.setItem('wallet_balance_updated_at', String(now));
+          }
+        }
+        toast.error(responseData?.message || 'Purchase failed. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -175,6 +182,24 @@ export default function BuyAirtime() {
       default: return '';
     }
   };
+
+  const purchaseStatus = String(purchaseResult?.status || '').toLowerCase();
+  const purchaseFailed = purchaseStatus === 'failed' || purchaseStatus === 'refunded';
+  const resultCardClass = purchaseResult?.pending
+    ? 'border-amber-200 bg-amber-50'
+    : purchaseFailed
+      ? 'border-red-200 bg-red-50'
+      : 'border-green-200 bg-green-50';
+  const resultTitleClass = purchaseResult?.pending
+    ? 'text-amber-900'
+    : purchaseFailed
+      ? 'text-red-800'
+      : 'text-green-800';
+  const resultBodyClass = purchaseResult?.pending
+    ? 'text-amber-800'
+    : purchaseFailed
+      ? 'text-red-700'
+      : 'text-green-700';
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -375,19 +400,19 @@ export default function BuyAirtime() {
 
               {purchaseResult && (
                 <div
-                  className={`mt-6 rounded-2xl border-2 p-6 ${
-                    purchaseResult.pending
-                      ? 'border-amber-200 bg-amber-50'
-                      : 'border-green-200 bg-green-50'
-                  }`}
+                  className={`mt-6 rounded-2xl border-2 p-6 ${resultCardClass}`}
                 >
                   <div className="flex items-start gap-3">
-                    <CheckCircle className={`mt-0.5 w-8 h-8 ${purchaseResult.pending ? 'text-amber-500' : 'text-green-500'}`} />
+                    {purchaseFailed ? (
+                      <AlertCircle className="mt-0.5 w-8 h-8 text-red-500" />
+                    ) : (
+                      <CheckCircle className={`mt-0.5 w-8 h-8 ${purchaseResult.pending ? 'text-amber-500' : 'text-green-500'}`} />
+                    )}
                     <div className="flex-1">
-                      <h3 className={`text-xl font-bold ${purchaseResult.pending ? 'text-amber-900' : 'text-green-800'}`}>
-                        {purchaseResult.pending ? 'Purchase Queued' : 'Purchase Successful'}
+                      <h3 className={`text-xl font-bold ${resultTitleClass}`}>
+                        {purchaseResult.pending ? 'Purchase Queued' : purchaseFailed ? 'Purchase Reversed' : 'Purchase Successful'}
                       </h3>
-                      <p className={`mt-2 text-sm ${purchaseResult.pending ? 'text-amber-800' : 'text-green-700'}`}>
+                      <p className={`mt-2 text-sm ${resultBodyClass}`}>
                         {purchaseResult.message}
                       </p>
                       <div className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">

@@ -13,6 +13,7 @@ const SystemSetting = require('../models/SystemSetting');
 const ogdamsService = require('../services/ogdamsService');
 const smeplugService = require('../services/smeplugService');
 const walletService = require('../services/walletService');
+const notificationRealtimeService = require('../services/notificationRealtimeService');
 const transactionIntegrityService = require('../services/transactionIntegrityService');
 
 describe('Transaction integrity safeguards', () => {
@@ -72,6 +73,7 @@ describe('Transaction integrity safeguards', () => {
   it('locks airtime purchases to a single route and auto-refunds on hard provider failure', async () => {
     const { user, token } = await createUserWithToken({ balance: 1000, prefix: 'airtime' });
     const pinToken = await createTransactionPinSession(token);
+    const walletUpdateSpy = jest.spyOn(notificationRealtimeService, 'emitToUser').mockImplementation(() => {});
     await Sim.create({
       userId: user.id,
       provider: 'mtn',
@@ -92,7 +94,7 @@ describe('Transaction integrity safeguards', () => {
 
     expect(res.statusCode).toBe(502);
     expect(res.body.success).toBe(false);
-    expect(smeplugSpy).not.toHaveBeenCalled();
+    expect(smeplugSpy).toHaveBeenCalledWith('mtn', '08133333333', 100);
 
     const debitTxn = await Transaction.findOne({ where: { reference: 'AIRTIME-INTEGRITY-001' } });
     expect(debitTxn).toBeTruthy();
@@ -106,6 +108,16 @@ describe('Transaction integrity safeguards', () => {
 
     const wallet = await Wallet.findOne({ where: { userId: user.id } });
     expect(parseFloat(wallet.balance)).toBeCloseTo(1000, 2);
+    expect(walletUpdateSpy).toHaveBeenCalledWith(
+      user.id,
+      'wallet_balance_updated',
+      expect.objectContaining({
+        reference: refundTxn.reference,
+        amount: 100,
+        balance: refundTxn.balance_after,
+        source: 'refund',
+      }),
+    );
   });
 
   it('keeps airtime on the Ogdams wallet route even when the preferred SIM is Ogdams-linked', () => {

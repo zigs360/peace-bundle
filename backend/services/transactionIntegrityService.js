@@ -7,6 +7,7 @@ const User = require('../models/User');
 const TransactionIntegrityAudit = require('../models/TransactionIntegrityAudit');
 const SystemSetting = require('../models/SystemSetting');
 const walletService = require('./walletService');
+const notificationRealtimeService = require('./notificationRealtimeService');
 const { getTransactionSchemaCompatibility } = require('./transactionSchemaCompatibilityService');
 const logger = require('../utils/logger');
 
@@ -61,6 +62,24 @@ class TransactionIntegrityService {
 
   getMetadata(transaction) {
     return transaction?.metadata && typeof transaction.metadata === 'object' ? transaction.metadata : {};
+  }
+
+  emitRefundBalanceUpdate(userId, refundTxn) {
+    if (!userId || !refundTxn) return;
+    try {
+      notificationRealtimeService.emitToUser(userId, 'wallet_balance_updated', {
+        reference: refundTxn.reference || null,
+        amount: Number(refundTxn.amount || 0),
+        balance: refundTxn.balance_after ?? null,
+        source: 'refund',
+      });
+    } catch (error) {
+      logger.error('[TransactionIntegrity] Failed to emit refund wallet update', {
+        userId,
+        reference: refundTxn?.reference || null,
+        message: error.message,
+      });
+    }
   }
 
   getStaleReferenceTime(transaction) {
@@ -326,6 +345,7 @@ class TransactionIntegrityService {
         },
       };
       await original.save({ transaction: dbTransaction });
+      this.emitRefundBalanceUpdate(original.userId, priorRefund);
       return priorRefund;
     }
 
@@ -386,6 +406,7 @@ class TransactionIntegrityService {
       },
       { transaction: dbTransaction, severity: 'warning', status: 'resolved', resolvedAt: new Date() },
     );
+    this.emitRefundBalanceUpdate(original.userId, refundTxn);
     return refundTxn;
   }
 
