@@ -17,25 +17,59 @@ const stripNonPrintable = (value) => {
 class SmeplugService {
   constructor() {
     this.baseUrl = (process.env.SMEPLUG_BASE_URL || 'https://smeplug.ng').trim();
+    this.privateKey = stripNonPrintable(process.env.SMEPLUG_PRIVATE_KEY || '');
     this.apiKey = stripNonPrintable(process.env.SMEPLUG_API_KEY || '');
     this.publicKey = stripNonPrintable(process.env.SMEPLUG_PUBLIC_KEY || '');
     this.secretKey = stripNonPrintable(process.env.SMEPLUG_SECRET_KEY || '');
     this.timeout = parseInt(process.env.SMEPLUG_TIMEOUT) || 30000; // Default 30s
   }
 
-  getAuthToken() {
-    const privateKey = stripNonPrintable(process.env.SMEPLUG_PRIVATE_KEY || '');
-    if (privateKey) return { token: privateKey, source: 'private_key' };
-    if (this.secretKey) return { token: this.secretKey, source: 'secret_key' };
-    if (this.apiKey) return { token: this.apiKey, source: 'api_key' };
-    return { token: '', source: 'missing' };
+  refreshCredentials() {
+    this.privateKey = stripNonPrintable(process.env.SMEPLUG_PRIVATE_KEY || this.privateKey || '');
+    this.apiKey = stripNonPrintable(process.env.SMEPLUG_API_KEY || this.apiKey || '');
+    this.publicKey = stripNonPrintable(process.env.SMEPLUG_PUBLIC_KEY || this.publicKey || '');
+    this.secretKey = stripNonPrintable(process.env.SMEPLUG_SECRET_KEY || this.secretKey || '');
   }
 
-  getApiKeyFingerprint() {
-    const crypto = require('crypto');
-    const key = String(this.apiKey || this.secretKey || '');
-    if (!key) return { length: 0, sha256: null };
+  requiresPrivilegedAuth(endpoint, data = {}) {
+    if (endpoint !== '/api/v1/airtime/purchase' && endpoint !== '/api/v1/vtu') {
+      return false;
+    }
+    const mode = String(data?.mode || 'wallet').toLowerCase();
+    return !data?.sim_number && mode === 'wallet';
+  }
+
+  getAuthToken(endpoint = '', data = {}) {
+    this.refreshCredentials();
+    if (this.privateKey) return { token: this.privateKey, source: 'private_key' };
+    if (this.secretKey) return { token: this.secretKey, source: 'secret_key' };
+    if (this.requiresPrivilegedAuth(endpoint, data)) {
+      return {
+        token: '',
+        source: 'missing',
+        error: 'SMEPlug wallet airtime requires SMEPLUG_PRIVATE_KEY or SMEPLUG_SECRET_KEY. Refusing to fall back to SMEPLUG_API_KEY.',
+      };
+    }
+    if (this.apiKey) return { token: this.apiKey, source: 'api_key' };
     return {
+      token: '',
+      source: 'missing',
+      error: 'SMEPlug authentication is missing. Set SMEPLUG_PRIVATE_KEY, SMEPLUG_SECRET_KEY, or SMEPLUG_API_KEY.',
+    };
+  }
+
+  getAuthFingerprint(auth = null) {
+    const crypto = require('crypto');
+    const key = String(auth?.token || '');
+    if (!key) {
+      return {
+        source: auth?.source || 'missing',
+        length: 0,
+        sha256: null,
+      };
+    }
+    return {
+      source: auth?.source || 'unknown',
       length: key.length,
       sha256: crypto.createHash('sha256').update(key).digest('hex').slice(0, 12),
     };
@@ -237,17 +271,16 @@ class SmeplugService {
    */
   async makeRequest(method, endpoint, data = {}, retryCount = 0) {
     const maxRetries = 2;
+    const currentBaseUrl = (retryCount > 0 && this.baseUrl.includes('.ng'))
+      ? this.baseUrl.replace('.ng', '.com')
+      : this.baseUrl;
+    let auth = { token: '', source: 'unresolved' };
     try {
-      const auth = this.getAuthToken();
+      auth = this.getAuthToken(endpoint, data);
       const authHeader = auth.token;
       if (!authHeader) {
-        throw new Error('SMEPlug API/Secret Key is missing in environment variables');
+        throw new Error(auth.error || 'SMEPlug API/Secret Key is missing in environment variables');
       }
-
-      // Use .ng as primary, .com as fallback if DNS fails
-      const currentBaseUrl = (retryCount > 0 && this.baseUrl.includes('.ng')) 
-        ? this.baseUrl.replace('.ng', '.com') 
-        : this.baseUrl;
 
       const config = {
         method: method,
@@ -287,7 +320,7 @@ class SmeplugService {
                 mode: data?.mode ?? null,
                 hasSimNumber: Boolean(data?.sim_number),
               },
-          authFingerprint: this.getApiKeyFingerprint(),
+          authFingerprint: this.getAuthFingerprint(auth),
         });
       }
       // #endregion debug-point smeplug-request-context
@@ -342,7 +375,7 @@ class SmeplugService {
           retryCount,
           baseUrl: currentBaseUrl,
         },
-        authFingerprint: this.getApiKeyFingerprint(),
+        authFingerprint: this.getAuthFingerprint(auth),
         // #endregion debug-point smeplug-api-error-context
       });
 

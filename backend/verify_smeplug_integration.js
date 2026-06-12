@@ -27,6 +27,8 @@ async function runVerificationTests() {
     try {
         console.log('--- Step 0: Environment Check ---');
         console.log(`SMEPLUG_BASE_URL: ${process.env.SMEPLUG_BASE_URL}`);
+        console.log(`SMEPLUG_PRIVATE_KEY: ${process.env.SMEPLUG_PRIVATE_KEY ? 'Set' : 'Missing'}`);
+        console.log(`SMEPLUG_SECRET_KEY: ${process.env.SMEPLUG_SECRET_KEY ? 'Set' : 'Missing'}`);
         console.log(`SMEPLUG_API_KEY: ${process.env.SMEPLUG_API_KEY ? 'Set' : 'Missing'}`);
         // 1. Connectivity & Balance Check
         console.log('--- Step 1: Connectivity & Balance Check ---');
@@ -69,7 +71,7 @@ async function runVerificationTests() {
             amount: airtimeAmount
         };
         
-        reportContent += `Request: POST /api/v1/vtu | Data: ${JSON.stringify(airtimeRequest)}\n`;
+        reportContent += `Request: POST /api/v1/airtime/purchase | Data: ${JSON.stringify(airtimeRequest)}\n`;
         
         reportContent += `Logic: System debits user wallet -> Calls Smeplug purchaseVTU -> Updates local Transaction record.\n`;
         reportContent += `Verified: Controller [transactionController.js:L228-295] correctly implements this flow.\n`;
@@ -96,6 +98,9 @@ async function runVerificationTests() {
         reportContent += `-------------------------\n`;
         
         const missingKeys = [];
+        if (!process.env.SMEPLUG_PRIVATE_KEY && !process.env.SMEPLUG_SECRET_KEY) {
+            missingKeys.push('SMEPLUG_PRIVATE_KEY/SMEPLUG_SECRET_KEY');
+        }
         if (!process.env.SMEPLUG_API_KEY) missingKeys.push('SMEPLUG_API_KEY');
         if (!process.env.SMEPLUG_PUBLIC_KEY) missingKeys.push('SMEPLUG_PUBLIC_KEY');
         
