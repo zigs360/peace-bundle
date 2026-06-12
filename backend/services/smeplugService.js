@@ -160,6 +160,19 @@ class SmeplugService {
       const shouldFallback =
         !primaryReference &&
         (primaryStatus === 400 || primaryStatus === 404 || primaryStatus === 405 || primaryStatus === 422 || primaryStatus === null);
+      // #region debug-point smeplug-vtu-fallback-decision
+      logger.warn('[Smeplug][Debug] VTU fallback decision', {
+        mode,
+        network_id,
+        amount: roundedAmount,
+        phoneMasked: phone ? `*******${String(phone).replace(/\D/g, '').slice(-4)}` : null,
+        primaryStatus,
+        primaryHasReference: Boolean(primaryReference),
+        shouldFallback,
+        primaryError: primary?.error || null,
+        primaryMessage: primary?.data?.msg || primary?.data?.message || null,
+      });
+      // #endregion debug-point smeplug-vtu-fallback-decision
       if (!shouldFallback) return primary;
 
       logger.warn('[Smeplug] Airtime purchase endpoint failed, retrying VTU endpoint', {
@@ -167,11 +180,24 @@ class SmeplugService {
         error: primary?.error || null,
       });
 
-      return this.makeRequest('POST', '/api/v1/vtu', {
+      const fallbackPayload = {
         network_id,
         phone,
+        phone_number: phone,
         amount: roundedAmount,
+      };
+      // #region debug-point smeplug-vtu-fallback-payload
+      logger.warn('[Smeplug][Debug] VTU fallback payload', {
+        network_id: fallbackPayload.network_id,
+        amount: fallbackPayload.amount,
+        phoneMasked: fallbackPayload.phone ? `*******${String(fallbackPayload.phone).replace(/\D/g, '').slice(-4)}` : null,
+        phoneNumberMasked: fallbackPayload.phone_number ? `*******${String(fallbackPayload.phone_number).replace(/\D/g, '').slice(-4)}` : null,
+        hasPhone: Boolean(fallbackPayload.phone),
+        hasPhoneNumber: Boolean(fallbackPayload.phone_number),
       });
+      // #endregion debug-point smeplug-vtu-fallback-payload
+
+      return this.makeRequest('POST', '/api/v1/vtu', fallbackPayload);
     }
 
     const devicePayload = {

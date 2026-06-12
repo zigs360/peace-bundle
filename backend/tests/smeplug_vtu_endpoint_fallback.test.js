@@ -62,6 +62,12 @@ describe('SMEPlug VTU endpoint fallback', () => {
     expect(spy).toHaveBeenCalledTimes(2);
     expect(spy.mock.calls[0][1]).toBe('/api/v1/airtime/purchase');
     expect(spy.mock.calls[1][1]).toBe('/api/v1/vtu');
+    expect(spy.mock.calls[1][2]).toEqual(expect.objectContaining({
+      network_id: 1,
+      phone: '08012345678',
+      phone_number: '08012345678',
+      amount: 100,
+    }));
   });
 
   it('uses the private key for wallet airtime requests when available', async () => {
