@@ -407,6 +407,14 @@ class TransactionIntegrityService {
       { transaction: dbTransaction, severity: 'warning', status: 'resolved', resolvedAt: new Date() },
     );
     this.emitRefundBalanceUpdate(original.userId, refundTxn);
+    logger.warn('[TransactionIntegrity] Auto refund completed', {
+      originalReference: original?.reference || null,
+      refundReference: refundTxn?.reference || null,
+      userId: original?.userId || null,
+      amount: Number(refundTxn?.amount || 0),
+      balanceAfter: refundTxn?.balance_after ?? null,
+      reason: String(reason || ''),
+    });
     return refundTxn;
   }
 
@@ -433,6 +441,15 @@ class TransactionIntegrityService {
       { reason, ...options.auditDetails },
       { transaction: dbTransaction, severity: options.severity || 'error' },
     );
+    logger.warn('[TransactionIntegrity] Fail and refund requested', {
+      reference: transaction?.reference || null,
+      userId: transaction?.userId || null,
+      source: transaction?.source || null,
+      amount: Number(transaction?.amount || 0),
+      reason: String(reason || ''),
+      auditEvent: options.auditEvent || 'delivery_failed',
+      hasDbTransaction: Boolean(dbTransaction),
+    });
     return this.safeRefund(transaction, reason, dbTransaction, options);
   }
 
