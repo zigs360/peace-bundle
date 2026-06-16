@@ -370,8 +370,39 @@ class SmeplugService {
         response: response.data
       });
 
+      const isVendEndpoint =
+        endpoint === '/api/v1/airtime/purchase' ||
+        endpoint === '/api/v1/vtu' ||
+        endpoint === '/api/v1/data/purchase';
+      const rawStatus = response?.data?.status ?? response?.data?.data?.status ?? null;
+      const statusOk = rawStatus === true || String(rawStatus).toLowerCase() === 'success';
+      const providerReference =
+        response?.data?.reference ||
+        response?.data?.transaction_id ||
+        response?.data?.data?.reference ||
+        response?.data?.data?.transaction_id ||
+        null;
+      const hasProviderReference = Boolean(providerReference);
+      const businessOk = isVendEndpoint ? (statusOk && hasProviderReference) : true;
+      const businessErrorMessage = (() => {
+        if (!isVendEndpoint) return null;
+        if (!statusOk) {
+          return String(
+            response?.data?.msg ||
+              response?.data?.message ||
+              response?.data?.error ||
+              response?.data?.errors ||
+              response?.data?.data?.msg ||
+              'SMEPlug returned a non-success status',
+          );
+        }
+        if (!hasProviderReference) return 'SMEPlug success response is missing a provider reference';
+        return null;
+      })();
+
       return {
-        success: true,
+        success: businessOk,
+        error: businessOk ? null : businessErrorMessage,
         data: response.data,
         status_code: response.status
       };

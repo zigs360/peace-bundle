@@ -1018,13 +1018,14 @@ class DataPurchaseService {
             'SMEPLUG',
           );
 
-          const ok = !!smeplugResponse?.success;
+          const hasReference = Boolean(smeplugResponse?.data?.reference || smeplugResponse?.data?.transaction_id);
+          const ok = !!smeplugResponse?.success && hasReference;
           // #region debug-point smeplug-wallet-fallback-result
           logger.warn('[Airtime][Debug] SMEPlug wallet fallback result', {
             reference: transaction.reference,
             ok,
             statusCode: smeplugResponse?.status_code || null,
-            hasReference: Boolean(smeplugResponse?.data?.reference || smeplugResponse?.data?.transaction_id),
+            hasReference,
             error: ok ? null : (smeplugResponse?.error || null),
           });
           // #endregion debug-point smeplug-wallet-fallback-result
