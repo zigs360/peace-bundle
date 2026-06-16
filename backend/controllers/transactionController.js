@@ -656,14 +656,19 @@ const buyAirtime = async (req, res) => {
         const statusLower = String(newTransaction.status || '').toLowerCase();
         const isQueued = statusLower === 'queued' || providerResult?.pending === true;
         const isCompleted = statusLower === 'completed';
-        if (!providerResult || (!isQueued && !isCompleted)) {
+        const isTerminalFailure = providerResult?.failed || statusLower === 'failed' || statusLower === 'refunded';
+
+        if (!providerResult || (!isQueued && !isCompleted && !isTerminalFailure)) {
             await transactionIntegrityService.failAndRefund(newTransaction, 'Airtime provider did not confirm success', t, {
                 flagAsAnomaly: true,
                 auditEvent: 'airtime_delivery_inconsistent_success',
             });
         }
 
-        if (providerResult?.failed || ['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
+        const finalStatusLower = String(newTransaction.status || '').toLowerCase();
+        const finalTerminalFailure = providerResult?.failed || finalStatusLower === 'failed' || finalStatusLower === 'refunded';
+
+        if (finalTerminalFailure) {
             await t.commit();
             const updatedWallet = await walletService.getBalance(user);
             await notifyAirtimePurchaseStatus({

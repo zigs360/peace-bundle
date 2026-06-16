@@ -135,4 +135,69 @@ describe('Airtime false-success guard', () => {
     expect(res.statusCode).toBe(502);
     expect(res.body.success).toBe(false);
   });
+
+  it('does not trigger a second refund when the provider flow already marked the transaction refunded', async () => {
+    const t = { commit: jest.fn(), rollback: jest.fn(), finished: null };
+    sequelize.transaction.mockResolvedValueOnce(t);
+
+    const user = { id: 'user-2', role: 'user' };
+    User.findByPk.mockResolvedValueOnce(user);
+
+    transactionLimitService.canTransact.mockResolvedValueOnce({ allowed: true });
+    pricingService.quoteAirtime.mockResolvedValueOnce({ total: 100 });
+    transactionIntegrityService.findDuplicateByReference.mockResolvedValueOnce(null);
+    transactionIntegrityService.buildFingerprint.mockReturnValueOnce('fp-2');
+    transactionIntegrityService.findLikelyDuplicate.mockResolvedValueOnce(null);
+
+    const newTxn = {
+      id: 'txn-2',
+      reference: 'WLT-TEST-ALREADY-REFUNDED',
+      status: 'initiated',
+      failure_reason: 'Momo integration not configured',
+      metadata: {},
+      update: jest.fn(async function update(values) {
+        Object.assign(this, values);
+        return this;
+      }),
+      save: jest.fn(async function save() { return this; }),
+    };
+
+    walletService.debit.mockResolvedValueOnce(newTxn);
+    walletService.getBalance.mockResolvedValue(570);
+    transactionIntegrityService.selectAirtimeRoute.mockReturnValue({ fulfillmentRoute: 'ogdams_api', simId: null });
+    transactionIntegrityService.lockRoute.mockResolvedValueOnce({});
+    simManagementService.getOptimalSim.mockResolvedValueOnce(null);
+
+    dataPurchaseService.dispenseAirtimeWithFallback.mockImplementationOnce(async (txn) => {
+      txn.status = 'refunded';
+      txn.failure_reason = 'Momo integration not configured';
+      return { provider: 'smeplug', failed: true };
+    });
+
+    const req = {
+      user: { id: user.id },
+      body: { network: 'mtn', phone: '08105880201', amount: 100 },
+      headers: {},
+    };
+
+    const res = {
+      statusCode: 200,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        this.body = payload;
+        return this;
+      },
+    };
+
+    await buyAirtime(req, res);
+
+    expect(transactionIntegrityService.failAndRefund).not.toHaveBeenCalled();
+    expect(t.commit).toHaveBeenCalled();
+    expect(res.statusCode).toBe(502);
+    expect(res.body.success).toBe(false);
+    expect(String(res.body.message || '')).toMatch(/momo integration not configured/i);
+  });
 });

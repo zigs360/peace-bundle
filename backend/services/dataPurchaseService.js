@@ -917,10 +917,12 @@ class DataPurchaseService {
         }
       };
 
+      let lastSmeplugFallbackError = null;
       const attemptSmeplugFallback = async (contextLabel) => {
         if (!allowSmeplugFallback) return null;
         const smeplugStart = Date.now();
         try {
+          lastSmeplugFallbackError = null;
           logger.warn('[Airtime] Falling back to SMEPlug after Ogdams failure', {
             reference: transaction.reference,
             reason: contextLabel,
@@ -1050,12 +1052,13 @@ class DataPurchaseService {
 
           return { provider: 'smeplug', response: smeplugResponse.data, switched: true };
         } catch (fallbackError) {
+          lastSmeplugFallbackError = fallbackError?.message || 'SMEPlug fallback failed';
           await recordAttempt({
             provider: 'smeplug',
             ok: false,
             latency_ms: Date.now() - smeplugStart,
             route: 'api_fallback',
-            error: fallbackError?.message || 'SMEPlug fallback failed',
+            error: lastSmeplugFallbackError,
           });
           return null;
         }
@@ -1065,7 +1068,7 @@ class DataPurchaseService {
       if (failoverSnapshot.active) {
         const fallback = await attemptSmeplugFallback(`ogdams_failover_active:${failoverSnapshot.reason || 'unknown'}`);
         if (fallback) return fallback;
-        await persistFailure(`Ogdams failover active (${failoverSnapshot.reason || 'unknown'}) and SMEPlug fallback failed`);
+        await persistFailure(lastSmeplugFallbackError || `Ogdams failover active (${failoverSnapshot.reason || 'unknown'}) and SMEPlug fallback failed`);
         return { provider: 'smeplug', failed: true, failoverActive: true };
       }
 
@@ -1174,7 +1177,7 @@ class DataPurchaseService {
             if (!vend.ok) {
               const fallback = await attemptSmeplugFallback('ogdams_duplicate_reference_retry_non_success');
               if (fallback) return fallback;
-              await persistFailure('Ogdams duplicate reference retry returned non-success');
+            await persistFailure(lastSmeplugFallbackError || 'Ogdams duplicate reference retry returned non-success');
               return { provider: 'ogdams', failed: true };
             }
 
@@ -1192,7 +1195,7 @@ class DataPurchaseService {
           } catch (retryError) {
             const fallback = await attemptSmeplugFallback('ogdams_duplicate_reference_retry_threw');
             if (fallback) return fallback;
-            await persistFailure('Ogdams duplicate reference retry failed');
+            await persistFailure(lastSmeplugFallbackError || 'Ogdams duplicate reference retry failed');
             return { provider: 'ogdams', failed: true };
           }
         }
@@ -1206,7 +1209,7 @@ class DataPurchaseService {
           });
           const fallback = await attemptSmeplugFallback('ogdams_insufficient_balance');
           if (fallback) return fallback;
-          await persistFailure(ogReason);
+          await persistFailure(lastSmeplugFallbackError || ogReason);
           return { provider: 'ogdams', failed: true, terminal: true };
         }
 
@@ -1219,7 +1222,7 @@ class DataPurchaseService {
           });
           const fallback = await attemptSmeplugFallback('ogdams_unavailable');
           if (fallback) return fallback;
-          await persistFailure(ogReason);
+          await persistFailure(lastSmeplugFallbackError || ogReason);
           return { provider: 'ogdams', failed: true };
         }
 
@@ -1317,7 +1320,7 @@ class DataPurchaseService {
 
         const fallback = await attemptSmeplugFallback('ogdams_confirmed_failure');
         if (fallback) return fallback;
-        await persistFailure(ogReason);
+        await persistFailure(lastSmeplugFallbackError || ogReason);
         return { provider: 'ogdams', failed: true };
       }
     }
