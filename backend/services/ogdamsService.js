@@ -4,6 +4,40 @@ const crypto = require('crypto');
 const Joi = require('joi');
 const logger = require('../utils/logger');
 
+// #region debug-point ogdams-reconcile-unauth-reporter
+const reportOgdamsReconcileUnauth = async (event) => {
+    try {
+        const sessionId = String(process.env.DEBUG_SESSION_ID || 'ogdams-reconcile-unauth').trim();
+        let url = String(process.env.DEBUG_SERVER_URL || '').trim();
+        if (!url && sessionId) {
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                const envPath = path.join(process.cwd(), '.dbg', `${sessionId}.env`);
+                if (fs.existsSync(envPath)) {
+                    const content = fs.readFileSync(envPath, 'utf8');
+                    for (const line of content.split('\n')) {
+                        const [k, ...rest] = line.split('=');
+                        if (!k || !rest.length) continue;
+                        const v = rest.join('=').trim();
+                        if (k.trim() === 'DEBUG_SERVER_URL' && v) url = v;
+                    }
+                }
+            } catch (_) {}
+        }
+        if (!url) return;
+        await axios.post(url, {
+            sessionId,
+            ts: Date.now(),
+            runId: String(event?.runId || 'pre-fix'),
+            hypothesisId: String(event?.hypothesisId || 'unknown'),
+            msg: String(event?.msg || ''),
+            data: event?.data ?? null,
+        }, { timeout: 1500 });
+    } catch (_) {}
+};
+// #endregion debug-point ogdams-reconcile-unauth-reporter
+
 class OgdamsService {
     constructor() {
         const sanitizeWrapped = (value) => {
@@ -95,6 +129,8 @@ class OgdamsService {
     }
 
     shouldRetryAuth(error) {
+        const status = Number(error?.response?.status || 0) || 0;
+        if (status === 401 || status === 403) return true;
         const responseData = error?.response?.data;
         const message = String(
             responseData?.msg ||
@@ -104,7 +140,13 @@ class OgdamsService {
             error?.message ||
             ''
         ).toLowerCase();
-        return message.includes('authoris') || message.includes('authoriz') || message.includes('token') || message.includes('secret/public key');
+        return (
+            message.includes('unauth') ||
+            message.includes('authoris') ||
+            message.includes('authoriz') ||
+            message.includes('token') ||
+            message.includes('secret/public key')
+        );
     }
 
     async requestWithAuthFallback({ method, url, data, headers = {} }) {
@@ -139,6 +181,35 @@ class OgdamsService {
                 const response = await this.http.request({ method, url, data, headers: mergedHeaders });
                 return { response, authStyle: style, apiKeyFingerprint: this.getApiKeyFingerprint() };
             } catch (error) {
+                // #region debug-point ogdams-reconcile-unauth-auth-attempt
+                const status = Number(error?.response?.status || 0) || null;
+                const responseData = error?.response?.data;
+                const msg = String(
+                    responseData?.msg ||
+                    responseData?.data?.msg ||
+                    responseData?.message ||
+                    responseData?.error ||
+                    error?.message ||
+                    ''
+                ).slice(0, 180);
+                const shouldRetry = this.shouldRetryAuth(error);
+                reportOgdamsReconcileUnauth({
+                    runId: 'pre-fix',
+                    hypothesisId: 'A',
+                    msg: '[OGDAMS][Debug] auth attempt failed',
+                    data: {
+                        url,
+                        method: methodLower,
+                        status,
+                        msg,
+                        attemptedStyle: style,
+                        primaryStyle,
+                        shouldRetryAuth: shouldRetry,
+                        attemptsSoFar: attempts.slice(),
+                        maxAuthAttempts,
+                    },
+                });
+                // #endregion debug-point ogdams-reconcile-unauth-auth-attempt
                 if (!this.shouldRetryAuth(error) || attempts.length >= maxAuthAttempts) {
                     throw Object.assign(error, {
                         __ogdams_auth_attempts: attempts,
@@ -263,6 +334,32 @@ class OgdamsService {
                 if (status === 404) {
                     continue;
                 }
+                // #region debug-point ogdams-reconcile-unauth-status-fail
+                try {
+                    const responseData = error?.response?.data;
+                    const msg = String(
+                        responseData?.msg ||
+                        responseData?.data?.msg ||
+                        responseData?.message ||
+                        responseData?.error ||
+                        error?.message ||
+                        ''
+                    ).slice(0, 180);
+                    reportOgdamsReconcileUnauth({
+                        runId: 'pre-fix',
+                        hypothesisId: 'B',
+                        msg: '[OGDAMS][Debug] status check failed',
+                        data: {
+                            status: Number(status || 0) || null,
+                            msg,
+                            triedUrl: url,
+                            reference: ref,
+                            authAttempts: error.__ogdams_auth_attempts || null,
+                            authStyle: error.__ogdams_auth_style || null,
+                        },
+                    });
+                } catch (_) {}
+                // #endregion debug-point ogdams-reconcile-unauth-status-fail
             }
         }
 
