@@ -653,6 +653,16 @@ const buyAirtime = async (req, res) => {
             });
         }
 
+        const statusLower = String(newTransaction.status || '').toLowerCase();
+        const isQueued = statusLower === 'queued' || providerResult?.pending === true;
+        const isCompleted = statusLower === 'completed';
+        if (!providerResult || (!isQueued && !isCompleted)) {
+            await transactionIntegrityService.failAndRefund(newTransaction, 'Airtime provider did not confirm success', t, {
+                flagAsAnomaly: true,
+                auditEvent: 'airtime_delivery_inconsistent_success',
+            });
+        }
+
         if (providerResult?.failed || ['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
             await t.commit();
             const updatedWallet = await walletService.getBalance(user);
@@ -673,7 +683,7 @@ const buyAirtime = async (req, res) => {
         }
 
         await t.commit();
-        if (providerResult?.pending) {
+        if (providerResult?.pending || String(newTransaction.status || '').toLowerCase() === 'queued') {
             await notifyAirtimePurchaseStatus({
                 user,
                 transaction: newTransaction,
@@ -698,7 +708,9 @@ const buyAirtime = async (req, res) => {
 
         res.json({
             success: true,
-            message: providerResult?.pending ? 'Airtime purchase queued for verification' : 'Airtime purchase successful',
+            message: (providerResult?.pending || String(newTransaction.status || '').toLowerCase() === 'queued')
+                ? 'Airtime purchase queued for verification'
+                : 'Airtime purchase successful',
             balance: updatedWallet,
             transaction: newTransaction
         });
