@@ -25,6 +25,15 @@ const DUPLICATE_GUARD_MS = 45 * 1000;
 type NetworkKey = typeof NETWORK_KEYS[number];
 type NetworkTopKey = typeof NETWORK_TOP_KEYS[NetworkKey];
 type Feedback = { type: 'success' | 'error'; text: string } | null;
+type PurchaseResult = {
+  message: string;
+  status: string;
+  reference: string;
+  phone: string;
+  amount: number;
+  balance: number | null;
+  provider: string | null;
+};
 
 interface PlanBadge {
   key: string;
@@ -95,6 +104,25 @@ function getPhoneError(network: NetworkKey, phone: string, t: (key: string, opti
 
 function getDuplicateGuardKey(plan: CatalogPlan, phone: string) {
   return `buy_data_guard:${plan.network_key}:${String(plan.plan_id || plan.id)}:${normalizePhone(phone)}`;
+}
+
+function toPurchaseResult(payload: any, fallbackPhone: string, fallbackAmount: number): PurchaseResult {
+  return {
+    message: String(payload?.message || 'Purchase completed'),
+    status: String(payload?.transaction?.status || 'processing'),
+    reference: String(payload?.transaction_ref || payload?.transaction?.reference || ''),
+    phone: String(payload?.transaction?.recipient_phone || fallbackPhone),
+    amount: Number(payload?.charged_price ?? payload?.transaction?.amount ?? fallbackAmount ?? 0),
+    balance: typeof payload?.balance === 'number' ? payload.balance : Number.isFinite(Number(payload?.balance)) ? Number(payload.balance) : null,
+    provider: payload?.transaction?.metadata?.service_provider || payload?.transaction?.smeplug_response?.provider || null,
+  };
+}
+
+function syncWalletBalanceCache(balance: number | null) {
+  if (balance === null) return;
+  const now = Date.now();
+  localStorage.setItem('wallet_balance', String(balance));
+  localStorage.setItem('wallet_balance_updated_at', String(now));
 }
 
 function normalizePlan(plan: any): CatalogPlan {
@@ -272,6 +300,7 @@ export default function BuyData() {
   const [loading, setLoading] = useState(false);
   const [plansLoading, setPlansLoading] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [purchaseResult, setPurchaseResult] = useState<PurchaseResult | null>(null);
   const { pricingVersion, walletBalance, walletBalanceUpdatedAt } = useNotifications();
   const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
@@ -373,6 +402,8 @@ export default function BuyData() {
   const estimatedRemainingBalance = selectedPlan && liveWalletBalance !== null
     ? Math.max(0, liveWalletBalance - toNumber(selectedPlan.our_price))
     : null;
+  const purchaseStatus = String(purchaseResult?.status || '').toLowerCase();
+  const purchaseFailed = purchaseStatus === 'failed' || purchaseStatus === 'refunded';
 
   const handleBuy = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -410,6 +441,7 @@ export default function BuyData() {
     await ensureTransactionPin(async () => {
       setLoading(true);
       setFeedback(null);
+      setPurchaseResult(null);
       const reference = `DATA-${Date.now()}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
 
       try {
@@ -428,6 +460,7 @@ export default function BuyData() {
 
         const transactionRef = res.data?.transaction_ref || res.data?.transaction?.reference || reference;
         const chargedPrice = toNumber(res.data?.charged_price, toNumber(selectedPlan.our_price));
+        const nextResult = toPurchaseResult(res.data, normalizedPhone, chargedPrice);
         setFeedback({
           type: 'success',
           text: t('buyDataPage.purchaseSuccess', {
@@ -435,12 +468,20 @@ export default function BuyData() {
             reference: transactionRef,
           }),
         });
+        setPurchaseResult(nextResult);
+        syncWalletBalanceCache(nextResult.balance);
         setPhone('');
       } catch (err: any) {
         sessionStorage.removeItem(duplicateKey);
+        const responseData = err.response?.data;
+        const nextResult = responseData?.transaction ? toPurchaseResult(responseData, normalizedPhone, toNumber(selectedPlan.our_price)) : null;
+        if (nextResult) {
+          setPurchaseResult(nextResult);
+          syncWalletBalanceCache(nextResult.balance);
+        }
         setFeedback({
           type: 'error',
-          text: err.response?.data?.message || t('buyDataPage.purchaseFailed'),
+          text: responseData?.message || t('buyDataPage.purchaseFailed'),
         });
       } finally {
         setLoading(false);
@@ -469,6 +510,42 @@ export default function BuyData() {
           {feedback && (
             <div className={`p-4 mb-6 rounded-md ${feedback.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
               {feedback.text}
+            </div>
+          )}
+          {purchaseResult && (
+            <div className={`p-4 mb-6 rounded-md border ${purchaseFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
+              <div className="font-semibold">{purchaseFailed ? 'Purchase Reversed' : 'Purchase Successful'}</div>
+              <div className="text-sm mt-1">{purchaseResult.message}</div>
+              <div className="grid grid-cols-2 gap-3 text-sm mt-3 text-gray-800">
+                <div>
+                  <div className="text-gray-500">Reference</div>
+                  <div className="font-medium">{purchaseResult.reference || 'Pending assignment'}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">Status</div>
+                  <div className="font-medium capitalize">{purchaseResult.status}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">Amount</div>
+                  <div className="font-medium">₦{Number(purchaseResult.amount || 0).toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-gray-500">Phone</div>
+                  <div className="font-medium">{purchaseResult.phone}</div>
+                </div>
+                {purchaseResult.provider && (
+                  <div>
+                    <div className="text-gray-500">Provider Route</div>
+                    <div className="font-medium uppercase">{purchaseResult.provider}</div>
+                  </div>
+                )}
+                {purchaseResult.balance !== null && (
+                  <div>
+                    <div className="text-gray-500">Updated Wallet Balance</div>
+                    <div className="font-medium">₦{Number(purchaseResult.balance).toLocaleString()}</div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

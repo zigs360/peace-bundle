@@ -144,30 +144,49 @@ const purchaseUnified = async (req, res) => {
           );
         } catch (providerError) {
           await t.commit();
+          const updatedWallet = await walletService.getBalance(user);
           return res.status(502).json({
             success: false,
             message: providerError.message || 'Failed to process airtime purchase',
-            transaction: newTransaction
+            balance: updatedWallet,
+            transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
           });
         }
 
-        if (providerResult?.failed || ['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
+        const statusLower = String(newTransaction.status || '').toLowerCase();
+        const isQueued = statusLower === 'queued' || providerResult?.pending === true;
+        const isCompleted = statusLower === 'completed';
+        const isTerminalFailure = providerResult?.failed || statusLower === 'failed' || statusLower === 'refunded';
+
+        if (!providerResult || (!isQueued && !isCompleted && !isTerminalFailure)) {
+          await transactionIntegrityService.failAndRefund(newTransaction, 'Airtime provider did not confirm success', t, {
+            flagAsAnomaly: true,
+            auditEvent: 'airtime_delivery_inconsistent_success',
+          });
+        }
+
+        const finalStatusLower = String(newTransaction.status || '').toLowerCase();
+        if (providerResult?.failed || ['failed', 'refunded'].includes(finalStatusLower)) {
           await t.commit();
+          const updatedWallet = await walletService.getBalance(user);
           return res.status(502).json({
             success: false,
             message: newTransaction.failure_reason || 'Failed to process airtime purchase',
-            transaction: newTransaction
+            balance: updatedWallet,
+            transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
           });
         }
 
         await t.commit();
+        const updatedWallet = await walletService.getBalance(user);
         
         return res.json({
           success: true,
           message: providerResult?.pending
             ? 'Airtime purchase queued for verification'
             : 'Airtime purchase successful',
-          transaction: newTransaction,
+          balance: updatedWallet,
+          transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
           activationCode: null
         });
 
@@ -225,20 +244,35 @@ const purchaseUnified = async (req, res) => {
 
         await dataPurchaseService.dispenseData(newTransaction, optimalSim, t);
 
-        if (['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
+        const dataStatusLower = String(newTransaction.status || '').toLowerCase();
+        const dataCompleted = dataStatusLower === 'completed';
+        const dataTerminalFailure = dataStatusLower === 'failed' || dataStatusLower === 'refunded';
+        if (!dataCompleted && !dataTerminalFailure) {
+          await transactionIntegrityService.failAndRefund(newTransaction, 'Data provider did not confirm success', t, {
+            flagAsAnomaly: true,
+            auditEvent: 'data_delivery_inconsistent_success',
+          });
+        }
+
+        const finalDataStatusLower = String(newTransaction.status || '').toLowerCase();
+        if (['failed', 'refunded'].includes(finalDataStatusLower)) {
           await t.commit();
+          const updatedWallet = await walletService.getBalance(user);
           return res.status(502).json({
             success: false,
             message: newTransaction.failure_reason || 'Failed to process data purchase',
+            balance: updatedWallet,
             transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
           });
         }
 
         await t.commit();
+        const updatedWallet = await walletService.getBalance(user);
 
         return res.json({
           success: true,
           message: 'Data purchase successful',
+          balance: updatedWallet,
           transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
         });
       } else {

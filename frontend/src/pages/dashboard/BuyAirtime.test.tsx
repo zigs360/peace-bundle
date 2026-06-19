@@ -141,4 +141,68 @@ describe('BuyAirtime page', () => {
     expect(localStorage.getItem('wallet_balance')).toBe('5000');
     expect(toastError).toHaveBeenCalledWith('Provider failed. Transaction was automatically reversed');
   });
+
+  it('routes data purchases through the dedicated data endpoint', async () => {
+    apiGet.mockResolvedValueOnce({
+      data: [
+        {
+          id: 17,
+          provider: 'mtn',
+          size: '1GB',
+          name: '1GB Daily',
+          effective_price: 475,
+          admin_price: 475,
+          validity: '1 Day',
+        },
+      ],
+    });
+    apiPost.mockResolvedValueOnce({
+      data: {
+        success: true,
+        message: 'Data purchase successful',
+        balance: 4525,
+        charged_price: 475,
+        transaction: {
+          reference: 'DATA-12345',
+          status: 'completed',
+          provider: 'mtn',
+          recipient_phone: '08031234567',
+          amount: 475,
+          metadata: {
+            service_provider: 'smeplug',
+          },
+        },
+      },
+    });
+
+    render(<BuyAirtime />);
+
+    fireEvent.change(screen.getByPlaceholderText('08012345678 or +234...'), {
+      target: { value: '08031234567' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Select Service')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Data Bundle' }));
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: '17' },
+    });
+
+    fireEvent.submit(screen.getByRole('button', { name: /Purchase Data Bundle/i }).closest('form')!);
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith('/transactions/data', {
+        network: 'mtn',
+        phone: '08031234567',
+        planId: 17,
+        amount: 475,
+      });
+    });
+
+    expect(await screen.findByText('Purchase Successful')).toBeInTheDocument();
+    expect(screen.getByText('DATA-12345')).toBeInTheDocument();
+    expect(localStorage.getItem('wallet_balance')).toBe('4525');
+  });
 });

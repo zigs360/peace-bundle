@@ -438,7 +438,19 @@ const buyData = async (req, res) => {
 
         await dataPurchaseService.dispenseData(newTransaction, preferredSim, t);
 
-        if (['failed', 'refunded'].includes(String(newTransaction.status || '').toLowerCase())) {
+        const statusLower = String(newTransaction.status || '').toLowerCase();
+        const isCompleted = statusLower === 'completed';
+        const isTerminalFailure = statusLower === 'failed' || statusLower === 'refunded';
+
+        if (!isCompleted && !isTerminalFailure) {
+            await transactionIntegrityService.failAndRefund(newTransaction, 'Data provider did not confirm success', t, {
+                flagAsAnomaly: true,
+                auditEvent: 'data_delivery_inconsistent_success',
+            });
+        }
+
+        const finalStatusLower = String(newTransaction.status || '').toLowerCase();
+        if (finalStatusLower === 'failed' || finalStatusLower === 'refunded') {
             await t.commit();
             const updatedWallet = await walletService.getBalance(user);
             return res.status(502).json({

@@ -33,6 +33,7 @@ const toPurchaseResult = (payload: any, fallbackPhone: string, fallbackNetwork: 
   network: String(payload?.transaction?.provider || fallbackNetwork || ''),
   phone: String(payload?.transaction?.recipient_phone || fallbackPhone),
   amount: Number(
+    payload?.charged_price ??
     payload?.transaction?.metadata?.vend_amount ??
     payload?.transaction?.amount ??
     fallbackAmount ??
@@ -42,6 +43,13 @@ const toPurchaseResult = (payload: any, fallbackPhone: string, fallbackNetwork: 
   pending: String(payload?.transaction?.status || '').toLowerCase() === 'queued' || /queued/i.test(String(payload?.message || '')),
   provider: payload?.transaction?.metadata?.service_provider || payload?.transaction?.smeplug_response?.provider || null,
 });
+
+const syncWalletBalanceCache = (balance: number | null) => {
+  if (balance === null) return;
+  const now = Date.now();
+  localStorage.setItem('wallet_balance', String(balance));
+  localStorage.setItem('wallet_balance_updated_at', String(now));
+};
 
 export default function BuyAirtime() {
   const [phone, setPhone] = useState('');
@@ -125,6 +133,13 @@ export default function BuyAirtime() {
         serviceType,
         network,
       };
+      const selectedDataPlan = dataPlans.find((plan) => String(plan.id) === String(planId));
+      const selectedDataAmount = Number(
+        selectedDataPlan?.effective_price ??
+        selectedDataPlan?.admin_price ??
+        selectedDataPlan?.price ??
+        0,
+      );
 
       try {
         if (serviceType === 'data') {
@@ -134,6 +149,7 @@ export default function BuyAirtime() {
             return;
           }
           payload.planId = planId;
+          payload.amount = selectedDataAmount;
         } else {
           if (!amount || parseFloat(amount) <= 0) {
             toast.error('Please enter a valid amount');
@@ -143,12 +159,22 @@ export default function BuyAirtime() {
           payload.amount = parseFloat(amount);
         }
 
-        const endpoint = serviceType === 'airtime' ? '/transactions/airtime' : '/purchase/unified';
-        const res = await api.post(endpoint, payload);
+        const endpoint = serviceType === 'airtime' ? '/transactions/airtime' : '/transactions/data';
+        const requestBody = serviceType === 'airtime'
+          ? payload
+          : {
+              network,
+              phone: cleanPhone,
+              planId: Number(planId),
+              amount: selectedDataAmount,
+            };
+        const res = await api.post(endpoint, requestBody);
 
         if (res.data.success) {
           toast.success(res.data.message);
-          setPurchaseResult(toPurchaseResult(res.data, cleanPhone, network, Number(payload.amount || 0)));
+          const nextResult = toPurchaseResult(res.data, cleanPhone, network, Number(payload.amount || 0));
+          setPurchaseResult(nextResult);
+          syncWalletBalanceCache(nextResult.balance);
           setAmount('');
           setPlanId('');
         }
@@ -157,11 +183,7 @@ export default function BuyAirtime() {
         const refundedResult = responseData?.transaction ? toPurchaseResult(responseData, cleanPhone, network, Number(payload.amount || 0)) : null;
         if (refundedResult) {
           setPurchaseResult(refundedResult);
-          if (refundedResult.balance !== null) {
-            const now = Date.now();
-            localStorage.setItem('wallet_balance', String(refundedResult.balance));
-            localStorage.setItem('wallet_balance_updated_at', String(now));
-          }
+          syncWalletBalanceCache(refundedResult.balance);
         }
         toast.error(responseData?.message || 'Purchase failed. Please try again.');
       } finally {

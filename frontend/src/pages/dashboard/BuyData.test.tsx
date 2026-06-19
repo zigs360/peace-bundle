@@ -311,4 +311,50 @@ describe('BuyData page', () => {
     expect(screen.queryByText('20001')).not.toBeInTheDocument();
     expect(screen.queryByText('20002')).not.toBeInTheDocument();
   });
+
+  it('shows refunded purchase details and stores wallet balance when data purchase is reversed', async () => {
+    apiPost.mockRejectedValueOnce({
+      response: {
+        data: {
+          success: false,
+          message: 'Data purchase failed and was automatically reversed',
+          balance: 5000,
+          charged_price: 475,
+          transaction: {
+            reference: 'DATA-REFUND-001',
+            status: 'refunded',
+            provider: 'mtn',
+            recipient_phone: '08031234567',
+            amount: 475,
+            metadata: {
+              service_provider: 'smeplug',
+            },
+          },
+        },
+      },
+    });
+
+    render(<BuyData />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /MTN \(merged\)/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /MTN/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Gifting \(2\)/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Gifting \(2\)/i }));
+    fireEvent.change(screen.getByPlaceholderText('08012345678'), {
+      target: { value: '08031234567' },
+    });
+    fireEvent.click(screen.getAllByText('1GB')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /buyDataPage\.buySelectedPlan/i }));
+
+    expect(await screen.findByText('Purchase Reversed')).toBeInTheDocument();
+    expect(screen.getByText('DATA-REFUND-001')).toBeInTheDocument();
+    expect(screen.getByText('smeplug')).toBeInTheDocument();
+    expect(screen.getByText('₦5,000')).toBeInTheDocument();
+    expect(localStorage.getItem('wallet_balance')).toBe('5000');
+  });
 });
