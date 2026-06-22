@@ -78,12 +78,13 @@ describe('transaction PIN system', () => {
       .send({ pin: '4826', scope: 'financial' });
 
     expect(sessionRes.statusCode).toBe(200);
-    expect(sessionRes.body.data.token).toBeTruthy();
+    expect(Array.isArray(sessionRes.headers['set-cookie'])).toBe(true);
+    expect(sessionRes.headers['set-cookie'].some((value) => value.includes('pb_pin_session_financial='))).toBe(true);
 
     const successRes = await request(app)
       .post('/api/transactions/result-checker')
       .set('Authorization', authHeader(user))
-      .set('x-transaction-pin-token', sessionRes.body.data.token)
+      .set('Cookie', sessionRes.headers['set-cookie'])
       .send({ examType: 'WAEC', quantity: 1 });
 
     expect(successRes.statusCode).toBe(200);
@@ -182,7 +183,8 @@ describe('transaction PIN system', () => {
       .send({ pin: '5937', scope: 'financial' });
 
     expect(sessionRes.statusCode).toBe(200);
-    expect(sessionRes.body.data.token).toBeTruthy();
+    expect(Array.isArray(sessionRes.headers['set-cookie'])).toBe(true);
+    expect(sessionRes.headers['set-cookie'].some((value) => value.includes('pb_pin_session_financial='))).toBe(true);
   });
 
   it('allows admins to view PIN security audit events', async () => {

@@ -43,7 +43,6 @@ describe('TransactionPinPrompt', () => {
     apiPost.mockResolvedValue({
       data: {
         data: {
-          token: 'pin-token',
           expiresAt: 123456789,
           timeoutMs: 300000,
         },
@@ -74,7 +73,6 @@ describe('TransactionPinPrompt', () => {
 
     expect(storeTransactionPinSession).toHaveBeenCalledWith(
       {
-        token: 'pin-token',
         expiresAt: 123456789,
         timeoutMs: 300000,
         scope: 'financial',
@@ -82,7 +80,6 @@ describe('TransactionPinPrompt', () => {
       'financial'
     );
     expect(onVerified).toHaveBeenCalledWith({
-      token: 'pin-token',
       expiresAt: 123456789,
       timeoutMs: 300000,
       scope: 'financial',

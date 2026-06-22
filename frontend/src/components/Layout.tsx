@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
-  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle, PhoneCall, History, ShieldAlert, Shield
+  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle, PhoneCall, History, ShieldAlert, Shield, UserX
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
@@ -226,6 +226,11 @@ export default function Layout() {
           <Link to="/admin/audit/transaction-integrity" className={getLinkClasses('/admin/audit/transaction-integrity')} title={isCollapsed ? 'Transaction Integrity Audit' : ''}>
             <Shield className={getIconClasses('/admin/audit/transaction-integrity')} />
             {!isCollapsed && <span>Transaction Integrity Audit</span>}
+          </Link>
+
+          <Link to="/admin/account-deletion" className={getLinkClasses('/admin/account-deletion')} title={isCollapsed ? 'Account Deletion Queue' : ''}>
+            <UserX className={getIconClasses('/admin/account-deletion')} />
+            {!isCollapsed && <span>Account Deletion Queue</span>}
           </Link>
 
           <Link to="/admin/subscriptions" className={getLinkClasses('/admin/subscriptions')} title={isCollapsed ? t('admin.subscriptions') : ''}>

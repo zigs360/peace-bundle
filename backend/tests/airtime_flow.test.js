@@ -52,7 +52,7 @@ const createTransactionPinSession = async (token) => {
     .send({ pin: '4826', scope: 'financial' });
 
   expect(sessionRes.statusCode).toBe(200);
-  return sessionRes.body?.data?.token;
+  return sessionRes.headers['set-cookie'];
 };
 
 describe('Airtime Purchase Flow', () => {
@@ -75,7 +75,7 @@ describe('Airtime Purchase Flow', () => {
 
   it('POST /api/transactions/airtime attempts Ogdams first (even when SIM exists)', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
-    const pinToken = await createTransactionPinSession(token);
+    const pinCookies = await createTransactionPinSession(token);
 
     await Sim.create({
       userId: user.id,
@@ -89,7 +89,7 @@ describe('Airtime Purchase Flow', () => {
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
-      .set('x-transaction-pin-token', pinToken)
+      .set('Cookie', pinCookies)
       .send({ network: 'mtn', phone: '08122222222', amount: 100 });
 
     expect(res.statusCode).toBe(200);
@@ -106,7 +106,7 @@ describe('Airtime Purchase Flow', () => {
 
   it('POST /api/transactions/airtime auto-refunds and does not switch routes when Ogdams fails and a SIM exists', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
-    const pinToken = await createTransactionPinSession(token);
+    const pinCookies = await createTransactionPinSession(token);
 
     await Sim.create({
       userId: user.id,
@@ -122,7 +122,7 @@ describe('Airtime Purchase Flow', () => {
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
-      .set('x-transaction-pin-token', pinToken)
+      .set('Cookie', pinCookies)
       .send({ network: 'mtn', phone: '08133333333', amount: 100 });
 
     expect(res.statusCode).toBe(502);
@@ -139,14 +139,14 @@ describe('Airtime Purchase Flow', () => {
 
   it('POST /api/transactions/airtime auto-refunds and does not switch routes when Ogdams fails and no SIM exists', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
-    const pinToken = await createTransactionPinSession(token);
+    const pinCookies = await createTransactionPinSession(token);
 
     ogdamsService.purchaseAirtime.mockResolvedValueOnce({ status: 'failed', message: 'temporary error' });
 
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
-      .set('x-transaction-pin-token', pinToken)
+      .set('Cookie', pinCookies)
       .send({ network: 'mtn', phone: '08144444444', amount: 100 });
 
     expect(res.statusCode).toBe(502);
@@ -178,12 +178,12 @@ describe('Airtime Purchase Flow', () => {
 
   it('POST /api/purchase/unified airtime works with +234 format and debits full amount', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
-    const pinToken = await createTransactionPinSession(token);
+    const pinCookies = await createTransactionPinSession(token);
 
     const res = await request(app)
       .post('/api/purchase/unified')
       .set('Authorization', `Bearer ${token}`)
-      .set('x-transaction-pin-token', pinToken)
+      .set('Cookie', pinCookies)
       .send({
         phone: '+2348133333333',
         serviceType: 'airtime',
@@ -206,7 +206,7 @@ describe('Airtime Purchase Flow', () => {
     process.env.OGDAMS_TIMEOUT_MS = '5';
 
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
-    const pinToken = await createTransactionPinSession(token);
+    const pinCookies = await createTransactionPinSession(token);
 
     ogdamsService.purchaseAirtime.mockImplementationOnce(() => new Promise(() => {}));
     ogdamsService.checkAirtimeStatus.mockResolvedValueOnce(null);
@@ -214,7 +214,7 @@ describe('Airtime Purchase Flow', () => {
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
-      .set('x-transaction-pin-token', pinToken)
+      .set('Cookie', pinCookies)
       .send({ network: 'mtn', phone: '08155555555', amount: 100 });
 
     expect(res.statusCode).toBe(200);

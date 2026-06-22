@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const logger = require('../utils/logger');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { getAccessTokenFromRequest } = require('../utils/authCookies');
 const {
     NETWORK_ORDER,
     comparePlans,
@@ -64,8 +65,7 @@ function sanitizePlanForClient(plan) {
 }
 
 async function resolveCatalogRequester(req) {
-    const authHeader = req.headers?.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const token = getAccessTokenFromRequest(req);
     if (!token) return null;
 
     try {

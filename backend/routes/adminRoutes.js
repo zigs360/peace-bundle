@@ -56,6 +56,7 @@ const treasuryController = require('../controllers/treasuryController');
 const adminWalletDeductionController = require('../controllers/adminWalletDeductionController');
 const adminTransactionPinAuditController = require('../controllers/adminTransactionPinAuditController');
 const adminTransactionIntegrityController = require('../controllers/adminTransactionIntegrityController');
+const adminAccountDeletionController = require('../controllers/adminAccountDeletionController');
 const {
     listAdminOgdamsSims,
     createAdminOgdamsDataPurchase,
@@ -142,6 +143,11 @@ router.get('/audit/transaction-pin-events', protect, admin, adminTransactionPinA
 router.get('/audit/transaction-integrity', protect, admin, adminTransactionIntegrityController.listTransactionIntegrityAudits);
 router.get('/audit/transaction-integrity/summary', protect, admin, adminTransactionIntegrityController.getIntegritySummary);
 router.post('/audit/transaction-integrity/repair', protect, admin, adminTransactionIntegrityController.runTransactionIntegrityRepair);
+router.get('/account-deletion/requests', protect, admin, adminAccountDeletionController.listAccountDeletionRequests);
+router.get('/account-deletion/requests/:id', protect, admin, adminAccountDeletionController.getAccountDeletionRequestDetail);
+router.post('/account-deletion/requests/:id/approve', protect, admin, adminAccountDeletionController.approveAccountDeletionRequest);
+router.post('/account-deletion/requests/:id/reject', protect, admin, adminAccountDeletionController.rejectAccountDeletionRequest);
+router.post('/account-deletion/requests/:id/execute', protect, admin, adminAccountDeletionController.executeAccountDeletionRequest);
 router.get('/audit/plan/:id/history', protect, admin, adminPlanController.getPlanHistory);
 router.get('/stats/summary', protect, admin, adminPlanController.getPlanStatsSummary);
 router.get('/stats/recent-updates', protect, admin, adminPlanController.getRecentPriceUpdates);

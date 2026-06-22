@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const logger = require('../utils/logger');
 const transactionPinService = require('../services/transactionPinService');
+const { setTransactionPinCookie } = require('../utils/authCookies');
 
 async function loadUser(req) {
   const user = await User.findByPk(req.user.id);
@@ -120,10 +121,19 @@ const createTransactionPinSession = async (req, res) => {
       ip: req.ip,
       userAgent: req.headers['user-agent'] || null,
     });
+    setTransactionPinCookie(res, {
+      token: session.token,
+      scope: req.body?.scope || 'financial',
+      maxAge: session.timeoutMs,
+    });
     return res.json({
       success: true,
       message: 'Transaction PIN verified',
-      data: session,
+      data: {
+        expiresAt: session.expiresAt,
+        timeoutMs: session.timeoutMs,
+        scope: req.body?.scope || 'financial',
+      },
     });
   } catch (error) {
     return handleError(res, error, { userId: req.user?.id, action: 'session' });

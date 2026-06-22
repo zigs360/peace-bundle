@@ -178,14 +178,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    const storedUser = getStoredUser<any>();
+    if (!storedUser?.id) return;
 
     fetchNotifications();
 
     const socketUrl = (import.meta as any).env.VITE_SOCKET_URL || window.location.origin;
     const newSocket = io(socketUrl, {
-      auth: { token },
+      withCredentials: true,
       // Remove explicit transport: ['websocket'] to allow fallback to polling, 
       // which is more reliable in production environments behind proxies.
     });

@@ -46,6 +46,28 @@ class PayVesselService {
             .replace(/[^A-Z0-9]/g, '');
     }
 
+    maskEmail(email) {
+        const value = String(email || '').trim().toLowerCase();
+        const [local, domain] = value.split('@');
+        if (!local || !domain) return 'hidden';
+        return `${local.slice(0, 2) || '*'}***@${domain}`;
+    }
+
+    summarizeProviderResponse(data) {
+        const banks = Array.isArray(data?.banks)
+            ? data.banks
+            : Array.isArray(data?.data?.banks)
+                ? data.data.banks
+                : [];
+        return {
+            status: data?.status ?? null,
+            code: data?.code ?? null,
+            message: data?.message || data?.error || null,
+            bankCount: banks.length,
+            trackingReference: data?.trackingReference || data?.data?.trackingReference || null,
+        };
+    }
+
     getBankCodeForName(name) {
         const normalized = this.normalizeBankName(name);
         return this.bankCodeMap[normalized] || null;
@@ -156,11 +178,16 @@ class PayVesselService {
                 const envAllowsMockBvn = String(process.env.MOCK_BVN_ALLOWED || 'false').toLowerCase() === 'true';
                 if (allowMock && envAllowsMockBvn) {
                     payload.bvn = '22222222222'; // Standard mock BVN for PayVessel sandbox
-                    logger.info(`[PayVessel] Using mock BVN for ${user.email} as allowed by system settings`);
+                    logger.info('[PayVessel] Using mock BVN as allowed by system settings', {
+                        userId: user.id || null,
+                        email: this.maskEmail(user.email),
+                    });
                 }
             }
 
-            logger.info(`[PayVessel] Initiating virtual account creation for ${user.email}`, {
+            logger.info('[PayVessel] Initiating virtual account creation', {
+                userId: user.id || null,
+                email: this.maskEmail(user.email),
                 url,
                 payload: { ...payload, bvn: payload.bvn ? '***' : undefined, nin: payload.nin ? '***' : undefined }
             });
@@ -178,7 +205,11 @@ class PayVesselService {
                 }
             );
 
-            logger.info(`[PayVessel] Response received for ${user.email}:`, response.data);
+            logger.info('[PayVessel] Response received', {
+                userId: user.id || null,
+                email: this.maskEmail(user.email),
+                response: this.summarizeProviderResponse(response.data),
+            });
 
             if (response.data && (response.data.status === true || response.data.status === 'success' || response.data.code === 200)) {
                 // Response can have banks at top level or under data.banks
@@ -217,9 +248,11 @@ class PayVesselService {
             const errorData = error.response?.data;
             const status = error.response?.status;
             
-            logger.error(`[PayVessel] Virtual Account Creation Failed for ${user.email}:`, {
+            logger.error('[PayVessel] Virtual account creation failed', {
+                userId: user.id || null,
+                email: this.maskEmail(user.email),
                 status,
-                data: errorData,
+                data: this.summarizeProviderResponse(errorData || {}),
                 message: error.message
             });
 

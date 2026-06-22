@@ -67,12 +67,12 @@ describe('Transaction integrity safeguards', () => {
       .send({ pin: '4826', scope: 'financial' });
 
     expect(sessionRes.statusCode).toBe(200);
-    return sessionRes.body?.data?.token;
+    return sessionRes.headers['set-cookie'];
   };
 
   it('locks airtime purchases to a single route and auto-refunds on hard provider failure', async () => {
     const { user, token } = await createUserWithToken({ balance: 1000, prefix: 'airtime' });
-    const pinToken = await createTransactionPinSession(token);
+    const pinCookies = await createTransactionPinSession(token);
     const walletUpdateSpy = jest.spyOn(notificationRealtimeService, 'emitToUser').mockImplementation(() => {});
     await Sim.create({
       userId: user.id,
@@ -89,7 +89,7 @@ describe('Transaction integrity safeguards', () => {
     const res = await request(app)
       .post('/api/transactions/airtime')
       .set('Authorization', `Bearer ${token}`)
-      .set('x-transaction-pin-token', pinToken)
+      .set('Cookie', pinCookies)
       .send({ network: 'mtn', phone: '08133333333', amount: 100, reference: 'AIRTIME-INTEGRITY-001' });
 
     expect(res.statusCode).toBe(502);
@@ -135,7 +135,7 @@ describe('Transaction integrity safeguards', () => {
 
   it('auto-refunds failed data purchases instead of leaving the user debited', async () => {
     const { user, token } = await createUserWithToken({ balance: 5000, prefix: 'data' });
-    const pinToken = await createTransactionPinSession(token);
+    const pinCookies = await createTransactionPinSession(token);
 
     const plan = await DataPlan.create({
       provider: 'mtn',
@@ -157,7 +157,7 @@ describe('Transaction integrity safeguards', () => {
     const res = await request(app)
       .post('/api/transactions/data')
       .set('Authorization', `Bearer ${token}`)
-      .set('x-transaction-pin-token', pinToken)
+      .set('Cookie', pinCookies)
       .send({
         network: 'mtn',
         planId: plan.id,

@@ -32,14 +32,14 @@ const {
   sanitizePlanForClient,
   sanitizeVoiceBundlePurchaseForClient,
 } = require('../utils/clientPayloadSanitizers');
+const { getAccessTokenFromRequest } = require('../utils/authCookies');
 
 const resolveRequestUser = async (req) => {
   if (req.user?.id) {
     return req.user;
   }
 
-  const authHeader = req.headers?.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = getAccessTokenFromRequest(req);
   if (!token) return null;
 
   try {

@@ -478,7 +478,12 @@ const buyData = async (req, res) => {
         });
     } catch (error) {
         if (t && !t.finished) await t.rollback();
-        logger.error('Data Purchase Error:', { error: error.message, stack: error.stack, userId, phone });
+        logger.error('Data Purchase Error:', {
+            error: error.message,
+            stack: error.stack,
+            userId,
+            phone: maskNotificationPhone(phone),
+        });
         const msg = String(error?.message || 'Server Error');
         const status =
             msg.includes('Insufficient wallet balance') ? 400 :
@@ -733,7 +738,12 @@ const buyAirtime = async (req, res) => {
         });
     } catch (error) {
         if (t && !t.finished) await t.rollback();
-        logger.error('Airtime Purchase Error:', { error: error.message, stack: error.stack, userId, phone });
+        logger.error('Airtime Purchase Error:', {
+            error: error.message,
+            stack: error.stack,
+            userId,
+            phone: maskNotificationPhone(phone),
+        });
         const msg = String(error?.message || 'Server Error');
         const status =
             msg.includes('Insufficient wallet balance') ? 400 :

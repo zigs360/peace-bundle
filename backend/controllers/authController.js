@@ -9,11 +9,17 @@ const BvnVerificationService = require('../services/bvnVerificationService');
 const ReferralService = require('../services/referralService');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { encrypt } = require('../utils/cryptoUtils');
 const logger = require('../utils/logger');
 const walletService = require('../services/walletService');
 const passwordResetService = require('../services/passwordResetService');
 const welcomeEmailService = require('../services/welcomeEmailService');
+const {
+    setAuthCookies,
+    clearAuthCookies,
+    getRefreshTokenFromRequest,
+} = require('../utils/authCookies');
 
 const SENSITIVE_USER_FIELDS = [
     'password',
@@ -41,6 +47,34 @@ const mapUserForClient = (user) => ({
     avatar: user.avatar || null,
     hasTransactionPin: Boolean(user.transaction_pin_hash),
 });
+
+const hashRefreshToken = (token) => (
+    crypto.createHash('sha256').update(String(token || '')).digest('hex')
+);
+
+const getStoredRefreshTokens = (metadata) => {
+    const refreshTokens = Array.isArray(metadata?.refreshTokens) ? metadata.refreshTokens : [];
+    return refreshTokens
+        .map((token) => String(token || '').trim())
+        .filter(Boolean);
+};
+
+const refreshTokenMatches = (storedToken, candidateToken) => {
+    const normalizedStored = String(storedToken || '').trim();
+    const normalizedCandidate = String(candidateToken || '').trim();
+    if (!normalizedStored || !normalizedCandidate) return false;
+    const candidateHash = hashRefreshToken(normalizedCandidate);
+    return normalizedStored === normalizedCandidate || normalizedStored === candidateHash;
+};
+
+const storeHashedRefreshToken = (metadata, refreshToken) => {
+    const existing = getStoredRefreshTokens(metadata).filter((token) => !refreshTokenMatches(token, refreshToken));
+    return [...existing.slice(-9), hashRefreshToken(refreshToken)];
+};
+
+const removeRefreshTokenFromStore = (metadata, refreshToken) => (
+    getStoredRefreshTokens(metadata).filter((token) => !refreshTokenMatches(token, refreshToken))
+);
 
 const buildVirtualAccountProfileState = async (user) => {
     const hasDisplayableVirtualAccount = VirtualAccountService.isDisplayableVirtualAccount(user);
@@ -164,10 +198,9 @@ const registerUser = async (req, res) => {
         const token = generateToken(user.id);
         const refreshToken = generateRefreshToken(user.id);
 
-        // Save refresh token to user metadata
+        // Persist hashed refresh tokens so a DB leak does not expose active sessions.
         const userMeta = user.metadata || {};
-        const refreshTokens = userMeta.refreshTokens || [];
-        refreshTokens.push(refreshToken);
+        const refreshTokens = storeHashedRefreshToken(userMeta, refreshToken);
         await user.update({
             metadata: {
                 ...userMeta,
@@ -205,9 +238,9 @@ const registerUser = async (req, res) => {
             });
         }
 
+        setAuthCookies(res, { accessToken: token, refreshToken });
         res.status(201).json({
-            token,
-            refreshToken,
+            success: true,
             user: mapUserForClient({ ...user.toJSON(), wallet: { balance: 0.00 } }),
             message: 'Registration successful'
         });
@@ -278,10 +311,8 @@ const loginUser = async (req, res) => {
             const token = generateToken(user.id);
             const refreshToken = generateRefreshToken(user.id);
 
-            // Save refresh token to user metadata
             const userMeta = user.metadata || {};
-            const refreshTokens = userMeta.refreshTokens || [];
-            refreshTokens.push(refreshToken);
+            const refreshTokens = storeHashedRefreshToken(userMeta, refreshToken);
             await user.update({
                 metadata: {
                     ...userMeta,
@@ -289,9 +320,9 @@ const loginUser = async (req, res) => {
                 }
             });
 
+            setAuthCookies(res, { accessToken: token, refreshToken });
             res.json({
-                token,
-                refreshToken,
+                success: true,
                 user: mapUserForClient(user),
                 message: 'Login successful'
             });
@@ -444,8 +475,7 @@ const updateProfile = async (req, res) => {
             role: updatedUser.role,
             kycStatus: updatedUser.kyc_status,
             avatar: updatedUser.avatar,
-            hasTransactionPin: Boolean(updatedUser.transaction_pin_hash),
-            token: generateToken(updatedUser.id)
+            hasTransactionPin: Boolean(updatedUser.transaction_pin_hash)
         });
     } catch (error) {
         logger.error(`[Auth] Profile update error: ${error.message}`);
@@ -543,7 +573,11 @@ const submitKyc = async (req, res) => {
             });
         }
 
-        logger.info(`[KYC] Submission for User ${req.user.id}: BVN: ${bvn}, File: ${req.file.filename}`);
+        logger.info('[KYC] Submission received', {
+            userId: req.user.id,
+            bvn: `***${String(bvn).slice(-4)}`,
+            file: req.file.filename,
+        });
 
         // 1. BVN Verification
         let isBvnVerified = false;
@@ -628,7 +662,7 @@ const submitKyc = async (req, res) => {
 // @route   POST /api/auth/refresh
 // @access  Public
 const refreshUserToken = async (req, res) => {
-    const { refreshToken } = req.body;
+    const refreshToken = getRefreshTokenFromRequest(req);
 
     if (!refreshToken) {
         return res.status(400).json({
@@ -651,10 +685,10 @@ const refreshUserToken = async (req, res) => {
         }
 
         const userMeta = user.metadata || {};
-        const refreshTokens = userMeta.refreshTokens || [];
+        const refreshTokens = getStoredRefreshTokens(userMeta);
 
         // Check if token exists in user's active list
-        if (!refreshTokens.includes(refreshToken)) {
+        if (!refreshTokens.some((token) => refreshTokenMatches(token, refreshToken))) {
             // Potential token reuse / theft attack!
             // Clear all refresh tokens for security
             await user.update({
@@ -663,6 +697,7 @@ const refreshUserToken = async (req, res) => {
                     refreshTokens: [],
                 }
             });
+            clearAuthCookies(res);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid refresh token - Potential reuse detected',
@@ -674,8 +709,10 @@ const refreshUserToken = async (req, res) => {
         const newRefreshToken = generateRefreshToken(user.id);
 
         // Rotate token (replace old refresh token with new one)
-        const updatedTokens = refreshTokens.filter(t => t !== refreshToken);
-        updatedTokens.push(newRefreshToken);
+        const updatedTokens = [
+            ...removeRefreshTokenFromStore(userMeta, refreshToken).slice(-9),
+            hashRefreshToken(newRefreshToken),
+        ];
 
         await user.update({
             metadata: {
@@ -684,13 +721,14 @@ const refreshUserToken = async (req, res) => {
             }
         });
 
+        setAuthCookies(res, { accessToken: newToken, refreshToken: newRefreshToken });
         res.json({
             success: true,
-            token: newToken,
-            refreshToken: newRefreshToken,
+            message: 'Session refreshed',
         });
     } catch (error) {
         logger.error(`[Auth] Token refresh error: ${error.message}`);
+        clearAuthCookies(res);
         return res.status(401).json({
             success: false,
             message: 'Invalid or expired refresh token',
@@ -702,18 +740,28 @@ const refreshUserToken = async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 const logoutUser = async (req, res) => {
-    const { refreshToken } = req.body;
+    const refreshToken = getRefreshTokenFromRequest(req);
 
     try {
-        if (req.user) {
-            const user = await User.findByPk(req.user.id);
+        let userId = req.user?.id || null;
+        if (!userId && refreshToken) {
+            try {
+                const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+                userId = decoded?.id || null;
+            } catch (_error) {
+                userId = null;
+            }
+        }
+
+        if (userId) {
+            const user = await User.findByPk(userId);
             if (user) {
                 const userMeta = user.metadata || {};
-                let refreshTokens = userMeta.refreshTokens || [];
+                let refreshTokens = getStoredRefreshTokens(userMeta);
                 if (refreshToken) {
-                    refreshTokens = refreshTokens.filter(t => t !== refreshToken);
+                    refreshTokens = removeRefreshTokenFromStore(userMeta, refreshToken);
                 } else {
-                    refreshTokens = []; // Clear all if not specified
+                    refreshTokens = [];
                 }
                 await user.update({
                     metadata: {
@@ -723,6 +771,7 @@ const logoutUser = async (req, res) => {
                 });
             }
         }
+        clearAuthCookies(res);
         res.json({
             success: true,
             message: 'Logged out successfully',

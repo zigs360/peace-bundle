@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const Notification = require('../models/Notification');
 const logger = require('../utils/logger');
+const { parseCookieHeader, ACCESS_COOKIE_NAME } = require('../utils/authCookies');
 
 class NotificationService {
   constructor() {
@@ -32,7 +33,11 @@ class NotificationService {
 
     // Authentication middleware
     this.io.use((socket, next) => {
-      const token = socket.handshake.auth.token || socket.handshake.query.token;
+      const cookies = parseCookieHeader(socket.handshake.headers?.cookie || '');
+      const token =
+        socket.handshake.auth.token ||
+        socket.handshake.query.token ||
+        cookies[ACCESS_COOKIE_NAME];
       
       if (!token) {
         return next(new Error('Authentication error: No token provided'));

@@ -15,6 +15,12 @@ const {
     getDualVirtualAccountsSnapshot,
     updateFcmToken
 } = require('../controllers/userController');
+const {
+    getAccountDeletionStatus,
+    sendAccountDeletionVerificationCode,
+    submitAccountDeletionRequest,
+    cancelAccountDeletionRequest,
+} = require('../controllers/accountDeletionController');
 const dataPurchaseController = require('../controllers/dataPurchaseController');
 const bulkDataController = require('../controllers/bulkDataController');
 const { protect } = require('../middleware/authMiddleware');
@@ -58,5 +64,9 @@ router.get('/beneficiaries/:userId', protect, getBeneficiaries);
 router.post('/beneficiaries', protect, addBeneficiary);
 router.delete('/beneficiaries/:userId/:beneficiaryId', protect, deleteBeneficiary);
 router.post('/fcm-token', protect, updateFcmToken);
+router.get('/account-deletion', protect, getAccountDeletionStatus);
+router.post('/account-deletion/verification', protect, sendAccountDeletionVerificationCode);
+router.post('/account-deletion/request', protect, submitAccountDeletionRequest);
+router.post('/account-deletion/cancel', protect, cancelAccountDeletionRequest);
 
 module.exports = router;

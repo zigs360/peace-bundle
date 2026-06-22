@@ -276,6 +276,8 @@ const VoiceBundlePurchase = require('../models/VoiceBundlePurchase');
 const VoiceBundlePurchaseAudit = require('../models/VoiceBundlePurchaseAudit');
 const TransactionPinSecurityEvent = require('../models/TransactionPinSecurityEvent');
 const TransactionIntegrityAudit = require('../models/TransactionIntegrityAudit');
+const AccountDeletionRequest = require('../models/AccountDeletionRequest');
+const AccountDeletionAudit = require('../models/AccountDeletionAudit');
 
 // Define Associations (Top Level)
 
@@ -416,6 +418,18 @@ try {
 
   Transaction.hasMany(TransactionIntegrityAudit, { foreignKey: 'transactionId', as: 'integrityAudits', onDelete: 'CASCADE' });
   TransactionIntegrityAudit.belongsTo(Transaction, { foreignKey: 'transactionId', as: 'transaction' });
+
+  User.hasMany(AccountDeletionRequest, { foreignKey: 'userId', as: 'accountDeletionRequests', onDelete: 'SET NULL' });
+  AccountDeletionRequest.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  AccountDeletionRequest.hasMany(AccountDeletionAudit, { foreignKey: 'requestId', as: 'audits', onDelete: 'CASCADE' });
+  AccountDeletionAudit.belongsTo(AccountDeletionRequest, { foreignKey: 'requestId', as: 'request' });
+
+  User.hasMany(AccountDeletionAudit, { foreignKey: 'userId', as: 'accountDeletionAudits', onDelete: 'SET NULL' });
+  AccountDeletionAudit.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  User.hasMany(AccountDeletionAudit, { foreignKey: 'adminId', as: 'accountDeletionAdminAudits', onDelete: 'SET NULL' });
+  AccountDeletionAudit.belongsTo(User, { foreignKey: 'adminId', as: 'admin' });
 
   CallPlan.hasMany(VoiceBundlePurchase, { foreignKey: 'callPlanId', as: 'voiceBundlePurchases', onDelete: 'CASCADE' });
   VoiceBundlePurchase.belongsTo(CallPlan, { foreignKey: 'callPlanId', as: 'callPlan' });
@@ -891,6 +905,15 @@ const connectDB = async () => {
         });
       } catch (e) {
         console.error('Transaction integrity audit table sync failed:', e.message);
+      }
+
+      try {
+        await runModelSync('account deletion workflow', async () => {
+          await AccountDeletionRequest.sync();
+          await AccountDeletionAudit.sync();
+        });
+      } catch (e) {
+        console.error('Account deletion tables sync failed:', e.message);
       }
 
       console.log('Database Synced');

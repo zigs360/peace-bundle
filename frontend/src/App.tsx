@@ -18,6 +18,7 @@ import PlansIndex from './pages/admin/Plans/Index';
 import PriceHistory from './pages/admin/PriceHistory';
 import PinSecurityAudit from './pages/admin/PinSecurityAudit';
 import TransactionIntegrityAudit from './pages/admin/TransactionIntegrityAudit';
+import AccountDeletionQueue from './pages/admin/AccountDeletionQueue';
 import CreatePlan from './pages/admin/Plans/Create';
 import SimsIndex from './pages/admin/Sims/Index';
 import CreateSim from './pages/admin/Sims/Create';
@@ -116,6 +117,7 @@ function App() {
             <Route path="audit/price-history" element={<PriceHistory />} />
             <Route path="audit/pin-security" element={<PinSecurityAudit />} />
             <Route path="audit/transaction-integrity" element={<TransactionIntegrityAudit />} />
+            <Route path="account-deletion" element={<AccountDeletionQueue />} />
             <Route path="sims" element={<SimsIndex />} />
             <Route path="sims/create" element={<CreateSim />} />
             <Route path="bulk-sms" element={<BulkSMSIndex />} />

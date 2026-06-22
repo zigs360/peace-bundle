@@ -1,4 +1,5 @@
 const request = require('supertest');
+const jwt = require('jsonwebtoken');
 const app = require('../server');
 const { sequelize, connectDB } = require('../config/db');
 const { Op } = require('sequelize');
@@ -26,21 +27,19 @@ describe('Auth Endpoints', () => {
     password: 'password123',
     phone: `080${Date.now().toString().slice(-8)}`
   };
-
-  let token;
-
   it('POST /api/auth/register - should register a new user', async () => {
     const res = await request(app)
       .post('/api/auth/register')
       .send(testUser);
     
     expect(res.statusCode).toEqual(201);
-    expect(res.body).toHaveProperty('token');
+    expect(Array.isArray(res.headers['set-cookie'])).toBe(true);
+    expect(res.headers['set-cookie'].some((value) => value.includes('pb_access_token='))).toBe(true);
+    expect(res.headers['set-cookie'].some((value) => value.includes('pb_refresh_token='))).toBe(true);
     expect(res.body.user).toHaveProperty('email', testUser.email);
-    token = res.body.token; // Save token for later if needed
   });
 
-  it('POST /api/auth/login - should login user and return token', async () => {
+  it('POST /api/auth/login - should login user and set auth cookies', async () => {
     // Register first (or rely on previous test, but better to be independent or sequential)
     // Since we cleanup afterEach, we need to register again or use beforeAll for setup.
     // Let's just register a fresh user for this test.
@@ -62,7 +61,9 @@ describe('Auth Endpoints', () => {
       });
 
     expect(res.statusCode).toEqual(200);
-    expect(res.body).toHaveProperty('token');
+    expect(Array.isArray(res.headers['set-cookie'])).toBe(true);
+    expect(res.headers['set-cookie'].some((value) => value.includes('pb_access_token='))).toBe(true);
+    expect(res.headers['set-cookie'].some((value) => value.includes('pb_refresh_token='))).toBe(true);
   });
 
   it('GET /api/auth/me - should return user profile', async () => {
@@ -75,7 +76,8 @@ describe('Auth Endpoints', () => {
     };
 
     const regRes = await request(app).post('/api/auth/register').send(meUser);
-    const userToken = regRes.body.token;
+    const createdUser = await User.findOne({ where: { email: meUser.email } });
+    const userToken = jwt.sign({ id: createdUser.id }, process.env.JWT_SECRET);
 
     const res = await request(app)
       .get('/api/auth/me')
@@ -105,7 +107,8 @@ describe('Auth Endpoints', () => {
       });
 
     expect(res.statusCode).toEqual(200);
-    expect(res.body).toHaveProperty('token');
+    expect(Array.isArray(res.headers['set-cookie'])).toBe(true);
+    expect(res.headers['set-cookie'].some((value) => value.includes('pb_access_token='))).toBe(true);
     expect(Number(res.body.user.balance)).toEqual(0);
 
     const recreatedWallet = await Wallet.findOne({ where: { userId: createdUser.id } });

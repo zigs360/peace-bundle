@@ -1,47 +1,41 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const { getAccessTokenFromRequest } = require('../utils/authCookies');
 
 const protect = async (req, res, next) => {
-    let token;
+    const token = getAccessTokenFromRequest(req);
 
-    if (
-        req.headers.authorization &&
-        req.headers.authorization.startsWith('Bearer')
-    ) {
-        try {
-            token = req.headers.authorization.split(' ')[1];
-            
-            // Decode token to get user ID
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            
-            // Fetch user from DB (Sequelize)
-            req.user = await User.findByPk(decoded.id, {
-                attributes: {
-                    exclude: [
-                        'password',
-                        'two_factor_secret',
-                        'transaction_pin_hash',
-                        'transaction_pin_failed_attempts',
-                        'transaction_pin_locked_until',
-                        'transaction_pin_last_changed_at',
-                        'transaction_pin_last_verified_at',
-                        'transaction_pin_recovery_otp_hash',
-                        'transaction_pin_recovery_otp_expires_at',
-                        'transaction_pin_recovery_otp_sent_at',
-                    ]
-                }
-            });
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-            if (!req.user) {
-                return res.status(401).json({ success: false, message: 'Not authorized, user not found' });
-            }
-            
-            return next();
-        } catch (error) {
-            logger.error('Auth protect error:', { error: error.message, token: token ? 'provided' : 'none' });
-            return res.status(401).json({ success: false, message: 'Not authorized, token failed' });
+        req.user = await User.findByPk(decoded.id, {
+          attributes: {
+            exclude: [
+              'password',
+              'two_factor_secret',
+              'transaction_pin_hash',
+              'transaction_pin_failed_attempts',
+              'transaction_pin_locked_until',
+              'transaction_pin_last_changed_at',
+              'transaction_pin_last_verified_at',
+              'transaction_pin_recovery_otp_hash',
+              'transaction_pin_recovery_otp_expires_at',
+              'transaction_pin_recovery_otp_sent_at',
+            ],
+          },
+        });
+
+        if (!req.user) {
+          return res.status(401).json({ success: false, message: 'Not authorized, user not found' });
         }
+
+        return next();
+      } catch (error) {
+        logger.error('Auth protect error:', { error: error.message, token: token ? 'provided' : 'none' });
+        return res.status(401).json({ success: false, message: 'Not authorized, token failed' });
+      }
     }
 
     if (!token) {

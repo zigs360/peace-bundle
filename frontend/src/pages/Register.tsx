@@ -30,11 +30,7 @@ export default function Register() {
 
     try {
       const res = await api.post('/auth/register', formData);
-      const data = res.data as { token: string; refreshToken?: string; user: any };
-      localStorage.setItem('token', data.token);
-      if (data.refreshToken) {
-        localStorage.setItem('refreshToken', data.refreshToken);
-      }
+      const data = res.data as { user: any };
       const userForStorage = { ...data.user };
       delete userForStorage.virtual_account_number;
       delete userForStorage.virtual_account_bank;

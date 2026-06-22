@@ -1,4 +1,5 @@
 const request = require('supertest');
+const jwt = require('jsonwebtoken');
 const app = require('../server');
 const { sequelize, connectDB } = require('../config/db');
 const User = require('../models/User');
@@ -22,8 +23,8 @@ describe('Beneficiary Endpoints', () => {
       .post('/api/auth/register')
       .send(testUser);
     
-    token = res.body.token;
     userId = res.body.user.id;
+    token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'test_jwt_secret');
   });
 
   afterAll(async () => {

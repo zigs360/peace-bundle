@@ -1,5 +1,5 @@
 export interface TransactionPinSession {
-  token: string;
+  token?: string;
   expiresAt: number;
   timeoutMs: number;
   scope: string;
@@ -16,7 +16,7 @@ export function getStoredTransactionPinSession(scope = 'financial'): Transaction
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as TransactionPinSession;
-    if (!parsed?.token || !parsed?.expiresAt) return null;
+    if (!parsed?.expiresAt) return null;
     if (Date.now() >= Number(parsed.expiresAt)) {
       sessionStorage.removeItem(getStorageKey(scope));
       return null;
@@ -29,7 +29,14 @@ export function getStoredTransactionPinSession(scope = 'financial'): Transaction
 }
 
 export function storeTransactionPinSession(session: TransactionPinSession, scope = 'financial') {
-  sessionStorage.setItem(getStorageKey(scope), JSON.stringify({ ...session, scope }));
+  sessionStorage.setItem(
+    getStorageKey(scope),
+    JSON.stringify({
+      expiresAt: session.expiresAt,
+      timeoutMs: session.timeoutMs,
+      scope,
+    })
+  );
 }
 
 export function clearTransactionPinSession(scope = 'financial') {

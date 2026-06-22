@@ -136,36 +136,50 @@ const safeUrlHost = (value) => {
   }
 };
 
+const shouldExposeOperationalDetails = () => {
+  if (process.env.NODE_ENV !== 'production') return true;
+  return String(process.env.EXPOSE_PUBLIC_RUNTIME_INFO || 'false').toLowerCase() === 'true';
+};
+
 app.get('/api/config', async (req, res) => {
   try {
     const SystemSetting = require('./models/SystemSetting');
     const enabled = await SystemSetting.get('virtual_account_generation_enabled');
     const provider = await SystemSetting.get('virtual_account_provider');
     const allowMockBvn = await SystemSetting.get('allow_mock_bvn');
-
-    return res.json({
+    const payload = {
       success: true,
-      env: process.env.NODE_ENV || 'development',
-      commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
-      time: new Date().toISOString(),
       features: {
         virtual_account_generation_enabled: enabled !== null ? enabled : true,
         virtual_account_provider: provider || null,
         allow_mock_bvn: allowMockBvn || null,
       },
-    });
+    };
+    if (shouldExposeOperationalDetails()) {
+      payload.env = process.env.NODE_ENV || 'development';
+      payload.commit = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null;
+      payload.time = new Date().toISOString();
+    }
+    return res.json(payload);
   } catch (e) {
-    return res.status(200).json({
-      success: true,
-      env: process.env.NODE_ENV || 'development',
-      commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
-      time: new Date().toISOString(),
-      features: {},
-    });
+    const payload = { success: true, features: {} };
+    if (shouldExposeOperationalDetails()) {
+      payload.env = process.env.NODE_ENV || 'development';
+      payload.commit = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null;
+      payload.time = new Date().toISOString();
+    }
+    return res.status(200).json(payload);
   }
 });
 
 app.get('/api/env', (req, res) => {
+  if (!shouldExposeOperationalDetails()) {
+    return res.status(404).json({
+      success: false,
+      message: 'Not found',
+    });
+  }
+
   const billstackHost =
     safeUrlHost(process.env.BILLSTACK_BASE_URL) ||
     safeUrlHost(process.env.BILL_STACK_BASE_URL) ||

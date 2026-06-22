@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const pricingService = require('../services/pricingService');
+const { getAccessTokenFromRequest } = require('../utils/authCookies');
 
 // @desc    Get all subscription plans
 // @route   GET /api/plans/subscriptions
@@ -15,8 +16,7 @@ const getSubscriptionPlans = async (req, res) => {
         });
 
         let user = null;
-        const authHeader = req.headers.authorization || '';
-        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const token = getAccessTokenFromRequest(req);
         if (token) {
             try {
                 const decoded = jwt.verify(token, process.env.JWT_SECRET);

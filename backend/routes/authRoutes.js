@@ -118,6 +118,6 @@ router.post('/transaction-pin/recovery/otp', protect, requestTransactionPinRecov
 router.post('/transaction-pin/recover', protect, recoverTransactionPin);
 router.post('/transaction-pin/session', protect, createTransactionPinSession);
 router.post('/refresh', refreshUserToken);
-router.post('/logout', protect, logoutUser);
+router.post('/logout', logoutUser);
 
 module.exports = router;

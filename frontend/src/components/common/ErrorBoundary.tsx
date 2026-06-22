@@ -1,4 +1,5 @@
 import React from 'react';
+import { clearStoredAuth } from '../../services/api';
 
 type Props = {
   children: React.ReactNode;
@@ -38,9 +39,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
                 className="px-4 py-2 rounded border border-gray-300"
                 onClick={() => {
                   try {
-                    localStorage.removeItem('user');
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('refreshToken');
+                    clearStoredAuth();
                     localStorage.removeItem('wallet_balance');
                   } catch {
                     void 0;

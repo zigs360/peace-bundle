@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
 import { FadeIn } from './animations/MotionComponents';
+import { getStoredUser } from '../utils/storage';
 
 interface Review {
   id: string;
@@ -70,8 +71,8 @@ export default function ReviewSection() {
     setError('');
     setSuccess('');
 
-    const token = localStorage.getItem('token');
-    if (!token) {
+    const user = getStoredUser();
+    if (!user) {
       setError(t('reviews.loginRequired'));
       setSubmitting(false);
       return;

@@ -15,7 +15,7 @@ describe('Data plan catalog and purchase flow', () => {
   let user;
   let adminToken;
   let adminUser;
-  let transactionPinToken;
+  let transactionPinCookies;
 
   beforeAll(async () => {
     await connectDB();
@@ -59,9 +59,9 @@ describe('Data plan catalog and purchase flow', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ pin: '4826', scope: 'financial' });
 
-    transactionPinToken = pinSessionRes.body?.data?.token;
     expect(pinSessionRes.statusCode).toBe(200);
-    expect(transactionPinToken).toBeTruthy();
+    transactionPinCookies = pinSessionRes.headers['set-cookie'];
+    expect(Array.isArray(transactionPinCookies)).toBe(true);
   });
 
   afterEach(async () => {
@@ -343,7 +343,7 @@ describe('Data plan catalog and purchase flow', () => {
     const res = await request(app)
       .post('/api/transactions/data')
       .set('Authorization', `Bearer ${token}`)
-      .set('x-transaction-pin-token', transactionPinToken)
+      .set('Cookie', transactionPinCookies)
       .send({
         network: 'mtn',
         planId: plan.id,
@@ -382,14 +382,14 @@ describe('Data plan catalog and purchase flow', () => {
       .post('/api/transactions/data')
       .set('Authorization', `Bearer ${token}`)
       .set('Idempotency-Key', payload.reference)
-      .set('x-transaction-pin-token', transactionPinToken)
+      .set('Cookie', transactionPinCookies)
       .send(payload);
 
     const second = await request(app)
       .post('/api/transactions/data')
       .set('Authorization', `Bearer ${token}`)
       .set('Idempotency-Key', payload.reference)
-      .set('x-transaction-pin-token', transactionPinToken)
+      .set('Cookie', transactionPinCookies)
       .send(payload);
 
     expect(first.statusCode).toBe(200);

@@ -1,10 +1,26 @@
 import { useState, useEffect } from 'react';
-import { User, Lock, Save, AlertCircle, FileText, Upload } from 'lucide-react';
+import { User, Lock, Save, AlertCircle, FileText, Upload, Trash2, MailCheck } from 'lucide-react';
 import api, { SERVER_ROOT_URL } from '../../services/api';
 import { StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 import { getStoredUser } from '../../utils/storage';
 
 export default function Settings() {
+  type AccountDeletionRequestState = {
+    id: string;
+    status: 'pending' | 'cancelled' | 'rejected' | 'approved' | 'completed';
+    requestedAt?: string;
+    graceEndsAt?: string;
+    cancelledAt?: string | null;
+    rejectedAt?: string | null;
+    approvedAt?: string | null;
+    completedAt?: string | null;
+    requestReason?: string | null;
+    adminReviewReason?: string | null;
+    executionReason?: string | null;
+    canCancel: boolean;
+    reviewState: 'grace_period' | 'ready_for_review' | 'closed';
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [user, setUser] = useState<any>(null);
   const [formData, setFormData] = useState({
@@ -34,6 +50,20 @@ export default function Settings() {
   const [createPinData, setCreatePinData] = useState({ password: '', pin: '', confirmPin: '' });
   const [changePinData, setChangePinData] = useState({ currentPin: '', newPin: '', confirmPin: '' });
   const [recoverPinData, setRecoverPinData] = useState({ password: '', otp: '', newPin: '', confirmPin: '' });
+  const [accountDeletionState, setAccountDeletionState] = useState<{
+    request: AccountDeletionRequestState | null;
+    retentionPolicy: string;
+    minimumGracePeriodDays: number;
+  } | null>(null);
+  const [accountDeletionMessage, setAccountDeletionMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [accountDeletionLoading, setAccountDeletionLoading] = useState(false);
+  const [accountDeletionVerificationMeta, setAccountDeletionVerificationMeta] = useState<{ destination: string; expiresAt: string; resendAvailableAt: string } | null>(null);
+  const [accountDeletionForm, setAccountDeletionForm] = useState({
+    verificationCode: '',
+    reason: '',
+    confirmPermanentDeletion: false,
+    acknowledgeRetentionPolicy: false,
+  });
 
   useEffect(() => {
     const userData = getStoredUser<any>();
@@ -47,6 +77,7 @@ export default function Settings() {
       });
     }
     void fetchPinStatus();
+    void fetchAccountDeletionStatus();
   }, []);
 
   const refreshStoredUser = async () => {
@@ -66,6 +97,23 @@ export default function Settings() {
       setPinStatus(res.data?.data || null);
     } catch {
       setPinStatus(null);
+    }
+  };
+
+  const fetchAccountDeletionStatus = async () => {
+    try {
+      const res = await api.get('/users/account-deletion');
+      setAccountDeletionState({
+        request: res.data?.request || null,
+        retentionPolicy: String(res.data?.retentionPolicy || ''),
+        minimumGracePeriodDays: Number(res.data?.minimumGracePeriodDays || 7),
+      });
+    } catch {
+      setAccountDeletionState({
+        request: null,
+        retentionPolicy: '',
+        minimumGracePeriodDays: 7,
+      });
     }
   };
 
@@ -249,6 +297,78 @@ export default function Settings() {
       setPinMessage({ type: 'error', text: err.response?.data?.message || 'Failed to send recovery OTP' });
     } finally {
       setOtpRequesting(false);
+    }
+  };
+
+  const handleSendAccountDeletionVerification = async () => {
+    setAccountDeletionLoading(true);
+    setAccountDeletionMessage(null);
+    try {
+      const res = await api.post('/users/account-deletion/verification');
+      const meta = res.data?.data || null;
+      setAccountDeletionVerificationMeta(meta);
+      setAccountDeletionMessage({
+        type: 'success',
+        text: meta?.destination
+          ? `Verification code sent to ${meta.destination}`
+          : 'Verification code sent successfully',
+      });
+    } catch (err: any) {
+      setAccountDeletionMessage({
+        type: 'error',
+        text: err.response?.data?.message || 'Failed to send verification code',
+      });
+    } finally {
+      setAccountDeletionLoading(false);
+    }
+  };
+
+  const handleSubmitAccountDeletionRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAccountDeletionLoading(true);
+    setAccountDeletionMessage(null);
+    try {
+      await api.post('/users/account-deletion/request', accountDeletionForm);
+      setAccountDeletionMessage({
+        type: 'success',
+        text: 'Account deletion request submitted successfully',
+      });
+      setAccountDeletionForm({
+        verificationCode: '',
+        reason: '',
+        confirmPermanentDeletion: false,
+        acknowledgeRetentionPolicy: false,
+      });
+      setAccountDeletionVerificationMeta(null);
+      await fetchAccountDeletionStatus();
+    } catch (err: any) {
+      setAccountDeletionMessage({
+        type: 'error',
+        text: err.response?.data?.message || 'Failed to submit account deletion request',
+      });
+    } finally {
+      setAccountDeletionLoading(false);
+    }
+  };
+
+  const handleCancelAccountDeletionRequest = async () => {
+    if (!window.confirm('Cancel your account deletion request and keep this account active?')) return;
+    setAccountDeletionLoading(true);
+    setAccountDeletionMessage(null);
+    try {
+      await api.post('/users/account-deletion/cancel');
+      setAccountDeletionMessage({
+        type: 'success',
+        text: 'Account deletion request cancelled successfully',
+      });
+      await fetchAccountDeletionStatus();
+    } catch (err: any) {
+      setAccountDeletionMessage({
+        type: 'error',
+        text: err.response?.data?.message || 'Failed to cancel account deletion request',
+      });
+    } finally {
+      setAccountDeletionLoading(false);
     }
   };
 
@@ -577,6 +697,138 @@ export default function Settings() {
                         <button type="submit" disabled={pinLoading} className="w-full py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50">{pinLoading ? 'Recovering PIN...' : 'Recover Transaction PIN'}</button>
                     </form>
                 </>
+            )}
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow-md space-y-6 border border-red-100">
+            <div className="flex items-center mb-2 border-b pb-4">
+                <Trash2 className="w-6 h-6 text-red-600 mr-3" />
+                <div>
+                    <h2 className="text-xl font-bold text-gray-800">Account Deletion</h2>
+                    <p className="text-sm text-gray-500">Request permanent account deletion with email verification and a minimum {accountDeletionState?.minimumGracePeriodDays || 7}-day grace period.</p>
+                </div>
+            </div>
+
+            {accountDeletionMessage && (
+                <div className={`p-3 rounded-md text-sm ${accountDeletionMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {accountDeletionMessage.text}
+                </div>
+            )}
+
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 space-y-2">
+                <p className="font-semibold">This action is permanent.</p>
+                <p>When deletion is executed, your personal account data is removed from active systems and cannot be recovered.</p>
+                <p>{accountDeletionState?.retentionPolicy || 'Minimal compliance audit logs may be retained only as irreversible hashes and non-personal action records.'}</p>
+            </div>
+
+            {accountDeletionState?.request ? (
+                <div className="space-y-4">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 space-y-2">
+                        <div><strong>Status:</strong> <span className="capitalize">{accountDeletionState.request.status.replace(/_/g, ' ')}</span></div>
+                        {accountDeletionState.request.requestedAt && <div><strong>Requested:</strong> {new Date(accountDeletionState.request.requestedAt).toLocaleString()}</div>}
+                        {accountDeletionState.request.graceEndsAt && <div><strong>Grace period ends:</strong> {new Date(accountDeletionState.request.graceEndsAt).toLocaleString()}</div>}
+                        {accountDeletionState.request.requestReason && <div><strong>Your reason:</strong> {accountDeletionState.request.requestReason}</div>}
+                        {accountDeletionState.request.adminReviewReason && <div><strong>Admin review note:</strong> {accountDeletionState.request.adminReviewReason}</div>}
+                        {accountDeletionState.request.executionReason && <div><strong>Execution note:</strong> {accountDeletionState.request.executionReason}</div>}
+                    </div>
+
+                    {accountDeletionState.request.canCancel ? (
+                        <button
+                            type="button"
+                            onClick={() => void handleCancelAccountDeletionRequest()}
+                            disabled={accountDeletionLoading}
+                            className="w-full py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition disabled:opacity-50"
+                        >
+                            {accountDeletionLoading ? 'Cancelling request...' : 'Cancel Deletion Request'}
+                        </button>
+                    ) : (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                            {accountDeletionState.request.reviewState === 'grace_period'
+                                ? 'Your deletion request is still within the grace period.'
+                                : 'This request can no longer be cancelled from self-service settings.'}
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <form onSubmit={handleSubmitAccountDeletionRequest} className="space-y-4">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                        <p className="font-medium">How this works</p>
+                        <ol className="list-decimal pl-5 mt-2 space-y-1">
+                            <li>Send a verification code to your email address.</li>
+                            <li>Enter the code and confirm that you understand the deletion is irreversible.</li>
+                            <li>Your request enters a grace period where you can still cancel it before admin review.</li>
+                        </ol>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => void handleSendAccountDeletionVerification()}
+                        disabled={accountDeletionLoading}
+                        className="w-full py-2 border border-primary-200 text-primary-700 rounded-lg hover:bg-primary-50 transition disabled:opacity-50 flex items-center justify-center"
+                    >
+                        <MailCheck className="w-4 h-4 mr-2" />
+                        {accountDeletionLoading ? 'Sending Verification Code...' : 'Send Email Verification Code'}
+                    </button>
+
+                    {accountDeletionVerificationMeta && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                            Verification code sent to {accountDeletionVerificationMeta.destination}. It expires at {new Date(accountDeletionVerificationMeta.expiresAt).toLocaleString()}.
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email Verification Code</label>
+                        <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={6}
+                            value={accountDeletionForm.verificationCode}
+                            onChange={(e) => setAccountDeletionForm({ ...accountDeletionForm, verificationCode: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                            className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            placeholder="Enter 6-digit code"
+                            required
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Deletion (Optional)</label>
+                        <textarea
+                            value={accountDeletionForm.reason}
+                            onChange={(e) => setAccountDeletionForm({ ...accountDeletionForm, reason: e.target.value })}
+                            rows={3}
+                            className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            placeholder="Tell us why you want to delete this account"
+                        />
+                    </div>
+
+                    <label className="flex items-start gap-3 text-sm text-gray-700">
+                        <input
+                            type="checkbox"
+                            checked={accountDeletionForm.confirmPermanentDeletion}
+                            onChange={(e) => setAccountDeletionForm({ ...accountDeletionForm, confirmPermanentDeletion: e.target.checked })}
+                            className="mt-1"
+                        />
+                        <span>I understand that account deletion is permanent and my account cannot be restored after admin execution.</span>
+                    </label>
+
+                    <label className="flex items-start gap-3 text-sm text-gray-700">
+                        <input
+                            type="checkbox"
+                            checked={accountDeletionForm.acknowledgeRetentionPolicy}
+                            onChange={(e) => setAccountDeletionForm({ ...accountDeletionForm, acknowledgeRetentionPolicy: e.target.checked })}
+                            className="mt-1"
+                        />
+                        <span>I acknowledge the data retention policy for minimal compliance audit records.</span>
+                    </label>
+
+                    <button
+                        type="submit"
+                        disabled={accountDeletionLoading}
+                        className="w-full py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+                    >
+                        {accountDeletionLoading ? 'Submitting Deletion Request...' : 'Submit Account Deletion Request'}
+                    </button>
+                </form>
             )}
         </div>
       </StaggerItem>

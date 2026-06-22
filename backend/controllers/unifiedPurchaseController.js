@@ -13,6 +13,12 @@ const logger = require('../utils/logger');
 const sequelize = require('../config/database');
 const { sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
 
+const maskPhone = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length < 4) return digits || 'unknown';
+  return `*******${digits.slice(-4)}`;
+};
+
 const networkServices = {
   airtel: { airtime: true, data: true },
   mtn: { airtime: true, data: true },
@@ -30,7 +36,13 @@ const purchaseUnified = async (req, res) => {
   const userId = req.user.id;
   let t;
 
-  logger.info(`Unified Purchase Initiation: User ${userId}, Service ${serviceType}, Phone ${phone}, Amount ${amount}, Network ${network}`);
+  logger.info('Unified Purchase Initiation', {
+    userId,
+    serviceType,
+    phone: maskPhone(phone),
+    amount: Number(amount || 0),
+    network,
+  });
 
   try {
     const user = await User.findByPk(userId);
@@ -305,7 +317,7 @@ const purchaseUnified = async (req, res) => {
       logger.error('Unified Purchase Error:', { 
         message: errorMessage, 
         userId, 
-        phone,
+        phone: maskPhone(phone),
         serviceType 
       });
 

@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import PageTransition from './animations/PageTransition';
-import api from '../services/api';
+import api, { logoutSession } from '../services/api';
 import { useSidebar } from '../hooks/useSidebar';
 import { useNotifications } from '../context/NotificationContext';
 import ReviewModal from './ReviewModal';
@@ -245,10 +245,11 @@ export default function UserLayout() {
         <div className={`absolute bottom-0 border-t border-white/60 bg-white/90 p-4 transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
           <Link 
             to="/login" 
-            onClick={() => {
-              localStorage.removeItem('token');
-              localStorage.removeItem('refreshToken');
-              localStorage.removeItem('user');
+            onClick={(e) => {
+              e.preventDefault();
+              void logoutSession().finally(() => {
+                window.location.href = '/login';
+              });
             }}
             className={`flex items-center rounded-2xl px-4 py-3 text-sm font-medium text-red-600 transition-colors duration-200 hover:bg-red-50 ${isCollapsed ? 'justify-center' : ''}`}
             title={isCollapsed ? t('common.logout') : ''}
@@ -390,10 +391,9 @@ export default function UserLayout() {
                       <div className="my-1 border-t border-slate-50" />
                       <button 
                         onClick={() => {
-                          localStorage.removeItem('token');
-                          localStorage.removeItem('refreshToken');
-                          localStorage.removeItem('user');
-                          window.location.href = '/login';
+                          void logoutSession().finally(() => {
+                            window.location.href = '/login';
+                          });
                         }}
                         className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
                       >

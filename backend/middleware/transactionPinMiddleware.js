@@ -1,10 +1,11 @@
 const logger = require('../utils/logger');
 const transactionPinService = require('../services/transactionPinService');
+const { getTransactionPinTokenFromRequest } = require('../utils/authCookies');
 
 function requireTransactionPinSession(scope = 'financial') {
   return (req, res, next) => {
     try {
-      const token = req.headers['x-transaction-pin-token'] || req.headers['x-transaction-authorization'];
+      const token = getTransactionPinTokenFromRequest(req, scope);
       transactionPinService.verifySessionToken(token, req.user?.id, scope);
       return next();
     } catch (error) {
