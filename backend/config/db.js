@@ -588,6 +588,7 @@ const connectDB = async () => {
         typeof TransactionIntegrityAudit.getTableName === 'function' ? TransactionIntegrityAudit.getTableName() : 'transaction_integrity_audits';
       const usersTable = typeof User.getTableName === 'function' ? User.getTableName() : 'Users';
       const referralsTable = typeof Referral.getTableName === 'function' ? Referral.getTableName() : 'referrals';
+      const referralClicksTable = typeof ReferralClick.getTableName === 'function' ? ReferralClick.getTableName() : 'referral_clicks';
       const ensureVoiceBundlePurchaseColumns = async () =>
         Promise.all([
           ensureColumn(voiceBundlePurchasesTable, 'expires_at', { type: DataTypes.DATE, allowNull: true }),
@@ -658,6 +659,68 @@ const connectDB = async () => {
           ensureColumn(referralsTable, 'referee_signup_bonus_amount', { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 }),
           ensureColumn(referralsTable, 'referee_signup_bonus_awarded_at', { type: DataTypes.DATE, allowNull: true }),
         ]);
+      const ensureReferralClicksTable = async () => {
+        const exists = await tableExists(referralClicksTable);
+        if (!exists) {
+          await qi.createTable(referralClicksTable, {
+            id: {
+              type: DataTypes.INTEGER,
+              autoIncrement: true,
+              primaryKey: true,
+            },
+            referrerId: {
+              type: DataTypes.UUID,
+              allowNull: true,
+            },
+            referredUserId: {
+              type: DataTypes.UUID,
+              allowNull: true,
+            },
+            referral_code: {
+              type: DataTypes.STRING,
+              allowNull: false,
+            },
+            click_token: {
+              type: DataTypes.STRING,
+              allowNull: false,
+            },
+            landing_path: {
+              type: DataTypes.STRING,
+              allowNull: true,
+            },
+            source: {
+              type: DataTypes.STRING,
+              allowNull: true,
+            },
+            ip_hash: {
+              type: DataTypes.STRING,
+              allowNull: true,
+            },
+            user_agent_hash: {
+              type: DataTypes.STRING,
+              allowNull: true,
+            },
+            converted_at: {
+              type: DataTypes.DATE,
+              allowNull: true,
+            },
+            createdAt: {
+              type: DataTypes.DATE,
+              allowNull: false,
+              defaultValue: sequelize.literal('CURRENT_TIMESTAMP'),
+            },
+            updatedAt: {
+              type: DataTypes.DATE,
+              allowNull: false,
+              defaultValue: sequelize.literal('CURRENT_TIMESTAMP'),
+            },
+          });
+          await qi.addIndex(referralClicksTable, ['referral_code', 'click_token'], {
+            unique: true,
+            name: 'referral_clicks_code_token_unique',
+          });
+        }
+      };
       const ensurePlanDeletionAuditCompatibility = async () => {
         const exists = await tableExists(planDeletionAuditTable);
         if (!exists) {
@@ -760,6 +823,7 @@ const connectDB = async () => {
 
       if (process.env.NODE_ENV !== 'test') {
         await runRuntimeSchemaEnsure('pre-sync compatibility bootstrap', async () => {
+          await ensureReferralClicksTable();
           await Promise.all([
             ensureColumn(dataPlansTable, 'ogdams_sku', { type: DataTypes.STRING, allowNull: true }),
             ensureColumn(dataPlansTable, 'source', { type: DataTypes.STRING, allowNull: false, defaultValue: 'smeplug' }),
