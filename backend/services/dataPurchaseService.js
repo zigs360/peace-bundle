@@ -7,6 +7,7 @@ const ogdamsFailoverService = require('./ogdamsFailoverService');
 const simManagementService = require('./simManagementService');
 const affiliateService = require('./affiliateService');
 const transactionIntegrityService = require('./transactionIntegrityService');
+const airtimePurchaseWorkflowService = require('./airtimePurchaseWorkflowService');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 
@@ -643,80 +644,35 @@ class DataPurchaseService {
   }
 
   async purchaseAirtime(user, network, amount, phoneNumber) {
-    return sequelize.transaction(async (t) => {
-      const hasBalance = await walletService.hasSufficientBalance(user, amount, t);
-      if (!hasBalance) {
-        throw new Error('Insufficient wallet balance');
-      }
-
-      const description = `Airtime purchase: ${network} ${amount} to ${phoneNumber}`;
-      const reference = this.generateReference();
-      const metadata = {
-        recipient_phone: phoneNumber,
-        provider: network,
-        amount,
-        type: 'airtime',
-        reference,
-      };
-
-      const transaction = await walletService.debit(
-        user,
-        amount,
-        'airtime_purchase',
-        description,
-        metadata,
-        t
-      );
-
-      const fingerprint = transactionIntegrityService.buildFingerprint({
-        userId: user.id,
-        source: 'airtime_purchase',
-        recipientPhone: phoneNumber,
-        amount,
-        network,
-        faceValue: amount,
-      });
-
-      await transaction.update({
-        reference,
-        status: 'processing',
-        completed_at: null,
-        recipient_phone: phoneNumber,
-        provider: network,
-        metadata: {
-          ...(transaction.metadata || {}),
-          client_reference: reference,
-          transaction_fingerprint: fingerprint,
-        },
-      }, { transaction: t });
-      await transactionIntegrityService.annotateDebitTransaction(
-        transaction,
-        {
-          recipient_phone: phoneNumber,
-          provider: network,
-          client_reference: reference,
-          transaction_fingerprint: fingerprint,
-        },
-        t,
-      );
-
-      const preferredSim = await simManagementService.getOptimalSim(network, amount);
-      const route = transactionIntegrityService.selectAirtimeRoute({ network, preferredSim });
-      await transactionIntegrityService.lockRoute(transaction, route, t);
-
-      try {
-        await this.dispenseAirtimeWithFallback(
-          transaction,
-          { network, amount, phoneNumber },
-          { attemptedFrom: 'dataPurchaseService.purchaseAirtime' },
-          t,
-        );
-      } catch (error) {
-        await this.handleFailedAirtimeTransaction(transaction, error.message, t);
-      }
-
-      return transaction;
+    const prepared = await airtimePurchaseWorkflowService.prepareCommittedPurchase(user, {
+      network,
+      faceValue: amount,
+      phone: phoneNumber,
+      reference: this.generateReference(),
+      context: { attemptedFrom: 'dataPurchaseService.purchaseAirtime', userId: user?.id || null },
     });
+
+    let transaction = prepared.transaction;
+    if (prepared.duplicate) {
+      return transaction;
+    }
+
+    try {
+      await this.dispenseAirtimeWithFallback(
+        transaction,
+        { network, amount, phoneNumber },
+        { attemptedFrom: 'dataPurchaseService.purchaseAirtime' },
+        null,
+      );
+    } catch (error) {
+      const fresh = await Transaction.findByPk(transaction.id);
+      transaction = fresh || transaction;
+      if (!['completed', 'queued', 'failed', 'refunded'].includes(String(transaction.status || '').toLowerCase())) {
+        throw error;
+      }
+    }
+
+    return (await Transaction.findByPk(transaction.id)) || transaction;
   }
 
   async dispenseAirtimeWithFallback(transaction, { network, amount, phoneNumber }, context = {}, t = null) {
@@ -779,12 +735,22 @@ class DataPurchaseService {
         ...baseMeta,
         service_provider: provider,
         provider_latency_ms: latencyMs,
+        provider_reference: reference || transaction.smeplug_reference || transaction.reference,
+        payment_state: {
+          wallet: 'debited',
+          provider: 'confirmed',
+          settlement: 'completed',
+          settledAt: new Date().toISOString(),
+        },
         provider_switch:
           switchedFrom
             ? { from: switchedFrom, to: provider, reason: 'primary_failed', context }
             : baseMeta.provider_switch || null,
         provider_attempts: attempts,
       };
+      // #region debug-point B:persist-success
+      (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='airtime-success-refund';try{const e=fs.readFileSync('.dbg/airtime-success-refund.env','utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'B',location:'dataPurchaseService.js:persistSuccess',msg:'[DEBUG] Airtime provider success is being persisted',data:{reference:transaction.reference,status:transaction.status||null,provider,providerReference:reference||transaction.smeplug_reference||transaction.reference,switchedFrom,attemptCount:attempts.length,attempts},ts:Date.now()})}).catch(()=>{})})();
+      // #endregion
       await transactionIntegrityService.markProviderSuccess(
         transaction,
         {
@@ -797,10 +763,39 @@ class DataPurchaseService {
     };
 
     const persistFailure = async (reason) => {
+      const confirmedDeliveryAttempt = findConfirmedDeliveryAttempt();
+      if (confirmedDeliveryAttempt) {
+        logger.warn('[Airtime] Refund blocked because delivery evidence already exists', {
+          reference: transaction.reference,
+          provider: confirmedDeliveryAttempt.provider,
+          providerReference: confirmedDeliveryAttempt.provider_reference || confirmedDeliveryAttempt.request_reference || null,
+          reason,
+        });
+        await persistSuccess({
+          provider: confirmedDeliveryAttempt.provider || 'ogdams',
+          reference: confirmedDeliveryAttempt.provider_reference || confirmedDeliveryAttempt.request_reference || transaction.reference,
+          response: {
+            recoveredFromFalseRefundGuard: true,
+            settlement_reason: reason,
+            confirmed_attempt: confirmedDeliveryAttempt,
+          },
+        });
+        return {
+          provider: confirmedDeliveryAttempt.provider || 'ogdams',
+          response: {
+            recoveredFromFalseRefundGuard: true,
+            confirmed_attempt: confirmedDeliveryAttempt,
+          },
+          recoveredSuccess: true,
+        };
+      }
       transaction.metadata = {
         ...baseMeta,
         provider_attempts: attempts,
       };
+      // #region debug-point C:persist-failure
+      (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='airtime-success-refund';try{const e=fs.readFileSync('.dbg/airtime-success-refund.env','utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'C',location:'dataPurchaseService.js:persistFailure',msg:'[DEBUG] Airtime provider failure is requesting refund',data:{reference:transaction.reference,status:transaction.status||null,reason,attemptCount:attempts.length,attempts},ts:Date.now()})}).catch(()=>{})})();
+      // #endregion
       await transactionIntegrityService.failAndRefund(transaction, reason, t, {
         flagAsAnomaly: true,
         auditEvent: 'airtime_delivery_failed',
@@ -829,6 +824,48 @@ class DataPurchaseService {
         const rand6 = String(n).padStart(6, '0');
         return `OGD|${networkId}|${rand6}|${ts}`;
       };
+      const successStates = new Set(['success', 'successful', 'completed', 'complete', 'delivered', 'ok']);
+      const failureStates = new Set(['failed', 'failure', 'error', 'cancelled', 'reversed']);
+      const classifyOgdamsResponse = (response, requestReference) => {
+        const rawStatus =
+          response?.status ??
+          response?.data?.status ??
+          response?.success ??
+          response?.data?.success ??
+          null;
+        const normalizedStatus =
+          typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : rawStatus === true ? 'true' : rawStatus === false ? 'false' : '';
+        const providerReference =
+          response?.reference || response?.data?.reference || response?.data?.transaction_id || requestReference || null;
+        const successLike =
+          rawStatus === true ||
+          response?.success === true ||
+          response?.data?.success === true ||
+          (normalizedStatus && successStates.has(normalizedStatus));
+        const failureLike =
+          rawStatus === false ||
+          response?.success === false ||
+          response?.data?.success === false ||
+          (normalizedStatus && failureStates.has(normalizedStatus));
+        const pendingLike =
+          normalizedStatus.includes('queue') ||
+          normalizedStatus.includes('process') ||
+          normalizedStatus.includes('pending') ||
+          normalizedStatus === 'queued' ||
+          normalizedStatus === 'processing' ||
+          normalizedStatus === 'accepted';
+        return {
+          rawStatus,
+          normalizedStatus,
+          providerReference,
+          successLike,
+          failureLike,
+          pendingLike,
+          ok: successLike && !failureLike,
+        };
+      };
+      const findConfirmedDeliveryAttempt = () =>
+        attempts.find((entry) => entry && entry.success_like === true && (entry.provider_reference || entry.request_reference));
       const buildOgdamsPayload = (requestReference) => ({
         networkId,
         amount: vendAmount,
@@ -854,16 +891,10 @@ class DataPurchaseService {
           );
 
           const httpStatus = Number(response?.httpStatus);
-          const statusText = String(response?.status || '').toLowerCase();
+          const classification = classifyOgdamsResponse(response, requestReference);
           const isAccepted = httpStatus === 201 || httpStatus === 202;
-          const isPendingStatus =
-            statusText.includes('queue') ||
-            statusText.includes('process') ||
-            statusText.includes('pending') ||
-            statusText === 'queued' ||
-            statusText === 'processing' ||
-            statusText === 'accepted';
-          const ok = statusText === 'success';
+          const isPendingStatus = classification.pendingLike;
+          const ok = classification.ok;
 
           logger.info('[Airtime] Ogdams vend response', {
             transactionReference: transaction.reference,
@@ -871,7 +902,14 @@ class DataPurchaseService {
             attempt,
             httpStatus: Number.isFinite(httpStatus) ? httpStatus : null,
             status: response?.status,
+            normalizedStatus: classification.normalizedStatus || null,
+            successLike: classification.successLike,
+            providerReference: classification.providerReference,
           });
+
+          // #region debug-point A:ogdams-classification
+          (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='airtime-success-refund';try{const e=fs.readFileSync('.dbg/airtime-success-refund.env','utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'A',location:'dataPurchaseService.js:attemptOgdamsVend',msg:'[DEBUG] Airtime provider response classified',data:{reference:transaction.reference,requestReference,attempt,status:classification.rawStatus,httpStatus:Number.isFinite(httpStatus)?httpStatus:null,isAccepted,isPendingStatus,ok,successLike:classification.successLike,failureLike:classification.failureLike,normalizedStatus:classification.normalizedStatus||null,providerReference:classification.providerReference},ts:Date.now()})}).catch(()=>{})})();
+          // #endregion
 
           await recordAttempt({
             provider: 'ogdams',
@@ -879,11 +917,15 @@ class DataPurchaseService {
             attempt,
             request_reference: requestReference,
             latency_ms: Date.now() - startedAt,
-            status: response?.status,
+            status: classification.rawStatus,
+            normalized_status: classification.normalizedStatus || undefined,
             http_status: Number.isFinite(httpStatus) ? httpStatus : undefined,
+            success_like: classification.successLike,
+            failure_like: classification.failureLike,
+            provider_reference: classification.providerReference || undefined,
           });
 
-          return { response, ok, isAccepted, isPendingStatus, httpStatus, requestReference };
+          return { response, ok, isAccepted, isPendingStatus, httpStatus, requestReference, providerReference: classification.providerReference };
         } catch (error) {
           const status = Number(error?.statusCode || error?.response?.status || 0) || null;
           const code = String(error?.code || '').toUpperCase() || null;
@@ -1068,8 +1110,7 @@ class DataPurchaseService {
       if (failoverSnapshot.active) {
         const fallback = await attemptSmeplugFallback(`ogdams_failover_active:${failoverSnapshot.reason || 'unknown'}`);
         if (fallback) return fallback;
-        await persistFailure(lastSmeplugFallbackError || `Ogdams failover active (${failoverSnapshot.reason || 'unknown'}) and SMEPlug fallback failed`);
-        return { provider: 'smeplug', failed: true, failoverActive: true };
+        return (await persistFailure(lastSmeplugFallbackError || `Ogdams failover active (${failoverSnapshot.reason || 'unknown'}) and SMEPlug fallback failed`)) || { provider: 'smeplug', failed: true, failoverActive: true };
       }
 
       try {
@@ -1177,8 +1218,7 @@ class DataPurchaseService {
             if (!vend.ok) {
               const fallback = await attemptSmeplugFallback('ogdams_duplicate_reference_retry_non_success');
               if (fallback) return fallback;
-            await persistFailure(lastSmeplugFallbackError || 'Ogdams duplicate reference retry returned non-success');
-              return { provider: 'ogdams', failed: true };
+              return (await persistFailure(lastSmeplugFallbackError || 'Ogdams duplicate reference retry returned non-success')) || { provider: 'ogdams', failed: true };
             }
 
             await persistSuccess({
@@ -1195,8 +1235,7 @@ class DataPurchaseService {
           } catch (retryError) {
             const fallback = await attemptSmeplugFallback('ogdams_duplicate_reference_retry_threw');
             if (fallback) return fallback;
-            await persistFailure(lastSmeplugFallbackError || 'Ogdams duplicate reference retry failed');
-            return { provider: 'ogdams', failed: true };
+            return (await persistFailure(lastSmeplugFallbackError || 'Ogdams duplicate reference retry failed')) || { provider: 'ogdams', failed: true };
           }
         }
 
@@ -1209,8 +1248,7 @@ class DataPurchaseService {
           });
           const fallback = await attemptSmeplugFallback('ogdams_insufficient_balance');
           if (fallback) return fallback;
-          await persistFailure(lastSmeplugFallbackError || ogReason);
-          return { provider: 'ogdams', failed: true, terminal: true };
+          return (await persistFailure(lastSmeplugFallbackError || ogReason)) || { provider: 'ogdams', failed: true, terminal: true };
         }
 
         if (unavailable) {
@@ -1222,8 +1260,7 @@ class DataPurchaseService {
           });
           const fallback = await attemptSmeplugFallback('ogdams_unavailable');
           if (fallback) return fallback;
-          await persistFailure(lastSmeplugFallbackError || ogReason);
-          return { provider: 'ogdams', failed: true };
+          return (await persistFailure(lastSmeplugFallbackError || ogReason)) || { provider: 'ogdams', failed: true };
         }
 
         if (uncertain && statusCheckEnabled) {
@@ -1250,8 +1287,7 @@ class DataPurchaseService {
               return { provider: 'ogdams', response: parsed.raw, verified: true };
             }
             if (parsed?.status === 'failed') {
-              await persistFailure(ogReason);
-              return { provider: 'ogdams', failed: true };
+              return (await persistFailure(ogReason)) || { provider: 'ogdams', failed: true };
             } else {
               await transaction.update(
                 {
@@ -1320,8 +1356,7 @@ class DataPurchaseService {
 
         const fallback = await attemptSmeplugFallback('ogdams_confirmed_failure');
         if (fallback) return fallback;
-        await persistFailure(lastSmeplugFallbackError || ogReason);
-        return { provider: 'ogdams', failed: true };
+        return (await persistFailure(lastSmeplugFallbackError || ogReason)) || { provider: 'ogdams', failed: true };
       }
     }
 

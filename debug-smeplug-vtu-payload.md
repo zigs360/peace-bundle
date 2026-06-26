@@ -1,0 +1,23 @@
+# Debug Session: smeplug-vtu-payload
+
+- Status: OPEN
+- Started: 2026-06-12
+- Symptom: Ogdams airtime fails with insufficient balance, SMEPlug wallet fallback authenticates correctly with private key, `/api/v1/airtime/purchase` returns `Unable to purchase Airtime`, then `/api/v1/vtu` returns `phone_number is required`.
+- Scope: Airtime provider failover from Ogdams to SMEPlug wallet mode
+- Current evidence:
+  - SMEPlug auth initially used `private_key`, but user confirmed the token is actually a secret key
+  - `/api/v1/airtime/purchase` request payload contains `network_id`, `phone`, `amount`
+  - `/api/v1/vtu` fallback request payload now contains `network_id`, `phone`, `phone_number`, `amount`
+  - `/api/v1/vtu` no longer fails with `phone_number is required`
+  - Current provider-side response is `PIN not set for Mtn`
+- Instrumentation added:
+  - `smeplug-vtu-fallback-decision`
+  - `smeplug-vtu-fallback-payload`
+- Evidence conclusion:
+  - Confirmed root cause: VTU fallback request omitted `phone_number`
+  - Auth path is healthy; current deployment is being switched from `private_key` labeling to `secret_key` labeling
+  - Current remaining blocker is outside request shape and points to SMEPlug account configuration for MTN PIN
+- Fix applied:
+  - VTU fallback payload now includes both `phone` and `phone_number`
+  - Regression test updated to lock the fallback payload shape
+- Next step: wait for the new Render deploy on commit `d1ace24`, re-run the purchase flow, and confirm whether the live logs now show `authSource: secret_key` and the same provider-side PIN requirement

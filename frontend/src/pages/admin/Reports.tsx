@@ -15,6 +15,9 @@ export default function Reports() {
 
   const [referralStats, setReferralStats] = useState({
     totalReferrals: 0,
+    totalClicks: 0,
+    totalConvertedClicks: 0,
+    conversionRate: 0,
     topReferrers: []
   });
 
@@ -91,19 +94,27 @@ export default function Reports() {
 
       {/* Referral Program Analytics Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center justify-between mb-4">
+        <div className="lg:col-span-1 bg-white p-6 rounded-lg shadow space-y-4">
+          <div className="flex items-center justify-between">
             <h3 className="text-lg font-medium text-gray-900">Referral Program</h3>
             <Gift className="w-5 h-5 text-primary-600" />
           </div>
-          <div className="space-y-4">
-            <div className="p-4 bg-primary-50 rounded-xl border border-primary-100">
-              <span className="text-sm text-primary-600 font-medium">Total Referrals</span>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 bg-primary-50 rounded-xl border border-primary-100 col-span-2">
+              <span className="text-xs text-primary-600 font-semibold uppercase tracking-wider">Total Signups</span>
               <p className="text-3xl font-bold text-primary-700">{referralStats.totalReferrals}</p>
             </div>
-            <div className="text-sm text-gray-500 italic">
-              * Reward: ₦100 per successful referral
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Total Clicks</span>
+              <p className="text-xl font-bold text-slate-700">{referralStats.totalClicks || 0}</p>
             </div>
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Conversion</span>
+              <p className="text-xl font-bold text-slate-700">{referralStats.conversionRate || 0}%</p>
+            </div>
+          </div>
+          <div className="text-xs text-slate-500 italic pt-2">
+            * Referrer: ₦100 signup bonus + 2.5% deposit commission
           </div>
         </div>
 
@@ -119,7 +130,7 @@ export default function Reports() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Code</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Earnings</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actual Earnings</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -129,7 +140,7 @@ export default function Reports() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{referrer.name}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{referrer.referral_code}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">{referrer.referral_count}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold">₦{(referrer.referral_count * 100).toLocaleString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold">₦{Number(referrer.total_earnings || 0).toLocaleString()}</td>
                     </tr>
                   ))
                 ) : (

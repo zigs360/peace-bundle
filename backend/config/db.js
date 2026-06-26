@@ -250,6 +250,7 @@ const DataPlan = require('../models/DataPlan');
 const ResellerPlanPricing = require('../models/ResellerPlanPricing');
 const Commission = require('../models/Commission');
 const Referral = require('../models/Referral');
+const ReferralClick = require('../models/ReferralClick');
 const ApiKey = require('../models/ApiKey');
 const SystemSetting = require('../models/SystemSetting');
 const WalletTransaction = require('../models/WalletTransaction');
@@ -369,6 +370,12 @@ try {
 
   User.hasMany(Referral, { foreignKey: 'referredUserId', as: 'ReferralData', onDelete: 'CASCADE' }); 
   Referral.belongsTo(User, { foreignKey: 'referredUserId', as: 'ReferredUser' });
+
+  User.hasMany(ReferralClick, { foreignKey: 'referrerId', as: 'ReferralClicks', onDelete: 'CASCADE' });
+  ReferralClick.belongsTo(User, { foreignKey: 'referrerId', as: 'Referrer' });
+
+  User.hasMany(ReferralClick, { foreignKey: 'referredUserId', as: 'ReferralConversions', onDelete: 'SET NULL' });
+  ReferralClick.belongsTo(User, { foreignKey: 'referredUserId', as: 'ReferredUser' });
 
   // ApiKey Associations
   User.hasMany(ApiKey, { foreignKey: 'userId', onDelete: 'CASCADE' });
@@ -580,6 +587,7 @@ const connectDB = async () => {
       const transactionIntegrityAuditTable =
         typeof TransactionIntegrityAudit.getTableName === 'function' ? TransactionIntegrityAudit.getTableName() : 'transaction_integrity_audits';
       const usersTable = typeof User.getTableName === 'function' ? User.getTableName() : 'Users';
+      const referralsTable = typeof Referral.getTableName === 'function' ? Referral.getTableName() : 'referrals';
       const ensureVoiceBundlePurchaseColumns = async () =>
         Promise.all([
           ensureColumn(voiceBundlePurchasesTable, 'expires_at', { type: DataTypes.DATE, allowNull: true }),
@@ -643,6 +651,13 @@ const connectDB = async () => {
           ensureColumn(usersTable, 'transaction_pin_recovery_otp_sent_at', { type: DataTypes.DATE, allowNull: true }),
         ]);
       };
+      const ensureReferralColumns = async () =>
+        Promise.all([
+          ensureColumn(referralsTable, 'referrer_signup_bonus_amount', { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 }),
+          ensureColumn(referralsTable, 'referrer_signup_bonus_awarded_at', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(referralsTable, 'referee_signup_bonus_amount', { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 }),
+          ensureColumn(referralsTable, 'referee_signup_bonus_awarded_at', { type: DataTypes.DATE, allowNull: true }),
+        ]);
       const ensurePlanDeletionAuditCompatibility = async () => {
         const exists = await tableExists(planDeletionAuditTable);
         if (!exists) {
@@ -773,6 +788,7 @@ const connectDB = async () => {
             ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
             ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
             ensureTransactionIntegrityColumns(),
+          ensureReferralColumns(),
             ensureCallPlanColumns(),
             ensureVoiceBundlePurchaseColumns(),
           ]);
@@ -827,6 +843,7 @@ const connectDB = async () => {
           ensureColumn(simsTable, 'reserved_airtime', { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 }),
           ensureColumn(callPlansTable, 'api_plan_id', { type: DataTypes.STRING, allowNull: true }),
           ensureTransactionIntegrityColumns(),
+          ensureReferralColumns(),
           ensureCallPlanColumns(),
         ]);
         await ensureTransactionPinColumns();
@@ -880,6 +897,17 @@ const connectDB = async () => {
         });
       } catch (e) {
         console.error('Voice bundle purchase tables sync failed:', e.message);
+      }
+
+      try {
+        await runModelSync('referral click', async () => {
+          await ReferralClick.sync();
+        });
+        await runRuntimeSchemaEnsure('referral compatibility', async () => {
+          await ensureReferralColumns();
+        });
+      } catch (e) {
+        console.error('Referral click table sync failed:', e.message);
       }
 
       try {

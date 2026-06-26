@@ -123,6 +123,19 @@ export default function Settings() {
     setMessage(null);
 
     try {
+      if (avatar) {
+        const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+        if (!allowedTypes.has(String(avatar.type || ''))) {
+          setMessage({ type: 'error', text: 'Profile photo must be JPG, PNG, GIF, or WebP.' });
+          return;
+        }
+        const maxBytes = 5 * 1024 * 1024;
+        if (avatar.size > maxBytes) {
+          setMessage({ type: 'error', text: 'Profile photo must be 5MB or less.' });
+          return;
+        }
+      }
+
       const formDataObj = new FormData();
       formDataObj.append('fullName', formData.fullName);
       formDataObj.append('phone', formData.phone);
@@ -130,11 +143,7 @@ export default function Settings() {
         formDataObj.append('avatar', avatar);
       }
 
-      const res = await api.put('/auth/profile', formDataObj, {
-        headers: {
-            'Content-Type': 'multipart/form-data'
-        }
-      });
+      const res = await api.put('/auth/profile', formDataObj);
       const data = res.data as any;
       const updatedUser = { ...user, ...data };
       localStorage.setItem('user', JSON.stringify(updatedUser));
@@ -398,8 +407,30 @@ export default function Settings() {
                         <span className="sr-only">Choose profile photo</span>
                         <input 
                             type="file" 
-                            accept="image/*"
-                            onChange={(e) => e.target.files && setAvatar(e.target.files[0])}
+                            accept="image/jpeg,image/png,image/gif,image/webp"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              if (!file) {
+                                setAvatar(null);
+                                return;
+                              }
+                              const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+                              if (!allowedTypes.has(String(file.type || ''))) {
+                                setMessage({ type: 'error', text: 'Profile photo must be JPG, PNG, GIF, or WebP.' });
+                                e.target.value = '';
+                                setAvatar(null);
+                                return;
+                              }
+                              const maxBytes = 5 * 1024 * 1024;
+                              if (file.size > maxBytes) {
+                                setMessage({ type: 'error', text: 'Profile photo must be 5MB or less.' });
+                                e.target.value = '';
+                                setAvatar(null);
+                                return;
+                              }
+                              setMessage(null);
+                              setAvatar(file);
+                            }}
                             className="block w-full text-sm text-slate-500
                             file:mr-4 file:py-2 file:px-4
                             file:rounded-full file:border-0

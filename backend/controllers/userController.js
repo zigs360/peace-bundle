@@ -1,9 +1,12 @@
 const User = require('../models/User');
 const Beneficiary = require('../models/Beneficiary');
 const Referral = require('../models/Referral');
+const ReferralClick = require('../models/ReferralClick');
+const Commission = require('../models/Commission');
 const Wallet = require('../models/Wallet');
 const ApiKey = require('../models/ApiKey');
 const crypto = require('crypto');
+const { Op } = require('sequelize');
 
 const virtualAccountService = require('../services/virtualAccountService');
 const dualVirtualAccountService = require('../services/dualVirtualAccountService');
@@ -481,19 +484,51 @@ const getAffiliateStats = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
-        const totalEarnings = user.wallet ? user.wallet.commission_balance : 0;
+        const pendingPayout = await Commission.sum('amount', {
+            where: {
+                referrerId: userId,
+                status: 'pending',
+            }
+        });
+        const totalClicks = await ReferralClick.count({
+            where: { referrerId: userId }
+        });
+        const totalConvertedClicks = await ReferralClick.count({
+            where: {
+                referrerId: userId,
+                converted_at: { [Op.ne]: null },
+            }
+        });
+        const totalRefereeRewardsIssued = referrals.reduce(
+            (sum, ref) => sum + parseFloat(ref.referee_signup_bonus_amount || 0),
+            0,
+        );
+        const totalEarnings = user.wallet
+            ? (parseFloat(user.wallet.bonus_balance || 0) + parseFloat(user.wallet.commission_balance || 0))
+            : 0;
+        const conversionRate = totalClicks > 0 ? Number(((totalConvertedClicks / totalClicks) * 100).toFixed(2)) : 0;
         
         const recentReferrals = referrals.map(ref => ({
             name: ref.ReferredUser ? ref.ReferredUser.name : 'Unknown',
             date: ref.createdAt,
             status: ref.ReferredUser && ref.ReferredUser.kyc_status === 'verified' ? 'Active' : 'Inactive',
-            commission: ref.total_commissions_earned
+            commission: ref.total_commissions_earned,
+            refereeReward: ref.referee_signup_bonus_amount || 0,
         }));
+
+        // #region debug-point E:user-affiliate-stats
+        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'post-fix',hypothesisId:'E',location:'userController.js:getAffiliateStats',msg:'[DEBUG] User affiliate stats resolved',data:{userId,userReferralCode:user?.referral_code||null,referralsCount:referrals.length,totalEarnings,totalClicks,totalConvertedClicks,conversionRate,totalRefereeRewardsIssued,totalRecentReferrals:recentReferrals.length},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
 
         res.json({
             referralCode: user.referral_code,
             referralLink: `https://peacebundlle.com/register?ref=${user.referral_code}`,
             totalEarnings,
+            pendingPayout: pendingPayout || 0,
+            totalClicks,
+            totalConvertedClicks,
+            conversionRate,
+            totalRefereeRewardsIssued,
             referredUsersCount: referrals.length,
             recentReferrals
         });

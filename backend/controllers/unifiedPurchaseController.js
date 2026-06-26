@@ -6,6 +6,7 @@ const walletService = require('../services/walletService');
 const smeplugService = require('../services/smeplugService');
 const simManagementService = require('../services/simManagementService');
 const dataPurchaseService = require('../services/dataPurchaseService');
+const airtimePurchaseWorkflowService = require('../services/airtimePurchaseWorkflowService');
 const pricingService = require('../services/pricingService');
 const transactionLimitService = require('../services/transactionLimitService');
 const transactionIntegrityService = require('../services/transactionIntegrityService');
@@ -80,8 +81,6 @@ const purchaseUnified = async (req, res) => {
     }
 
     try {
-      t = await sequelize.transaction();
-
       let transactionType;
       let description;
       let finalAmount = parseFloat(amount || 0);
@@ -90,60 +89,26 @@ const purchaseUnified = async (req, res) => {
         transactionType = 'airtime_purchase';
         description = `${network.toUpperCase()} Airtime ₦${finalAmount} to ${cleanPhone}`;
 
-        const quote = await pricingService.quoteAirtime({ user, provider: cleanNetwork, faceValue: finalAmount, transaction: t });
+        const quote = await pricingService.quoteAirtime({ user, provider: cleanNetwork, faceValue: finalAmount });
         const chargedAmount = parseFloat(String(quote.charged_amount));
-        
-        // Debit Wallet
-        const newTransaction = await walletService.debit(
-          user,
-          chargedAmount,
-          transactionType,
-          description,
-          { network: cleanNetwork, phone: cleanPhone, amount: finalAmount, chargedAmount, serviceType, planId, pricing: quote },
-          t
-        );
 
-        const transactionFingerprint = transactionIntegrityService.buildFingerprint({
-          userId: user.id,
-          source: 'airtime_purchase',
-          recipientPhone: cleanPhone,
-          amount: chargedAmount,
+        const prepared = await airtimePurchaseWorkflowService.prepareCommittedPurchase(user, {
           network: cleanNetwork,
           faceValue: finalAmount,
+          phone: cleanPhone,
+          reference: null,
+          context: { endpoint: 'POST /api/purchase/unified', userId, serviceType },
         });
-        await transactionIntegrityService.annotateDebitTransaction(
-          newTransaction,
-          {
-            recipient_phone: cleanPhone,
-            provider: cleanNetwork,
-            client_reference: newTransaction.reference,
-            transaction_fingerprint: transactionFingerprint,
-          },
-          t,
-        );
+        let newTransaction = prepared.transaction;
 
-        await newTransaction.update(
-          {
-            status: 'processing',
-            recipient_phone: cleanPhone,
-            provider: cleanNetwork,
-            metadata: {
-              ...(newTransaction.metadata || {}),
-              vend_amount: finalAmount,
-              charged_amount: chargedAmount,
-              service_type: serviceType,
-              pricing: quote
-            }
-          },
-          { transaction: t }
-        );
-
-        const preferredSim = await simManagementService.getOptimalSim(cleanNetwork, finalAmount);
-        const route = transactionIntegrityService.selectAirtimeRoute({ network: cleanNetwork, preferredSim });
-        await transactionIntegrityService.lockRoute(newTransaction, route, t);
-        if (route.simId) {
-          newTransaction.simId = route.simId;
-          await newTransaction.save({ transaction: t });
+        if (prepared.duplicate) {
+          const updatedWallet = await walletService.getBalance(user);
+          return res.status(200).json({
+            success: true,
+            message: 'Duplicate request (idempotent replay)',
+            balance: updatedWallet,
+            transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' }),
+          });
         }
 
         let providerResult;
@@ -152,18 +117,28 @@ const purchaseUnified = async (req, res) => {
             newTransaction,
             { network: cleanNetwork, amount: finalAmount, phoneNumber: cleanPhone },
             { endpoint: 'POST /api/purchase/unified', userId, serviceType },
-            t
+            null
           );
         } catch (providerError) {
-          await t.commit();
+          const freshTransaction = await Transaction.findByPk(newTransaction.id) || newTransaction;
           const updatedWallet = await walletService.getBalance(user);
-          return res.status(502).json({
-            success: false,
-            message: providerError.message || 'Failed to process airtime purchase',
-            balance: updatedWallet,
-            transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
-          });
+          const freshStatus = String(freshTransaction.status || '').toLowerCase();
+          if (!['completed', 'queued'].includes(freshStatus)) {
+            return res.status(502).json({
+              success: false,
+              message: providerError.message || 'Failed to process airtime purchase',
+              balance: updatedWallet,
+              transaction: sanitizeTransactionForClient(freshTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
+            });
+          }
+          newTransaction = freshTransaction;
+          providerResult = {
+            pending: freshStatus === 'queued',
+            recoveredAfterError: true,
+          };
         }
+
+        newTransaction = await Transaction.findByPk(newTransaction.id) || newTransaction;
 
         const statusLower = String(newTransaction.status || '').toLowerCase();
         const isQueued = statusLower === 'queued' || providerResult?.pending === true;
@@ -171,15 +146,15 @@ const purchaseUnified = async (req, res) => {
         const isTerminalFailure = providerResult?.failed || statusLower === 'failed' || statusLower === 'refunded';
 
         if (!providerResult || (!isQueued && !isCompleted && !isTerminalFailure)) {
-          await transactionIntegrityService.failAndRefund(newTransaction, 'Airtime provider did not confirm success', t, {
+          await transactionIntegrityService.failAndRefund(newTransaction, 'Airtime provider did not confirm success', null, {
             flagAsAnomaly: true,
             auditEvent: 'airtime_delivery_inconsistent_success',
           });
+          newTransaction = await Transaction.findByPk(newTransaction.id) || newTransaction;
         }
 
         const finalStatusLower = String(newTransaction.status || '').toLowerCase();
         if (providerResult?.failed || ['failed', 'refunded'].includes(finalStatusLower)) {
-          await t.commit();
           const updatedWallet = await walletService.getBalance(user);
           return res.status(502).json({
             success: false,
@@ -189,7 +164,6 @@ const purchaseUnified = async (req, res) => {
           });
         }
 
-        await t.commit();
         const updatedWallet = await walletService.getBalance(user);
         
         return res.json({
@@ -204,6 +178,7 @@ const purchaseUnified = async (req, res) => {
 
       } else if (serviceType === 'data') {
         transactionType = 'data_purchase';
+        t = await sequelize.transaction();
         
         // Fetch plan to get price and external ID
         const plan = await DataPlan.findByPk(planId);

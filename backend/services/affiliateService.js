@@ -4,6 +4,22 @@ const { sequelize } = require('../config/db'); // Fix import to use associations
 const logger = require('../utils/logger');
 
 class AffiliateService {
+  async updateReferralStats(referrer, user, amount, incrementTransactions = true, transactionScope = null) {
+    const referral = await Referral.findOne({
+      where: { referrerId: referrer.id, referredUserId: user.id },
+      transaction: transactionScope,
+    });
+    if (!referral) return null;
+
+    const nextTotal = parseFloat(referral.total_commissions_earned || 0) + parseFloat(amount || 0);
+    const nextTransactions = Number(referral.total_transactions || 0) + (incrementTransactions ? 1 : 0);
+    await referral.update({
+      total_commissions_earned: nextTotal,
+      total_transactions: nextTransactions,
+    }, { transaction: transactionScope });
+    return referral;
+  }
+
   /**
    * Process affiliate commission for a transaction
    * @param {User} user - The user who performed the transaction
@@ -67,9 +83,14 @@ class AffiliateService {
           commissionableId: transaction.id,
           commissionableType: 'Transaction',
           amount: commissionAmount,
+          source_amount: parseFloat(transaction.amount),
+          commission_rate: commissionRate,
           status: 'paid', // Since we credited wallet immediately
-          type: 'transaction_commission'
+          type: 'transaction',
+          paid_at: new Date(),
         }, { transaction: transactionScope });
+
+        await this.updateReferralStats(referrer, user, commissionAmount, true, transactionScope);
 
         logger.info(`Commission of ${commissionAmount} paid to ${referrer.email} for txn ${transaction.reference}`);
 
@@ -92,13 +113,21 @@ class AffiliateService {
   async processFundingCommission(user, walletTransaction, t = null) {
     const work = async (transactionScope) => {
       try {
+        // #region debug-point D:funding-commission-entry
+        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'affiliateService.js:processFundingCommission',msg:'[DEBUG] Funding commission processing started',data:{userId:user?.id||null,transactionReference:walletTransaction?.reference||null,amount:walletTransaction?.amount||null},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         // 1. Check if user has a referrer
         const referral = await Referral.findOne({
           where: { referredUserId: user.id },
           transaction: transactionScope
         });
 
-        if (!referral) return;
+        if (!referral) {
+          // #region debug-point D:no-referral-record
+          (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'affiliateService.js:processFundingCommission',msg:'[DEBUG] No Referral row found for referred user',data:{userId:user?.id||null,transactionReference:walletTransaction?.reference||null},ts:Date.now()})}).catch(()=>{})})();
+          // #endregion
+          return;
+        }
 
         // 2. Get Referrer
         const referrer = await User.findByPk(referral.referrerId, { transaction: transactionScope });
@@ -140,14 +169,23 @@ class AffiliateService {
         );
 
         // 6. Update referral stats
-        await this.updateReferralStats(referrer, user, commissionAmount, false, transactionScope);
+        await this.updateReferralStats(referrer, user, commissionAmount, true, transactionScope);
 
         // 7. Mark commission as paid
-        await commission.markAsPaid();
+        await commission.update({
+          status: 'paid',
+          paid_at: new Date(),
+        }, { transaction: transactionScope });
 
+        // #region debug-point D:funding-commission-paid
+        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'affiliateService.js:processFundingCommission',msg:'[DEBUG] Funding commission paid',data:{userId:user?.id||null,referrerId:referrer?.id||null,transactionReference:walletTransaction?.reference||null,commissionId:commission?.id||null,commissionAmount,commissionRate},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         logger.info(`Funding commission of ${commissionAmount} paid to ${referrer.email} for txn ${walletTransaction.reference}`);
 
       } catch (error) {
+        // #region debug-point D:funding-commission-error
+        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'affiliateService.js:processFundingCommission',msg:'[DEBUG] Funding commission processing failed',data:{userId:user?.id||null,transactionReference:walletTransaction?.reference||null,message:error?.message||null,stack:String(error?.stack||'').slice(0,1200)},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         logger.error(`Failed to process funding commission: ${error.message}`);
       }
     };

@@ -26,6 +26,26 @@ const Referral = sequelize.define('Referral', {
     defaultValue: 0,
     field: 'total_transactions'
   },
+  referrer_signup_bonus_amount: {
+    type: DataTypes.DECIMAL(15, 2),
+    defaultValue: 0.00,
+    field: 'referrer_signup_bonus_amount'
+  },
+  referrer_signup_bonus_awarded_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'referrer_signup_bonus_awarded_at'
+  },
+  referee_signup_bonus_amount: {
+    type: DataTypes.DECIMAL(15, 2),
+    defaultValue: 0.00,
+    field: 'referee_signup_bonus_amount'
+  },
+  referee_signup_bonus_awarded_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'referee_signup_bonus_awarded_at'
+  },
   referrerId: {
     type: DataTypes.UUID,
     allowNull: true,

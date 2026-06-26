@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, DollarSign, Share2, Loader2 } from 'lucide-react';
+import { Users, DollarSign, Share2, Loader2, MousePointerClick, Percent, Award } from 'lucide-react';
 import api from '../../services/api';
 
 interface AffiliateStats {
@@ -8,11 +8,16 @@ interface AffiliateStats {
   totalEarnings: string;
   referredUsersCount: number;
   pendingPayout: string;
+  totalClicks?: number;
+  totalConvertedClicks?: number;
+  conversionRate?: number;
+  totalRefereeRewardsIssued?: string;
   recentReferrals: {
     name: string;
     date: string;
     status: string;
     commission: string;
+    refereeReward?: string | number;
   }[];
 }
 
@@ -52,32 +57,71 @@ export default function Affiliate() {
         <h1 className="text-2xl font-bold text-gray-900">Affiliate Program</h1>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-primary-500">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Total Earnings</p>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Earnings</p>
               <p className="text-2xl font-bold text-gray-900">₦{stats?.totalEarnings || '0.00'}</p>
             </div>
-            <DollarSign className="w-8 h-8 text-primary-200" />
+            <div className="p-3 bg-primary-50 rounded-lg text-primary-600">
+              <DollarSign className="w-6 h-6" />
+            </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Referred Users</p>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Referred Users</p>
               <p className="text-2xl font-bold text-gray-900">{stats?.referredUsersCount || 0}</p>
             </div>
-            <Users className="w-8 h-8 text-green-200" />
+            <div className="p-3 bg-emerald-50 rounded-lg text-emerald-600">
+              <Users className="w-6 h-6" />
+            </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow border-l-4 border-purple-500">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Pending Payout</p>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending Payout</p>
               <p className="text-2xl font-bold text-gray-900">₦{stats?.pendingPayout || '0.00'}</p>
             </div>
-            <Share2 className="w-8 h-8 text-purple-200" />
+            <div className="p-3 bg-purple-50 rounded-lg text-purple-600">
+              <Share2 className="w-6 h-6" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Link Clicks</p>
+              <p className="text-2xl font-bold text-gray-900">{stats?.totalClicks || 0}</p>
+            </div>
+            <div className="p-3 bg-blue-50 rounded-lg text-blue-600">
+              <MousePointerClick className="w-6 h-6" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Conversion Rate</p>
+              <p className="text-2xl font-bold text-gray-900">{stats?.conversionRate !== undefined ? `${stats.conversionRate}%` : '0%'}</p>
+            </div>
+            <div className="p-3 bg-amber-50 rounded-lg text-amber-600">
+              <Percent className="w-6 h-6" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Friend Bonuses Paid</p>
+              <p className="text-2xl font-bold text-gray-900">₦{stats?.totalRefereeRewardsIssued || '0.00'}</p>
+            </div>
+            <div className="p-3 bg-rose-50 rounded-lg text-rose-600">
+              <Award className="w-6 h-6" />
+            </div>
           </div>
         </div>
       </div>
@@ -113,7 +157,8 @@ export default function Affiliate() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Your Earnings</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Friend's Bonus</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -130,11 +175,12 @@ export default function Affiliate() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₦{referral.commission}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">₦{referral.refereeReward || '0.00'}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={4} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                <td colSpan={5} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
                   No referrals yet
                 </td>
               </tr>

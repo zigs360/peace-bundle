@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { Lock, User, Mail, Phone, Hash, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -18,6 +18,36 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const incomingReferral = String(searchParams.get('ref') || '').trim();
+    if (!incomingReferral) return;
+
+    const storedCode = localStorage.getItem('pendingReferralCode');
+    const storedToken = localStorage.getItem('pendingReferralClickToken');
+
+    // If we've already tracked this click in this session, don't track it again
+    if (storedCode === incomingReferral && storedToken) {
+      setFormData((prev) => ({ ...prev, referralCode: prev.referralCode || incomingReferral }));
+      return;
+    }
+
+    const clickToken = 'clk_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    localStorage.setItem('pendingReferralCode', incomingReferral);
+    localStorage.setItem('pendingReferralClickToken', clickToken);
+    setFormData((prev) => ({ ...prev, referralCode: prev.referralCode || incomingReferral }));
+
+    // Track click on the backend
+    api.post('/auth/referral/click', {
+      referralCode: incomingReferral,
+      clickToken,
+      landingPath: window.location.pathname + window.location.search,
+      source: new URLSearchParams(window.location.search).get('utm_source') || 'direct'
+    }).catch((err) => {
+      console.error('Failed to track referral click:', err);
+    });
+  }, [searchParams]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -29,13 +59,21 @@ export default function Register() {
     setError('');
 
     try {
-      const res = await api.post('/auth/register', formData);
+      const referralCode = String(formData.referralCode || localStorage.getItem('pendingReferralCode') || '').trim();
+      const referralClickToken = localStorage.getItem('pendingReferralClickToken') || undefined;
+      const res = await api.post('/auth/register', { 
+        ...formData, 
+        referralCode,
+        referralClickToken
+      });
       const data = res.data as { user: any };
       const userForStorage = { ...data.user };
       delete userForStorage.virtual_account_number;
       delete userForStorage.virtual_account_bank;
       delete userForStorage.virtual_account_name;
       localStorage.setItem('user', JSON.stringify(userForStorage));
+      localStorage.removeItem('pendingReferralCode');
+      localStorage.removeItem('pendingReferralClickToken');
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Registration failed');

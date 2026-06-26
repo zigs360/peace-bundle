@@ -56,6 +56,8 @@ const treasuryController = require('../controllers/treasuryController');
 const adminWalletDeductionController = require('../controllers/adminWalletDeductionController');
 const adminTransactionPinAuditController = require('../controllers/adminTransactionPinAuditController');
 const adminTransactionIntegrityController = require('../controllers/adminTransactionIntegrityController');
+const adminAirtimeWalletAuditController = require('../controllers/adminAirtimeWalletAuditController');
+const adminAirtimeFalseRefundAuditController = require('../controllers/adminAirtimeFalseRefundAuditController');
 const adminAccountDeletionController = require('../controllers/adminAccountDeletionController');
 const {
     listAdminOgdamsSims,
@@ -143,6 +145,12 @@ router.get('/audit/transaction-pin-events', protect, admin, adminTransactionPinA
 router.get('/audit/transaction-integrity', protect, admin, adminTransactionIntegrityController.listTransactionIntegrityAudits);
 router.get('/audit/transaction-integrity/summary', protect, admin, adminTransactionIntegrityController.getIntegritySummary);
 router.post('/audit/transaction-integrity/repair', protect, admin, adminTransactionIntegrityController.runTransactionIntegrityRepair);
+router.get('/audit/airtime-wallet-deductions', protect, admin, adminAirtimeWalletAuditController.getAirtimeWalletAuditReport);
+router.get('/audit/airtime-wallet-deductions/latest', protect, admin, adminAirtimeWalletAuditController.getLatestAirtimeWalletAuditReport);
+router.post('/audit/airtime-wallet-deductions/repair', protect, admin, adminAirtimeWalletAuditController.runAirtimeWalletAuditRepair);
+router.get('/audit/airtime-false-refunds', protect, admin, adminAirtimeFalseRefundAuditController.getAirtimeFalseRefundReport);
+router.get('/audit/airtime-false-refunds/latest', protect, admin, adminAirtimeFalseRefundAuditController.getLatestAirtimeFalseRefundReport);
+router.post('/audit/airtime-false-refunds/repair', protect, admin, adminAirtimeFalseRefundAuditController.runAirtimeFalseRefundRepair);
 router.get('/account-deletion/requests', protect, admin, adminAccountDeletionController.listAccountDeletionRequests);
 router.get('/account-deletion/requests/:id', protect, admin, adminAccountDeletionController.getAccountDeletionRequestDetail);
 router.post('/account-deletion/requests/:id/approve', protect, admin, adminAccountDeletionController.approveAccountDeletionRequest);

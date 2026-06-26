@@ -12,6 +12,7 @@ const {
   submitKyc,
   refreshUserToken,
   logoutUser,
+  trackReferralClick,
   requestPasswordReset,
   validatePasswordResetToken,
   completePasswordReset,
@@ -25,7 +26,8 @@ const {
   createTransactionPinSession,
 } = require('../controllers/transactionPinController');
 const { protect, admin } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const { avatarUpload, kycUpload } = require('../middleware/uploadMiddleware');
+const logger = require('../utils/logger');
 const validate = require('../middleware/validationMiddleware');
 
 // Auth Specific Rate Limiter
@@ -101,6 +103,7 @@ const enforceSensitiveHttps = (req, res, next) => {
 };
 
 router.post('/register', authLimiter, validate(registerValidation), registerUser);
+router.post('/referral/click', authLimiter, trackReferralClick);
 router.post('/login', authLimiter, validate(loginValidation), loginUser);
 router.post('/password-reset/request', enforceSensitiveHttps, passwordResetRequestLimiter, validate(passwordResetRequestValidation), requestPasswordReset);
 router.get('/password-reset/validate', enforceSensitiveHttps, validatePasswordResetToken);
@@ -108,9 +111,30 @@ router.post('/password-reset/complete', enforceSensitiveHttps, validate(password
 router.get('/me', protect, getMe);
 router.get('/profile', protect, getMe); // Alias for frontend compatibility
 router.get('/users', protect, admin, getAllUsers);
-router.put('/profile', protect, upload.single('avatar'), updateProfile);
+router.put(
+  '/profile',
+  protect,
+  (req, res, next) => {
+    avatarUpload.single('avatar')(req, res, (err) => {
+      if (!err) return next();
+      const message = String(err.message || 'Upload failed');
+      const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+      logger.error('[ProfileUpload] Avatar upload failed', {
+        userId: req.user?.id || null,
+        code: err.code || null,
+        message,
+        contentType: req.headers?.['content-type'] || null,
+      });
+      return res.status(status).json({
+        success: false,
+        message: err.code === 'LIMIT_FILE_SIZE' ? 'Profile photo must be 5MB or less.' : message,
+      });
+    });
+  },
+  updateProfile,
+);
 router.put('/password', protect, changePassword);
-router.post('/kyc', protect, upload.single('document'), submitKyc);
+router.post('/kyc', protect, kycUpload.single('document'), submitKyc);
 router.get('/transaction-pin', protect, getTransactionPinStatus);
 router.post('/transaction-pin', protect, createTransactionPin);
 router.put('/transaction-pin', protect, changeTransactionPin);

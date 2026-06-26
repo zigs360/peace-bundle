@@ -127,7 +127,10 @@ const payvesselService = require('../services/payvesselService');
 // @route   POST /api/auth/register
 // @access  Public
 const registerUser = async (req, res) => {
-    const { name, fullName, email, phone, password, referralCode } = req.body;
+    const { name, fullName, email, phone, password, referralCode, referralClickToken } = req.body;
+    // #region debug-point A:register-entry
+    (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'A',location:'authController.js:registerUser',msg:'[DEBUG] Registration entered with referral context',data:{hasReferralCode:Boolean(referralCode),referralCode:referralCode||null,email:String(email||'').trim().toLowerCase()||null,phone:phone||null},ts:Date.now()})}).catch(()=>{})})();
+    // #endregion
     
     // Support both name and fullName fields from frontend
     const userName = name || fullName;
@@ -167,6 +170,9 @@ const registerUser = async (req, res) => {
                 if (referrerObj) {
                     referredBy = referrerObj.referral_code;
                 }
+                // #region debug-point A:referral-validation
+                (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'A',location:'authController.js:registerUser',msg:'[DEBUG] Referral code validation completed',data:{inputReferralCode:referralCode||null,referrerFound:Boolean(referrerObj),referrerId:referrerObj?.id||null,referredBy:referredBy||null},ts:Date.now()})}).catch(()=>{})})();
+                // #endregion
             } catch (refErr) {
                 logger.warn(`Referral validation failed for code ${referralCode}: ${refErr.message}`);
             }
@@ -194,6 +200,9 @@ const registerUser = async (req, res) => {
             package: 'Standard',
             kyc_status: 'none'
         }, { transaction: t });
+        // #region debug-point B:user-created-with-referral
+        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'B',location:'authController.js:registerUser',msg:'[DEBUG] User created with referral fields',data:{userId:user?.id||null,referralCode:user?.referral_code||null,referredBy:user?.referred_by||null,referrerId:referrerObj?.id||null},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
 
         const token = generateToken(user.id);
         const refreshToken = generateRefreshToken(user.id);
@@ -216,7 +225,7 @@ const registerUser = async (req, res) => {
 
         // Track referral reward if applicable
         if (referrerObj) {
-            ReferralService.trackReferral(referrerObj, user).catch(err => {
+            ReferralService.trackReferral(referrerObj, user, { referralClickToken: referralClickToken || null }).catch(err => {
                 logger.error(`[Referral] Failed to track referral reward for user ${user.id}: ${err.message}`);
             });
         }
@@ -250,6 +259,40 @@ const registerUser = async (req, res) => {
         res.status(500).json({ 
             success: false,
             message: 'Registration failed. Please try again later.' 
+        });
+    }
+};
+
+// @desc    Track referral link click
+// @route   POST /api/auth/referral/click
+// @access  Public
+const trackReferralClick = async (req, res) => {
+    try {
+        const referralCode = String(req.body?.referralCode || '').trim();
+        const clickToken = String(req.body?.clickToken || '').trim();
+        const landingPath = String(req.body?.landingPath || '').trim() || null;
+        const source = String(req.body?.source || '').trim() || null;
+
+        const result = await ReferralService.trackClick({
+            referralCode,
+            clickToken,
+            landingPath,
+            source,
+            ip: req.ip || null,
+            userAgent: req.get('user-agent') || null,
+        });
+
+        return res.status(202).json({
+            success: true,
+            tracked: Boolean(result.tracked),
+        });
+    } catch (error) {
+        logger.error('[Referral] Failed to track click', {
+            message: error.message,
+        });
+        return res.status(202).json({
+            success: true,
+            tracked: false,
         });
     }
 };
@@ -439,6 +482,9 @@ const getAllUsers = async (req, res) => {
 // @access  Private
 const updateProfile = async (req, res) => {
     try {
+        // #region debug-point B:profile-upload-entry
+        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='profile-photo-upload';for(const p of ['.dbg/profile-photo-upload.env','../.dbg/profile-photo-upload.env','../../.dbg/profile-photo-upload.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'B',location:'authController.js:updateProfile',msg:'[DEBUG] Profile update handler entered',data:{userId:req?.user?.id||null,contentType:req?.headers?.['content-type']||null,hasFile:Boolean(req?.file),fileField:req?.file?.fieldname||null,fileMimetype:req?.file?.mimetype||null,fileSize:req?.file?.size||null,bodyKeys:Object.keys(req?.body||{}),avatarBodyPresent:Boolean(req?.body?.avatar)},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         const user = await User.findByPk(req.user.id, {
             include: [{ model: Wallet, as: 'wallet' }]
         });
@@ -459,6 +505,9 @@ const updateProfile = async (req, res) => {
         if (req.file) {
             user.avatar = `uploads/${req.file.filename}`;
         }
+        // #region debug-point B:profile-upload-before-save
+        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='profile-photo-upload';for(const p of ['.dbg/profile-photo-upload.env','../.dbg/profile-photo-upload.env','../../.dbg/profile-photo-upload.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'authController.js:updateProfile',msg:'[DEBUG] Profile update before DB save',data:{userId:user?.id||null,nextAvatar:user?.avatar||null,hasFile:Boolean(req?.file)},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         
         const updatedUser = await user.save();
         await attachRecoveredWallet(updatedUser);
@@ -478,6 +527,9 @@ const updateProfile = async (req, res) => {
             hasTransactionPin: Boolean(updatedUser.transaction_pin_hash)
         });
     } catch (error) {
+        // #region debug-point C:profile-upload-error
+        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='profile-photo-upload';for(const p of ['.dbg/profile-photo-upload.env','../.dbg/profile-photo-upload.env','../../.dbg/profile-photo-upload.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'C',location:'authController.js:updateProfile',msg:'[DEBUG] Profile update failed',data:{userId:req?.user?.id||null,message:error?.message||null,name:error?.name||null,code:error?.code||null,stack:String(error?.stack||'').slice(0,1200)},ts:Date.now()})}).catch(()=>{})})();
+        // #endregion
         logger.error(`[Auth] Profile update error: ${error.message}`);
         res.status(500).json({ 
             success: false,
@@ -840,6 +892,7 @@ const completePasswordReset = async (req, res) => {
 
 module.exports = {
     registerUser,
+    trackReferralClick,
     loginUser,
     getMe,
     getAllUsers,

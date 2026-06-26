@@ -10,6 +10,7 @@ jest.mock('../models/User', () => ({
 jest.mock('../models/Wallet', () => ({}));
 jest.mock('../models/Transaction', () => ({
   findOne: jest.fn(),
+  findByPk: jest.fn(),
 }));
 jest.mock('../models/Commission', () => ({}));
 jest.mock('../models/Referral', () => ({ findOne: jest.fn() }));
@@ -46,6 +47,10 @@ jest.mock('../services/dataPurchaseService', () => ({
   dispenseData: jest.fn(),
 }));
 
+jest.mock('../services/airtimePurchaseWorkflowService', () => ({
+  prepareCommittedPurchase: jest.fn(),
+}));
+
 jest.mock('../services/transactionIntegrityService', () => ({
   findDuplicateByReference: jest.fn(),
   buildFingerprint: jest.fn(),
@@ -62,14 +67,21 @@ jest.mock('../services/notificationService', () => ({
   sendSMS: jest.fn(),
 }));
 
+jest.mock('../services/notificationRealtimeService', () => ({
+  sendToUser: jest.fn(),
+  emitToUser: jest.fn(),
+}));
+
 const sequelize = require('../config/database');
 const DataPlan = require('../models/DataPlan');
+const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const walletService = require('../services/walletService');
 const pricingService = require('../services/pricingService');
 const transactionLimitService = require('../services/transactionLimitService');
 const simManagementService = require('../services/simManagementService');
 const dataPurchaseService = require('../services/dataPurchaseService');
+const airtimePurchaseWorkflowService = require('../services/airtimePurchaseWorkflowService');
 const transactionIntegrityService = require('../services/transactionIntegrityService');
 const { buyAirtime, buyData } = require('../controllers/transactionController');
 
@@ -79,14 +91,11 @@ describe('Airtime false-success guard', () => {
   });
 
   it('refunds and returns 502 when provider result does not confirm completion and txn is not queued', async () => {
-    const t = { commit: jest.fn(), rollback: jest.fn(), finished: null };
-    sequelize.transaction.mockResolvedValueOnce(t);
-
     const user = { id: 'user-1', role: 'user' };
     User.findByPk.mockResolvedValueOnce(user);
 
     transactionLimitService.canTransact.mockResolvedValueOnce({ allowed: true });
-    pricingService.quoteAirtime.mockResolvedValueOnce({ total: 100 });
+    pricingService.quoteAirtime.mockResolvedValueOnce({ charged_amount: 100 });
     transactionIntegrityService.findDuplicateByReference.mockResolvedValueOnce(null);
     transactionIntegrityService.buildFingerprint.mockReturnValueOnce('fp-1');
     transactionIntegrityService.findLikelyDuplicate.mockResolvedValueOnce(null);
@@ -103,13 +112,13 @@ describe('Airtime false-success guard', () => {
       save: jest.fn(async function save() { return this; }),
     };
 
-    walletService.debit.mockResolvedValueOnce(newTxn);
+    airtimePurchaseWorkflowService.prepareCommittedPurchase.mockResolvedValueOnce({
+      duplicate: false,
+      transaction: newTxn,
+      chargedAmount: 100,
+    });
     walletService.getBalance.mockResolvedValue(670);
-
-    transactionIntegrityService.selectAirtimeRoute.mockReturnValue({ fulfillmentRoute: 'ogdams_api', simId: null });
-    transactionIntegrityService.lockRoute.mockResolvedValueOnce({});
-    simManagementService.getOptimalSim.mockResolvedValueOnce(null);
-
+    Transaction.findByPk.mockImplementation(async () => newTxn);
     dataPurchaseService.dispenseAirtimeWithFallback.mockResolvedValueOnce({ provider: 'smeplug' });
     transactionIntegrityService.failAndRefund.mockImplementationOnce(async (txn) => {
       txn.status = 'refunded';
@@ -137,20 +146,24 @@ describe('Airtime false-success guard', () => {
     await buyAirtime(req, res);
 
     expect(transactionIntegrityService.failAndRefund).toHaveBeenCalled();
-    expect(t.commit).toHaveBeenCalled();
+    expect(airtimePurchaseWorkflowService.prepareCommittedPurchase).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({
+        network: 'mtn',
+        faceValue: 100,
+        phone: '08105880201',
+      }),
+    );
     expect(res.statusCode).toBe(502);
     expect(res.body.success).toBe(false);
   });
 
   it('does not trigger a second refund when the provider flow already marked the transaction refunded', async () => {
-    const t = { commit: jest.fn(), rollback: jest.fn(), finished: null };
-    sequelize.transaction.mockResolvedValueOnce(t);
-
     const user = { id: 'user-2', role: 'user' };
     User.findByPk.mockResolvedValueOnce(user);
 
     transactionLimitService.canTransact.mockResolvedValueOnce({ allowed: true });
-    pricingService.quoteAirtime.mockResolvedValueOnce({ total: 100 });
+    pricingService.quoteAirtime.mockResolvedValueOnce({ charged_amount: 100 });
     transactionIntegrityService.findDuplicateByReference.mockResolvedValueOnce(null);
     transactionIntegrityService.buildFingerprint.mockReturnValueOnce('fp-2');
     transactionIntegrityService.findLikelyDuplicate.mockResolvedValueOnce(null);
@@ -168,17 +181,18 @@ describe('Airtime false-success guard', () => {
       save: jest.fn(async function save() { return this; }),
     };
 
-    walletService.debit.mockResolvedValueOnce(newTxn);
+    airtimePurchaseWorkflowService.prepareCommittedPurchase.mockResolvedValueOnce({
+      duplicate: false,
+      transaction: newTxn,
+      chargedAmount: 100,
+    });
     walletService.getBalance.mockResolvedValue(570);
-    transactionIntegrityService.selectAirtimeRoute.mockReturnValue({ fulfillmentRoute: 'ogdams_api', simId: null });
-    transactionIntegrityService.lockRoute.mockResolvedValueOnce({});
-    simManagementService.getOptimalSim.mockResolvedValueOnce(null);
-
     dataPurchaseService.dispenseAirtimeWithFallback.mockImplementationOnce(async (txn) => {
       txn.status = 'refunded';
       txn.failure_reason = 'Momo integration not configured';
       return { provider: 'smeplug', failed: true };
     });
+    Transaction.findByPk.mockImplementation(async () => newTxn);
 
     const req = {
       user: { id: user.id },
@@ -201,7 +215,6 @@ describe('Airtime false-success guard', () => {
     await buyAirtime(req, res);
 
     expect(transactionIntegrityService.failAndRefund).not.toHaveBeenCalled();
-    expect(t.commit).toHaveBeenCalled();
     expect(res.statusCode).toBe(502);
     expect(res.body.success).toBe(false);
     expect(String(res.body.message || '')).toMatch(/momo integration not configured/i);

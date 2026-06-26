@@ -104,6 +104,40 @@ describe('Airtime Purchase Flow', () => {
     expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
   });
 
+  it('treats Ogdams boolean success responses as delivered and does not auto-refund', async () => {
+    const { user, token } = await seedUserWithBalance({ balance: 1000 });
+    const pinCookies = await createTransactionPinSession(token);
+
+    ogdamsService.purchaseAirtime.mockResolvedValueOnce({
+      status: true,
+      httpStatus: 200,
+      reference: 'OGD-BOOL-SUCCESS',
+    });
+
+    const res = await request(app)
+      .post('/api/transactions/airtime')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Cookie', pinCookies)
+      .send({ network: 'mtn', phone: '08129999999', amount: 100 });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.transaction).toBeTruthy();
+    expect(res.body.transaction.status).toBe('completed');
+    expect(res.body.transaction.metadata?.service_provider).toBe('ogdams');
+    expect(res.body.transaction.metadata?.payment_state).toEqual(
+      expect.objectContaining({
+        wallet: 'debited',
+        provider: 'confirmed',
+        settlement: 'completed',
+      }),
+    );
+    expect(smeplugService.purchaseVTU).not.toHaveBeenCalled();
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+  });
+
   it('POST /api/transactions/airtime auto-refunds and does not switch routes when Ogdams fails and a SIM exists', async () => {
     const { user, token } = await seedUserWithBalance({ balance: 1000 });
     const pinCookies = await createTransactionPinSession(token);
@@ -199,6 +233,37 @@ describe('Airtime Purchase Flow', () => {
 
     const wallet = await Wallet.findOne({ where: { userId: user.id } });
     expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+  });
+
+  it('POST /api/transactions/airtime replays duplicate references without a second wallet deduction', async () => {
+    const { user, token } = await seedUserWithBalance({ balance: 1000 });
+    const pinCookies = await createTransactionPinSession(token);
+    const reference = `AIR-IDEMP-${Date.now()}`;
+
+    const first = await request(app)
+      .post('/api/transactions/airtime')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Cookie', pinCookies)
+      .send({ network: 'mtn', phone: '08177777777', amount: 100, reference });
+
+    const second = await request(app)
+      .post('/api/transactions/airtime')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Cookie', pinCookies)
+      .send({ network: 'mtn', phone: '08177777777', amount: 100, reference });
+
+    expect(first.statusCode).toBe(200);
+    expect(first.body.success).toBe(true);
+    expect(second.statusCode).toBe(200);
+    expect(second.body.success).toBe(true);
+    expect(String(second.body.message || '').toLowerCase()).toContain('duplicate');
+    expect(second.body.transaction.reference).toBe(reference);
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(wallet.balance)).toBeCloseTo(900, 2);
+
+    const txns = await Transaction.findAll({ where: { reference } });
+    expect(txns).toHaveLength(1);
   });
 
   it('does not fall back immediately when Ogdams times out (queues for verification)', async () => {

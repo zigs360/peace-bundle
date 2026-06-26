@@ -1,4 +1,4 @@
-const { User, Transaction, Wallet, Sim, DataPlan, SystemSetting, SupportTicket } = require('../models');
+const { User, Transaction, Wallet, Sim, DataPlan, SystemSetting, SupportTicket, Referral, ReferralClick } = require('../models');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const walletService = require('../services/walletService');
@@ -1312,13 +1312,19 @@ const getReferralAnalytics = async (req, res) => {
             where: { referred_by: { [Op.ne]: null } }
         });
 
-        // Use a simpler query first to check if the issue is with GROUP BY or associations
+        const totalClicks = await ReferralClick.count();
+        const totalConvertedClicks = await ReferralClick.count({
+            where: { converted_at: { [Op.ne]: null } }
+        });
+        const conversionRate = totalClicks > 0 ? Number(((totalConvertedClicks / totalClicks) * 100).toFixed(2)) : 0;
+
         const topReferrers = await User.findAll({
             attributes: [
                 'id',
                 'referral_code',
                 'name',
-                [sequelize.literal('(SELECT COUNT(*) FROM "Users" AS "referrals" WHERE "referrals"."referred_by" = "User"."referral_code")'), 'referral_count']
+                [sequelize.literal('(SELECT COUNT(*) FROM "Users" AS "referrals" WHERE "referrals"."referred_by" = "User"."referral_code")'), 'referral_count'],
+                [sequelize.literal('(SELECT COALESCE(SUM("total_commissions_earned"), 0) FROM "referrals" WHERE "referrals"."referrerId" = "User"."id")'), 'total_earnings']
             ],
             where: { 
                 referral_code: { [Op.ne]: null }
@@ -1330,6 +1336,9 @@ const getReferralAnalytics = async (req, res) => {
 
         res.json({
             totalReferrals,
+            totalClicks,
+            totalConvertedClicks,
+            conversionRate,
             topReferrers
         });
     } catch (error) {
