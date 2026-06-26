@@ -193,13 +193,31 @@ export default function Airtel() {
               <button
                 key={bundle.id}
                 onClick={() => setSelected(bundle)}
-                className={`text-left p-4 rounded-2xl border transition-all ${
-                  active ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'
+                className={`text-left p-5 rounded-2xl border transition-all duration-200 relative overflow-hidden group flex flex-col justify-between min-h-[160px] ${
+                  active
+                    ? 'border-primary-500 bg-gradient-to-br from-primary-50 to-white shadow-md ring-1 ring-primary-500'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50 bg-white shadow-sm'
                 }`}
               >
-                <div className="text-sm font-black text-gray-900">{bundle.minutes > 0 ? `${bundle.minutes} mins` : bundle.name}</div>
-                <div className="text-xs text-gray-500 mt-1">{t('airtelCallPage.daysValidity', { count: bundle.validityDays })}</div>
-                <div className="text-lg font-black text-primary-700 mt-2">₦{amount.toLocaleString()}</div>
+                <div className="space-y-2 w-full">
+                  <div className="text-sm font-black text-gray-800 group-hover:text-primary-700 transition-colors line-clamp-2 min-h-[40px]">
+                    {bundle.name}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-800">
+                      {t('airtelCallPage.daysValidity', { count: bundle.validityDays })}
+                    </span>
+                    {bundle.minutes > 0 && (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary-50 text-primary-700">
+                        {bundle.minutes} mins
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between w-full">
+                  <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Charges</span>
+                  <span className="text-lg font-black text-primary-600">₦{amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
               </button>
             );
           })}
