@@ -58,6 +58,7 @@ const isAdminRequest = async (req) => {
 
 const normalizeManagedCallPlan = (plan) => {
   const json = plan.toJSON ? plan.toJSON() : plan;
+  const price = Number(json.price ?? 0);
   const customerPrice = Number(json.customerPrice ?? json.customer_price ?? json.price ?? 0);
   const dealerCommission = Number(json.dealerCommission ?? json.dealer_commission ?? 0);
   const stockLimit = json.stockLimit ?? json.stock_limit ?? null;
@@ -65,6 +66,7 @@ const normalizeManagedCallPlan = (plan) => {
 
   return {
     ...json,
+    price,
     customerPrice,
     dealerCommission,
     shortCode: json.shortCode ?? json.short_code ?? json.api_plan_id ?? null,
@@ -235,7 +237,7 @@ const getCallPlans = async (req, res) => {
           json.effective_price = parseFloat(String(quote.charged_amount));
         } catch (e) {
           void e;
-          json.effective_price = parseFloat(String(p.price));
+          json.effective_price = parseFloat(String(p.customerPrice ?? p.price));
         }
         return sanitizePlanForClient(json, { isAdmin });
       }),
@@ -263,7 +265,7 @@ const resolvePricedPlans = async (plans, req) => {
         json.effective_price = parseFloat(String(quote.charged_amount));
       } catch (e) {
         void e;
-        json.effective_price = parseFloat(String(plan.price));
+        json.effective_price = parseFloat(String(plan.customerPrice ?? plan.price));
       }
       return sanitizePlanForClient(json, { isAdmin });
     }),

@@ -5,6 +5,7 @@ import api from '../../../services/api';
 type ManagedPlan = {
   id: string;
   name: string;
+  price: number;
   customerPrice: number;
   dealerCommission: number;
   validityDays: number;
@@ -90,6 +91,7 @@ export default function Airtel() {
     }
 
     const payload = {
+      price: Number(draft.price ?? plan.price),
       customerPrice: Number(draft.customerPrice ?? plan.customerPrice),
       dealerCommission: Number(draft.dealerCommission ?? plan.dealerCommission),
       validityDays: Number(draft.validityDays ?? plan.validityDays),
@@ -168,7 +170,8 @@ export default function Airtel() {
                 <tr className="text-left text-gray-500">
                   <th className="py-2 pr-4">Bundle</th>
                   <th className="py-2 pr-4">Short Code</th>
-                  <th className="py-2 pr-4">Price</th>
+                  <th className="py-2 pr-4">Teleco Price (₦)</th>
+                  <th className="py-2 pr-4">Our Price (₦)</th>
                   <th className="py-2 pr-4">Commission</th>
                   <th className="py-2 pr-4">Validity</th>
                   <th className="py-2 pr-4">Stock</th>
@@ -195,6 +198,14 @@ export default function Airtel() {
                         <input
                           value={String(getPlanValue(plan, 'shortCode') ?? '')}
                           onChange={(e) => updateDraft(plan.id, 'shortCode', e.target.value)}
+                          className="w-24 rounded-lg border border-gray-300 px-3 py-2"
+                        />
+                      </td>
+                      <td className="py-3 pr-4">
+                        <input
+                          type="number"
+                          value={String(getPlanValue(plan, 'price') ?? '')}
+                          onChange={(e) => updateDraft(plan.id, 'price', Number(e.target.value))}
                           className="w-24 rounded-lg border border-gray-300 px-3 py-2"
                         />
                       </td>

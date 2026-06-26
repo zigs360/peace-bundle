@@ -197,7 +197,7 @@ class PricingService {
 
     const rule = this.pickBestRule(rules, { subscriptionPlanId: plan.id });
     if (!rule) {
-      const fallback = Number.parseFloat(String(plan.price ?? 0));
+      const fallback = Number.parseFloat(String(plan.customerPrice ?? plan.price ?? 0));
       return {
         tier: tier.name,
         charged_amount: Math.round(fallback * 100) / 100,
@@ -206,7 +206,7 @@ class PricingService {
       };
     }
 
-    const base = Number.parseFloat(String(plan.price ?? 0));
+    const base = Number.parseFloat(String(plan.customerPrice ?? plan.price ?? 0));
     const { amount, breakdown } = this.computeFromRule({ rule, base: Number.isFinite(base) && base > 0 ? base : 0 });
     return {
       tier: tier.name,

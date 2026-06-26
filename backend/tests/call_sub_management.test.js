@@ -68,7 +68,6 @@ describe('Call subscription management module', () => {
         provider: 'airtel',
         customerPrice: 3000,
         dealerCommission: 150,
-        validityDays: 15,
         shortCode: '50101',
         internalSequenceNumber: 9,
         bundleClass: 'talkmore_gifting',
@@ -161,13 +160,13 @@ describe('Call subscription management module', () => {
     await Promise.all(
       TALKMORE_GIFTING_BUNDLES.map((bundle) =>
         CallPlan.create({
-          name: `Airtel TalkMore Gifting N${bundle.customerPrice.toLocaleString('en-NG')}`,
+          name: bundle.name,
           provider: 'airtel',
           customerPrice: bundle.customerPrice,
-          price: bundle.customerPrice,
+          price: bundle.price,
           dealerCommission: bundle.dealerCommission,
           minutes: 0,
-          validityDays: 30,
+          validityDays: bundle.validityDays,
           status: 'active',
           type: 'voice',
           shortCode: bundle.shortCode,
@@ -188,19 +187,10 @@ describe('Call subscription management module', () => {
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body.items).toHaveLength(9);
-    expect(res.body.items.map((item) => item.shortCode)).toEqual([
-      '50093',
-      '50094',
-      '50095',
-      '50096',
-      '50097',
-      '50098',
-      '50099',
-      '50100',
-      '50101',
-    ]);
-    expect(res.body.items.every((item) => item.validityDays === 30)).toBe(true);
+    expect(res.body.items).toHaveLength(23);
+    expect(res.body.items.map((item) => item.shortCode).sort()).toEqual(
+      TALKMORE_GIFTING_BUNDLES.map((bundle) => bundle.shortCode).sort()
+    );
   });
 
   it('calculates prorated commission for partial month activation', async () => {
@@ -263,7 +253,6 @@ describe('Call subscription management module', () => {
       provider: 'AIRTEL',
       customerPrice: '1000',
       dealerCommission: '50',
-      validityDays: 14,
       bundleClass: 'TALKMORE_GIFTING',
       portfolio: 'custom',
       shortCode: '50097',
@@ -318,7 +307,7 @@ describe('Call subscription management module', () => {
       order: [['internalSequenceNumber', 'ASC']],
     });
 
-    expect(plans).toHaveLength(9);
+    expect(plans).toHaveLength(23);
     expect(plans.map((plan) => plan.shortCode)).toEqual(TALKMORE_GIFTING_BUNDLES.map((bundle) => bundle.shortCode));
   });
 

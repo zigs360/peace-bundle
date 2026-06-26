@@ -24,6 +24,7 @@ function normalizeCallPlanPayload(payload = {}) {
     portfolio: payload.portfolio ? String(payload.portfolio).toLowerCase() : undefined,
     bundleClass: payload.bundleClass ? String(payload.bundleClass).toLowerCase() : undefined,
     shortCode: payload.shortCode !== undefined ? String(payload.shortCode).trim() : undefined,
+    price: payload.price !== undefined ? toCurrency(payload.price) : undefined,
     customerPrice: payload.customerPrice !== undefined ? toCurrency(payload.customerPrice) : undefined,
     dealerCommission: payload.dealerCommission !== undefined ? toCurrency(payload.dealerCommission) : undefined,
     validityDays: payload.validityDays !== undefined ? toInteger(payload.validityDays) : undefined,
@@ -43,12 +44,8 @@ function normalizeCallPlanPayload(payload = {}) {
         : undefined,
   };
 
-  if (normalized.customerPrice !== undefined) {
-    normalized.price = normalized.customerPrice;
-  }
-
   if (String(normalized.bundleClass || '').toLowerCase() === TALKMORE_GIFTING_BUNDLE_CLASS) {
-    normalized.validityDays = TALKMORE_VALIDITY_DAYS;
+    normalized.validityDays = normalized.validityDays !== undefined ? normalized.validityDays : TALKMORE_VALIDITY_DAYS;
     normalized.portfolio = 'talkmore';
     normalized.type = normalized.type || 'voice';
   }

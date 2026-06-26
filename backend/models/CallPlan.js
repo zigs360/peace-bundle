@@ -183,10 +183,14 @@ CallPlan.addHook('beforeValidate', (plan) => {
     plan.bundleClass = String(plan.bundleClass).toLowerCase();
   }
 
-  const normalizedPrice = normalizeCurrency(plan.customerPrice ?? plan.price);
+  const normalizedPrice = normalizeCurrency(plan.price);
   if (normalizedPrice !== null) {
-    plan.customerPrice = normalizedPrice;
     plan.price = normalizedPrice;
+  }
+
+  const normalizedCustomerPrice = normalizeCurrency(plan.customerPrice);
+  if (normalizedCustomerPrice !== null) {
+    plan.customerPrice = normalizedCustomerPrice;
   }
 
   const normalizedCommission = normalizeCurrency(plan.dealerCommission);
@@ -229,7 +233,7 @@ CallPlan.addHook('beforeValidate', (plan) => {
   if (plan.bundleClass === TALKMORE_GIFTING) {
     plan.provider = 'airtel';
     plan.portfolio = 'talkmore';
-    plan.validityDays = 30;
+    plan.validityDays = plan.validityDays || 30;
     plan.serviceName = plan.serviceName || 'Call Subscriptions';
     plan.serviceSlug = plan.serviceSlug || 'call-subscriptions';
     plan.categoryName = plan.categoryName || 'TalkMore';
@@ -256,7 +260,7 @@ CallPlan.addHook('beforeSave', (plan) => {
   }
 
   if (plan.bundleClass === TALKMORE_GIFTING) {
-    plan.validityDays = 30;
+    plan.validityDays = plan.validityDays || 30;
   }
 
   if (plan.stockLimit !== null && plan.stockLimit !== undefined) {

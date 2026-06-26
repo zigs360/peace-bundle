@@ -197,7 +197,7 @@ export default function Airtel() {
                   active ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                <div className="text-sm font-black text-gray-900">{bundle.minutes} mins</div>
+                <div className="text-sm font-black text-gray-900">{bundle.minutes > 0 ? `${bundle.minutes} mins` : bundle.name}</div>
                 <div className="text-xs text-gray-500 mt-1">{t('airtelCallPage.daysValidity', { count: bundle.validityDays })}</div>
                 <div className="text-lg font-black text-primary-700 mt-2">₦{amount.toLocaleString()}</div>
               </button>
