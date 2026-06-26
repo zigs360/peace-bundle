@@ -289,6 +289,35 @@ const ensureReferralSystemMigrationApplied = async () => {
   }
 };
 
+const ensureAccountDeletionMigrationApplied = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+
+  const qi = sequelize.getQueryInterface();
+  let hasRequests = false;
+  let hasAudits = false;
+  try {
+    await qi.describeTable('account_deletion_requests');
+    hasRequests = true;
+    await qi.describeTable('account_deletion_audits');
+    hasAudits = true;
+  } catch (error) {
+    // If one of the tables doesn't exist, we will run the migration
+  }
+
+  if (hasRequests && hasAudits) return;
+
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20260626_account_deletion.sql');
+  try {
+    const result = await applySqlMigrationFile({ id: '20260626_account_deletion', filePath: migrationFilePath });
+    if (result.applied) {
+      console.log(`[DB] Applied SQL migration: ${result.id}`);
+    }
+  } catch (error) {
+    console.error(`[DB] Failed to apply account deletion migration: ${error.message}`);
+    throw error;
+  }
+};
+
 // Import models (Top Level)
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
@@ -532,6 +561,7 @@ const connectDB = async () => {
       await ensureTransactionIntegrityMigrationApplied();
       await ensureCallSubscriptionModuleMigrationApplied();
       await ensureReferralSystemMigrationApplied();
+      await ensureAccountDeletionMigrationApplied();
       await ensureTransactionsDashboardIndexes();
       await ensureUsersOperationalIndexes();
       await ensureAdminWalletDeductionIndexes();
