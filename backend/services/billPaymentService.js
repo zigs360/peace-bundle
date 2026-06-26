@@ -1,6 +1,7 @@
 const billStackService = require('./billStackService');
 const smeplugService = require('./smeplugService');
 const SystemSetting = require('../models/SystemSetting');
+const logger = require('../utils/logger');
 
 const parseProvider = (value) => {
   const v = String(value || '').trim().toLowerCase();
@@ -24,8 +25,22 @@ class BillPaymentService {
       return billStackService.validateCableCustomer(provider, account);
     }
 
-    if (billType === 'power') return smeplugService.validateElectricityCustomer(provider, account, meterType || 'Prepaid');
-    return smeplugService.validateCableCustomer(provider, account);
+    let result;
+    if (billType === 'power') {
+      result = await smeplugService.validateElectricityCustomer(provider, account, meterType || 'Prepaid');
+      if (!result.success && billStackService.isConfigured()) {
+        logger.warn('[BillPayment] Smeplug validation failed, falling back to BillStack', { error: result.error });
+        return billStackService.validateElectricityCustomer(provider, account, meterType);
+      }
+      return result;
+    } else {
+      result = await smeplugService.validateCableCustomer(provider, account);
+      if (!result.success && billStackService.isConfigured()) {
+        logger.warn('[BillPayment] Smeplug validation failed, falling back to BillStack', { error: result.error });
+        return billStackService.validateCableCustomer(provider, account);
+      }
+      return result;
+    }
   }
 
   async payBill(billType, provider, account, amount, phone, meterType, plan) {
@@ -36,8 +51,22 @@ class BillPaymentService {
       return billStackService.payCable(provider, account, amount, phone, plan);
     }
 
-    if (billType === 'power') return smeplugService.payElectricity(provider, account, amount, meterType || 'Prepaid', phone);
-    return smeplugService.payCable(provider, account, amount, phone, plan);
+    let result;
+    if (billType === 'power') {
+      result = await smeplugService.payElectricity(provider, account, amount, meterType || 'Prepaid', phone);
+      if (!result.success && billStackService.isConfigured()) {
+        logger.warn('[BillPayment] Smeplug payment failed, falling back to BillStack', { error: result.error });
+        return billStackService.payElectricity(provider, account, amount, meterType, phone);
+      }
+      return result;
+    } else {
+      result = await smeplugService.payCable(provider, account, amount, phone, plan);
+      if (!result.success && billStackService.isConfigured()) {
+        logger.warn('[BillPayment] Smeplug payment failed, falling back to BillStack', { error: result.error });
+        return billStackService.payCable(provider, account, amount, phone, plan);
+      }
+      return result;
+    }
   }
 }
 

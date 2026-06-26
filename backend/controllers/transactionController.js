@@ -804,9 +804,15 @@ const payBill = async (req, res) => {
             transaction: newTransaction
         });
     } catch (error) {
-        if (t) await t.rollback();
+        if (t && !t.finished) await t.rollback();
         logger.error('Bill Payment Error:', { error: error.message, stack: error.stack, userId, smartCardNumber });
-        res.status(500).json({ success: false, message: error.message || 'Server Error' });
+        const msg = String(error?.message || 'Server Error');
+        const status =
+            msg.includes('Insufficient wallet balance') ? 400 :
+            msg.includes('Daily transaction limit exceeded') ? 403 :
+            msg.includes('Wallet is') ? 403 :
+            500;
+        res.status(status).json({ success: false, message: msg });
     }
 };
 
@@ -885,9 +891,15 @@ const withdrawFunds = async (req, res) => {
             transaction: newTransaction
         });
     } catch (error) {
-        if (t) await t.rollback();
+        if (t && !t.finished) await t.rollback();
         logger.error('Withdrawal Error:', { error: error.message, stack: error.stack, userId, accountNumber });
-        res.status(500).json({ success: false, message: error.message || 'Server Error' });
+        const msg = String(error?.message || 'Server Error');
+        const status =
+            msg.includes('Insufficient wallet balance') ? 400 :
+            msg.includes('Daily transaction limit exceeded') ? 403 :
+            msg.includes('Wallet is') ? 403 :
+            500;
+        res.status(status).json({ success: false, message: msg });
     }
 };
 
