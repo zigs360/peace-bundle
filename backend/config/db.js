@@ -240,6 +240,55 @@ const ensureCallSubscriptionModuleMigrationApplied = async () => {
   }
 };
 
+const ensureReferralSystemMigrationApplied = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+
+  const qi = sequelize.getQueryInterface();
+  let desc;
+  let hasReferralClicks = false;
+  try {
+    desc = await qi.describeTable('referrals');
+    // Check if referral_clicks table exists
+    await qi.describeTable('referral_clicks');
+    hasReferralClicks = true;
+  } catch (error) {
+    // If referrals table doesn't exist, we skip
+    if (!desc) return;
+  }
+
+  const requiredColumns = [
+    'referrer_signup_bonus_amount',
+    'referrer_signup_bonus_awarded_at',
+    'referee_signup_bonus_amount',
+    'referee_signup_bonus_awarded_at',
+  ];
+
+  const missingColumns = requiredColumns.filter(
+    (columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName),
+  );
+
+  if (!missingColumns.length && hasReferralClicks) return;
+
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20260626_referral_system.sql');
+  try {
+    const result = await applySqlMigrationFile({ id: '20260626_referral_system', filePath: migrationFilePath });
+    if (result.applied) {
+      console.log(`[DB] Applied SQL migration: ${result.id}`);
+    }
+  } catch (error) {
+    console.error(`[DB] Failed to apply referral system migration: ${error.message}`);
+    throw error;
+  }
+
+  const descAfter = await qi.describeTable('referrals');
+  const stillMissingColumns = requiredColumns.filter(
+    (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
+  );
+  if (stillMissingColumns.length) {
+    throw new Error(`Referrals table is missing columns after migration: ${stillMissingColumns.join(', ')}`);
+  }
+};
+
 // Import models (Top Level)
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
@@ -482,6 +531,7 @@ const connectDB = async () => {
 
       await ensureTransactionIntegrityMigrationApplied();
       await ensureCallSubscriptionModuleMigrationApplied();
+      await ensureReferralSystemMigrationApplied();
       await ensureTransactionsDashboardIndexes();
       await ensureUsersOperationalIndexes();
       await ensureAdminWalletDeductionIndexes();
