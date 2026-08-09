@@ -20,7 +20,7 @@ export default function TransactionsPage() {
         // const user = JSON.parse(userStr);
         
         const res = await api.get('/transactions/my');
-        setTransactions(res.data as any);
+        setTransactions(res.data || []);
       } catch (err) {
         console.error('Failed to fetch transactions', err);
       } finally {
@@ -65,9 +65,9 @@ export default function TransactionsPage() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className={`p-2 rounded-full mr-3 ${
-                        tx.type === 'fund' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                        tx.type === 'credit' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
                       }`}>
-                        {tx.type === 'fund' ? <Wallet className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
+                        {tx.type === 'credit' ? <Wallet className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
                       </div>
                       <span className="text-sm font-medium text-gray-900 capitalize">{tx.type.replace('_', ' ')}</span>
                     </div>
@@ -77,9 +77,9 @@ export default function TransactionsPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className={`flex items-center text-sm font-bold ${
-                      tx.type === 'fund' ? 'text-green-600' : 'text-red-600'
+                      tx.type === 'credit' ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {tx.type === 'fund' ? <ArrowDownLeft className="w-4 h-4 mr-1" /> : <ArrowUpRight className="w-4 h-4 mr-1" />}
+                      {tx.type === 'credit' ? <ArrowDownLeft className="w-4 h-4 mr-1" /> : <ArrowUpRight className="w-4 h-4 mr-1" />}
                       ₦{tx.amount.toLocaleString()}
                     </div>
                   </td>

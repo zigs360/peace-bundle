@@ -37,12 +37,13 @@ const SENSITIVE_USER_FIELDS = [
 const mapUserForClient = (user) => ({
     id: user.id,
     fullName: user.name,
+    name: user.name,
     email: user.email,
     phone: user.phone,
     balance: user.wallet ? user.wallet.balance : 0,
     package: user.package,
     referralCode: user.referral_code,
-    role: user.role,
+    role: user.role ? String(user.role).trim().toLowerCase() : 'user',
     kycStatus: user.kyc_status,
     avatar: user.avatar || null,
     hasTransactionPin: Boolean(user.transaction_pin_hash),
@@ -425,6 +426,8 @@ const getMe = async (req, res) => {
 
         // Transform response to flat structure expected by frontend
         const userResponse = user.toJSON();
+        userResponse.fullName = user.name;
+        userResponse.role = user.role ? String(user.role).trim().toLowerCase() : 'user';
         userResponse.balance = user.wallet ? user.wallet.balance : 0;
         const userFull = await User.findByPk(req.user.id, { attributes: ['transaction_pin_hash'] });
         userResponse.hasTransactionPin = Boolean(userFull && userFull.transaction_pin_hash);

@@ -45,9 +45,13 @@ export default function UserLayout() {
     // Fetch user profile
     api.get('/auth/profile').then(res => {
       setUser(res.data);
-      setUserRole((res.data as any).role);
+      const role = String((res.data as any)?.role || '').trim().toLowerCase();
+      setUserRole(role);
+      if ((role === 'admin' || role === 'super_admin' || role === 'superadmin') && location.pathname === '/dashboard') {
+        window.location.href = '/admin';
+      }
     }).catch(err => console.error('Failed to fetch user profile', err));
-  }, []);
+  }, [location.pathname]);
 
   // Helper for Link classes
   const getLinkClasses = (path: string) => `
@@ -196,14 +200,21 @@ export default function UserLayout() {
             {!isCollapsed && <span>{t('dashboard.bulkSms')}</span>}
           </Link>
 
-          {(userRole === 'reseller' || userRole === 'admin') && (
+          {(userRole === 'reseller' || userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin') && (
             <>
+              {(userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin') && (
+                <Link to="/admin" className={getLinkClasses('/admin')} title={isCollapsed ? 'Admin Console' : ''}>
+                  <ShieldCheck className={getIconClasses('/admin')} />
+                  {!isCollapsed && <span className="font-semibold text-primary-700">Admin Console</span>}
+                </Link>
+              )}
+
               <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? t('admin.simManagement') : ''}>
                 <Users className={getIconClasses('/admin/sims')} />
                 {!isCollapsed && <span>{t('admin.simManagement')}</span>}
               </Link>
 
-              {userRole === 'admin' && (
+              {(userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin') && (
                 <Link to="/admin/kyc" className={getLinkClasses('/admin/kyc')} title={isCollapsed ? t('admin.kycManagement') : ''}>
                   <ShieldCheck className={getIconClasses('/admin/kyc')} />
                   {!isCollapsed && <span>{t('admin.kycManagement')}</span>}

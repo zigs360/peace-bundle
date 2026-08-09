@@ -165,6 +165,8 @@ async function requestPasswordReset(email, req) {
     getExpirationDescription(),
     `Expiration time: ${new Date(nextState.expiresAt).toLocaleString()}`,
     '',
+    `Or use this Reset Token directly in the app: ${token}`,
+    '',
     'If you did not request this reset, you can safely ignore this email.',
   ].join('\n');
   const html = `
@@ -181,6 +183,9 @@ async function requestPasswordReset(email, req) {
         </a>
       </p>
       <p style="word-break: break-all;"><strong>Direct link:</strong> <a href="${resetLink}">${resetLink}</a></p>
+      <p style="padding: 12px; background: #f1f5f9; border-radius: 8px; font-family: monospace; font-size: 16px;">
+        <strong>Reset Token:</strong> ${token}
+      </p>
       <p><strong>${getExpirationDescription()}</strong></p>
       <p><strong>Expiration time:</strong> ${new Date(nextState.expiresAt).toLocaleString()}</p>
       <p>If you did not request this reset, you can safely ignore this email.</p>
