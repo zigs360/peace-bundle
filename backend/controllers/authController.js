@@ -487,11 +487,13 @@ const getAllUsers = async (req, res) => {
         
         const formattedUsers = users.map(user => ({
             id: user.id,
+            _id: user.id,
+            name: user.name,
             fullName: user.name,
             email: user.email,
             phone: user.phone,
             balance: user.wallet ? user.wallet.balance : 0,
-            role: user.role,
+            role: user.role ? String(user.role).trim().toLowerCase() : 'user',
             createdAt: user.createdAt,
             kycStatus: user.kyc_status,
             avatar: user.avatar,
