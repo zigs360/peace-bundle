@@ -346,6 +346,21 @@ const loginUser = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
 
         if (isMatch) {
+            // Auto-promote designated admin emails to 'admin' role if not already admin
+            const lowerEmail = String(user.email || '').toLowerCase().trim();
+            const superAdmins = String(process.env.SUPER_ADMIN_EMAILS || '').toLowerCase();
+            if (
+              lowerEmail === 'admin@peacebundlle.com' ||
+              lowerEmail === 'admin@peacebundle.com' ||
+              lowerEmail.startsWith('admin@') ||
+              (superAdmins && superAdmins.includes(lowerEmail))
+            ) {
+              if (user.role !== 'admin' && user.role !== 'super_admin') {
+                user.role = 'admin';
+                await user.update({ role: 'admin' });
+              }
+            }
+
             // Reset login attempts on successful login
             await user.update({
                 login_attempts: 0,
@@ -423,6 +438,21 @@ const getMe = async (req, res) => {
         }
 
         await attachRecoveredWallet(user);
+
+        // Auto-promote designated admin emails if needed
+        const lowerEmail = String(user.email || '').toLowerCase().trim();
+        const superAdmins = String(process.env.SUPER_ADMIN_EMAILS || '').toLowerCase();
+        if (
+          lowerEmail === 'admin@peacebundlle.com' ||
+          lowerEmail === 'admin@peacebundle.com' ||
+          lowerEmail.startsWith('admin@') ||
+          (superAdmins && superAdmins.includes(lowerEmail))
+        ) {
+          if (user.role !== 'admin' && user.role !== 'super_admin') {
+            user.role = 'admin';
+            await user.update({ role: 'admin' });
+          }
+        }
 
         // Transform response to flat structure expected by frontend
         const userResponse = user.toJSON();
