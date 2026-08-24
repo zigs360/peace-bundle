@@ -51,6 +51,26 @@ const purchaseUnified = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    // Check Service Availability Toggles
+    const SystemSetting = require('../models/SystemSetting');
+    if (serviceType === 'data') {
+      const dataEnabled = await SystemSetting.get('data_purchase_enabled', true);
+      if ((dataEnabled === false || dataEnabled === 'false') && user?.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Data purchases are currently disabled by the Administrator. Please try again later.'
+        });
+      }
+    } else if (serviceType === 'airtime') {
+      const airtimeEnabled = await SystemSetting.get('airtime_purchase_enabled', true);
+      if ((airtimeEnabled === false || airtimeEnabled === 'false') && user?.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Airtime purchases are currently disabled by the Administrator. Please try again later.'
+        });
+      }
+    }
+
     // Check Transaction Limits
     const limitCheck = await transactionLimitService.canTransact(user);
     if (!limitCheck.allowed) {

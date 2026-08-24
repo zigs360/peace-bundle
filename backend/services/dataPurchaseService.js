@@ -374,6 +374,9 @@ class DataPurchaseService {
           return;
         }
 
+        let simRouteFailed = false;
+        let simRouteError = null;
+
         if (!sim && plan) {
           try {
             sim = await simManagementService.getOptimalSimForData(plan);
@@ -382,47 +385,82 @@ class DataPurchaseService {
           }
         }
 
-        if (!sim) {
-          await transactionIntegrityService.failAndRefund(transaction, 'No SIM available for this data purchase', t, {
-            flagAsAnomaly: true,
-          });
+        if (sim) {
+          const poolResult = await simManagementService.processTransactionWithReservation(
+            sim,
+            plan,
+            transaction.recipient_phone,
+            transaction.reference,
+            t
+          );
+
+          if (poolResult.success) {
+            transaction.simId = sim.id;
+            transaction.metadata = {
+              ...(transaction.metadata || {}),
+              service_provider: poolResult.platform,
+              sim_pool: true,
+              sim_id: sim.id,
+            };
+            await transactionIntegrityService.markProviderSuccess(
+              transaction,
+              {
+                provider: poolResult.platform,
+                providerReference: poolResult.reference,
+                response: { provider: poolResult.platform, data: poolResult.details || null },
+              },
+              t,
+            );
+            return;
+          }
+          simRouteFailed = true;
+          simRouteError = poolResult.error || 'SIM route failed';
+        } else {
+          simRouteFailed = true;
+          simRouteError = 'No active SIM available for this provider';
+        }
+
+        // If SIM route failed or no SIM available, check if wallet fallback is allowed for this plan
+        const allowWalletFallbackForPlan = plan ? plan.available_wallet !== false : true;
+        if (!allowWalletFallbackForPlan) {
+          await transactionIntegrityService.failAndRefund(
+            transaction,
+            simRouteError || 'SIM route failed and wallet fallback is disabled for this plan',
+            t,
+            { flagAsAnomaly: true },
+          );
           return;
         }
 
-        const poolResult = await simManagementService.processTransactionWithReservation(
-          sim,
-          plan,
+        logger.info('[DataPurchase] Falling back to SMEPlug Wallet API', {
+          transactionId: transaction.id,
+          reason: simRouteError,
+        });
+
+        const effectivePlanId = smeplugPlanId || plan?.plan_id || plan?.smeplug_plan_id || '1';
+        const response = await smeplugService.purchaseData(
+          transaction.provider,
           transaction.recipient_phone,
-          transaction.reference,
-          t
+          effectivePlanId,
+          'wallet'
         );
 
-        if (poolResult.success) {
-          transaction.simId = sim.id;
-          transaction.metadata = {
-            ...(transaction.metadata || {}),
-            service_provider: poolResult.platform,
-            sim_pool: true,
-            sim_id: sim.id,
-          };
+        if (response.success) {
           await transactionIntegrityService.markProviderSuccess(
             transaction,
             {
-              provider: poolResult.platform,
-              providerReference: poolResult.reference,
-              response: { provider: poolResult.platform, data: poolResult.details || null },
+              provider: 'smeplug',
+              providerReference: response.data?.reference || response.data?.transaction_id || transaction.reference,
+              response: { provider: 'smeplug', data: response.data },
             },
             t,
           );
           return;
         }
 
-        await transactionIntegrityService.failAndRefund(
-          transaction,
-          poolResult.error || 'SIM route failed',
-          t,
-          { flagAsAnomaly: true },
-        );
+        await transactionIntegrityService.failAndRefund(transaction, response.error || simRouteError || 'Data purchase failed', t, {
+          flagAsAnomaly: true,
+        });
         return;
       }
 

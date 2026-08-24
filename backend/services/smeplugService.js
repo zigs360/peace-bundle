@@ -24,6 +24,25 @@ class SmeplugService {
     this.timeout = parseInt(process.env.SMEPLUG_TIMEOUT) || 30000; // Default 30s
   }
 
+  async loadCredentialsFromDb() {
+    try {
+      const SystemSetting = require('../models/SystemSetting');
+      const secretKey = await SystemSetting.get('smeplug_secret_key');
+      const privateKey = await SystemSetting.get('smeplug_private_key');
+      const apiKey = await SystemSetting.get('smeplug_api_key');
+      const publicKey = await SystemSetting.get('smeplug_public_key');
+      const baseUrl = await SystemSetting.get('smeplug_base_url');
+
+      if (secretKey) this.secretKey = stripNonPrintable(secretKey);
+      if (privateKey) this.privateKey = stripNonPrintable(privateKey);
+      if (apiKey) this.apiKey = stripNonPrintable(apiKey);
+      if (publicKey) this.publicKey = stripNonPrintable(publicKey);
+      if (baseUrl) this.baseUrl = String(baseUrl).trim();
+    } catch (e) {
+      void e;
+    }
+  }
+
   refreshCredentials() {
     this.privateKey = stripNonPrintable(process.env.SMEPLUG_PRIVATE_KEY || this.privateKey || '');
     this.apiKey = stripNonPrintable(process.env.SMEPLUG_API_KEY || this.apiKey || '');
@@ -297,6 +316,7 @@ class SmeplugService {
    */
   async makeRequest(method, endpoint, data = {}, retryCount = 0) {
     const maxRetries = 2;
+    await this.loadCredentialsFromDb();
     const currentBaseUrl = (retryCount > 0 && this.baseUrl.includes('.ng'))
       ? this.baseUrl.replace('.ng', '.com')
       : this.baseUrl;

@@ -102,12 +102,17 @@ const enforceSensitiveHttps = (req, res, next) => {
   });
 };
 
+const { getPublicSettings } = require('../controllers/adminController');
+
+router.get('/settings/public', getPublicSettings);
 router.post('/register', authLimiter, validate(registerValidation), registerUser);
 router.post('/referral/click', authLimiter, trackReferralClick);
 router.post('/login', authLimiter, validate(loginValidation), loginUser);
 router.post('/password-reset/request', enforceSensitiveHttps, passwordResetRequestLimiter, validate(passwordResetRequestValidation), requestPasswordReset);
+router.post('/forgot-password', enforceSensitiveHttps, passwordResetRequestLimiter, validate(passwordResetRequestValidation), requestPasswordReset);
 router.get('/password-reset/validate', enforceSensitiveHttps, validatePasswordResetToken);
 router.post('/password-reset/complete', enforceSensitiveHttps, validate(passwordResetCompleteValidation), completePasswordReset);
+router.post('/reset-password', enforceSensitiveHttps, validate(passwordResetCompleteValidation), completePasswordReset);
 router.get('/me', protect, getMe);
 router.get('/profile', protect, getMe); // Alias for frontend compatibility
 router.get('/users', protect, admin, getAllUsers);

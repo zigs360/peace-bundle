@@ -24,6 +24,7 @@ const EDITABLE_FIELDS = new Set([
   'is_active',
   'category_name',
   'category_slug',
+  'category',
   'subcategory_name',
   'subcategory_slug',
   'network_display_name',
@@ -36,7 +37,10 @@ const EDITABLE_FIELDS = new Set([
   'name',
   'source',
   'provider',
+  'network',
   'plan_id',
+  'smeplug_plan_id',
+  'ogdams_sku',
 ]);
 
 const PRICE_FIELDS = new Set(['your_price', 'wallet_price', 'original_price']);
@@ -192,6 +196,21 @@ function applyLegacyPriceMirrors(plan) {
     plan.api_cost = walletPrice;
   } else if (originalPrice !== null) {
     plan.api_cost = originalPrice;
+  }
+
+  if (plan.network && !plan.provider) {
+    plan.provider = String(plan.network).toLowerCase();
+  }
+
+  const effectivePlanId = plan.plan_id || plan.smeplug_plan_id || plan.ogdams_sku;
+  if (effectivePlanId) {
+    plan.plan_id = effectivePlanId;
+    const src = String(plan.source || 'smeplug').toLowerCase();
+    if (src === 'smeplug') {
+      plan.smeplug_plan_id = effectivePlanId;
+    } else if (src === 'ogdams') {
+      plan.ogdams_sku = effectivePlanId;
+    }
   }
 }
 

@@ -18,13 +18,22 @@ export default function BulkSMSIndex() {
     try {
       setLoading(true);
       const res = await api.get(`/admin/bulk-sms?page=${pagination.page}`);
-      setHistory((res.data as any).history);
+      const data = res.data as any;
+      const historyList = Array.isArray(data?.history)
+        ? data.history
+        : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data)
+        ? data
+        : [];
+      setHistory(historyList);
       setPagination({
-        page: (res.data as any).currentPage,
-        totalPages: (res.data as any).totalPages
+        page: data?.currentPage || 1,
+        totalPages: data?.totalPages || 1
       });
     } catch (err) {
-      console.error(err);
+      console.error('Fetch Bulk SMS History Error:', err);
+      setHistory([]);
     } finally {
       setLoading(false);
     }
@@ -42,9 +51,9 @@ export default function BulkSMSIndex() {
       render: (value: any) => value?.name || 'Unknown'
     },
     { 
-      key: 'User', 
+      key: 'User_email', 
       header: 'Email',
-      render: (value: any) => value?.email || 'N/A'
+      render: (_value: any, item: any) => item.User?.email || item.user?.email || 'N/A'
     },
     { key: 'amount', header: 'Cost (₦)' },
     { key: 'description', header: 'Description' },

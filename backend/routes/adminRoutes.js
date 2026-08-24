@@ -20,6 +20,7 @@ const {
     getWebhookMetrics,
     refundTransaction,
     getSims,
+    createSim,
     approveSim,
     suspendSim,
     deleteSim,
@@ -41,7 +42,8 @@ const {
     viewKycDocument,
     listPendingFundingReviews,
     approvePendingFundingReview,
-    rejectPendingFundingReview
+    rejectPendingFundingReview,
+    sendUserPasswordResetLink
 } = require('../controllers/adminController');
 const {
     adminGetSubscriptionPlans,
@@ -102,9 +104,14 @@ router.post('/transactions/:id/refund', protect, admin, refundTransaction);
 
 // Subscription Plan Routes
 router.get('/subscription-plans', protect, admin, adminGetSubscriptionPlans);
+router.get('/subscriptions', protect, admin, adminGetSubscriptionPlans);
 router.post('/subscription-plans', protect, admin, createSubscriptionPlan);
+router.post('/subscriptions', protect, admin, createSubscriptionPlan);
+router.post('/subscriptions/create', protect, admin, createSubscriptionPlan);
 router.put('/subscription-plans/:id', protect, admin, updateSubscriptionPlan);
+router.put('/subscriptions/:id', protect, admin, updateSubscriptionPlan);
 router.delete('/subscription-plans/:id', protect, admin, deleteSubscriptionPlan);
+router.delete('/subscriptions/:id', protect, admin, deleteSubscriptionPlan);
 
 // Bulk SMS Routes
 router.get('/bulk-sms', protect, admin, getBulkSMSHistory);
@@ -118,6 +125,8 @@ router.post('/users/kyc/bulk', protect, admin, bulkProcessKyc);
 router.put('/users/:id', protect, admin, updateUser);
 router.patch('/users/:id/block', protect, admin, toggleBlockUser);
 router.post('/users/:id/fund', protect, admin, fundUserWallet);
+router.post('/users/:id/reset-password', protect, admin, sendUserPasswordResetLink);
+router.post('/users/:id/send-reset-link', protect, admin, sendUserPasswordResetLink);
 router.put('/users/:id/kyc/approve', protect, admin, approveKyc);
 router.put('/users/:id/kyc/reject', protect, admin, rejectKyc);
 router.post('/users/generate-virtual-accounts', protect, admin, generateMissingVirtualAccounts);
@@ -142,6 +151,7 @@ router.put('/plans/:id', protect, admin, adminPlanController.updatePlan);
 router.delete('/plans/:id', protect, admin, adminPlanController.deletePlan);
 router.get('/audit/price-history', protect, admin, adminPlanController.getPriceHistory);
 router.get('/audit/transaction-pin-events', protect, admin, adminTransactionPinAuditController.listTransactionPinSecurityEvents);
+router.get('/audit/pin-security', protect, admin, adminTransactionPinAuditController.listTransactionPinSecurityEvents);
 router.get('/audit/transaction-integrity', protect, admin, adminTransactionIntegrityController.listTransactionIntegrityAudits);
 router.get('/audit/transaction-integrity/summary', protect, admin, adminTransactionIntegrityController.getIntegritySummary);
 router.post('/audit/transaction-integrity/repair', protect, admin, adminTransactionIntegrityController.runTransactionIntegrityRepair);
@@ -152,6 +162,8 @@ router.get('/audit/airtime-false-refunds', protect, admin, adminAirtimeFalseRefu
 router.get('/audit/airtime-false-refunds/latest', protect, admin, adminAirtimeFalseRefundAuditController.getLatestAirtimeFalseRefundReport);
 router.post('/audit/airtime-false-refunds/repair', protect, admin, adminAirtimeFalseRefundAuditController.runAirtimeFalseRefundRepair);
 router.get('/account-deletion/requests', protect, admin, adminAccountDeletionController.listAccountDeletionRequests);
+router.get('/account-deletion/queue', protect, admin, adminAccountDeletionController.listAccountDeletionRequests);
+router.get('/account-deletion', protect, admin, adminAccountDeletionController.listAccountDeletionRequests);
 router.get('/account-deletion/requests/:id', protect, admin, adminAccountDeletionController.getAccountDeletionRequestDetail);
 router.post('/account-deletion/requests/:id/approve', protect, admin, adminAccountDeletionController.approveAccountDeletionRequest);
 router.post('/account-deletion/requests/:id/reject', protect, admin, adminAccountDeletionController.rejectAccountDeletionRequest);
@@ -163,6 +175,7 @@ router.get('/stats/cheapest-plans', protect, admin, adminPlanController.getCheap
 
 // SIM Oversight Routes
 router.get('/sims', protect, admin, getSims);
+router.post('/sims', protect, admin, createSim);
 router.get('/sims/analytics', protect, admin, getSimAnalytics);
 router.post('/sims/sync', protect, admin, syncSmeplugSims);
 router.post('/sims/:id/approve', protect, admin, approveSim);

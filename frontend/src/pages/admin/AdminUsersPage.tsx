@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
-import { Users, Search, Edit, Wallet, ShieldBan, ShieldCheck, X, FileCheck, CheckCircle, XCircle, Download, FileText, Bell, Loader2 } from 'lucide-react';
+import { Users, Search, Edit, Wallet, ShieldBan, ShieldCheck, X, FileCheck, CheckCircle, XCircle, Download, FileText, Bell, Loader2, KeyRound } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User } from '../../types';
@@ -23,6 +23,16 @@ export default function AdminUsersPage() {
   const [kycRejectReason, setKycRejectReason] = useState('');
   const [notificationData, setNotificationData] = useState({ title: '', message: '', type: 'info' });
   const [isSubmittingNotification, setIsSubmittingNotification] = useState(false);
+
+  const handleResetPasswordClick = async (user: User) => {
+    if (!window.confirm(`Send password reset email/token link to ${user.email}?`)) return;
+    try {
+      const res = await api.post(`/admin/users/${user.id}/reset-password`);
+      toast.success(res.data?.message || `Password reset link sent to ${user.email}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to send password reset link');
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -279,6 +289,13 @@ export default function AdminUsersPage() {
                       title="Send Notification"
                     >
                         <Bell className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => handleResetPasswordClick(user)}
+                      className="text-purple-600 hover:text-purple-900 mr-3" 
+                      title="Send Password Reset Link"
+                    >
+                        <KeyRound className="w-5 h-5" />
                     </button>
                     {user.kyc_status === 'pending' && (
                         <button 

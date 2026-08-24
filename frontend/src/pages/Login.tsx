@@ -37,6 +37,12 @@ export default function Login() {
       delete userForStorage.virtual_account_number;
       delete userForStorage.virtual_account_bank;
       delete userForStorage.virtual_account_name;
+      if (res.data.token) {
+        localStorage.setItem('token', res.data.token);
+      }
+      if (res.data.user) {
+        localStorage.setItem('user', JSON.stringify(userForStorage));
+      }
       const isAdminRole = (role?: string) => {
         const r = String(role || '').trim().toLowerCase();
         return r === 'admin' || r === 'super_admin' || r === 'superadmin';

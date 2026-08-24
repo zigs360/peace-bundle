@@ -10,24 +10,41 @@ const { v4: uuidv4 } = require('uuid');
  * @route   GET /api/transfer/banks
  * @access  Private
  */
+const DEFAULT_NIGERIAN_BANKS = [
+  { name: 'Access Bank', code: '044' },
+  { name: 'Guaranty Trust Bank (GTBank)', code: '058' },
+  { name: 'Zenith Bank', code: '057' },
+  { name: 'First Bank of Nigeria', code: '011' },
+  { name: 'United Bank For Africa (UBA)', code: '033' },
+  { name: 'Kuda Microfinance Bank', code: '50211' },
+  { name: 'OPay', code: '999992' },
+  { name: 'PalmPay', code: '999991' },
+  { name: 'Moniepoint Microfinance Bank', code: '50515' },
+  { name: 'Wema Bank', code: '035' },
+  { name: 'Sterling Bank', code: '232' },
+  { name: 'Stanbic IBTC Bank', code: '221' },
+  { name: 'First City Monument Bank (FCMB)', code: '214' },
+  { name: 'Union Bank of Nigeria', code: '032' },
+  { name: 'Fidelity Bank', code: '070' },
+  { name: 'Ecobank Nigeria', code: '050' },
+  { name: 'Polaris Bank', code: '076' },
+  { name: 'SafeHaven Microfinance Bank', code: '50851' },
+];
+
 const getBanks = async (req, res) => {
   try {
     const result = await smeplugService.getBanks();
-    if (result.success) {
-      return res.json(result.data.data || result.data);
-    } else {
-      logger.error(`[Transfer] Bank list fetch error: ${result.error}`);
-      return res.status(500).json({ 
-        success: false, 
-        message: result.error || 'Failed to retrieve banks list' 
-      });
+    if (result.success && (result.data?.data || result.data)) {
+      const list = result.data.data || result.data;
+      if (Array.isArray(list) && list.length > 0) {
+        return res.json(list);
+      }
     }
+    logger.warn('[Transfer] SMEPlug bank list unavailable. Returning default bank list fallback.');
+    return res.json(DEFAULT_NIGERIAN_BANKS);
   } catch (error) {
     logger.error(`[Transfer] Banks fetch exception: ${error.message}`);
-    res.status(500).json({ 
-      success: false, 
-      message: 'An internal error occurred while fetching banks' 
-    });
+    return res.json(DEFAULT_NIGERIAN_BANKS);
   }
 };
 

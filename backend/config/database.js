@@ -1,4 +1,5 @@
 const { Sequelize } = require('sequelize');
+const path = require('path');
 const dotenv = require('dotenv');
 const logger = require('../utils/logger');
 
@@ -33,10 +34,12 @@ if (globalThis.__peacebundle_sequelize) {
 } else {
   let databaseUrl = process.env.DATABASE_URL;
   const useTestPostgres = String(process.env.USE_TEST_POSTGRES || 'false').toLowerCase() === 'true';
-  if (process.env.NODE_ENV === 'test' && !useTestPostgres) {
-    sequelize = new Sequelize('sqlite::memory:', {
-      logging: false,
+  const useSqlite = String(process.env.USE_SQLITE || 'false').toLowerCase() === 'true';
+  if (useSqlite || (process.env.NODE_ENV === 'test' && !useTestPostgres)) {
+    sequelize = new Sequelize({
       dialect: 'sqlite',
+      storage: process.env.NODE_ENV === 'test' ? ':memory:' : path.join(__dirname, '../dev.sqlite'),
+      logging: false,
     });
   } else {
     // Render internal hostnames (dpg-*) usually do not require SSL

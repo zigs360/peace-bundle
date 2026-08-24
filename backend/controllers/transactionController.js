@@ -441,9 +441,10 @@ const buyData = async (req, res) => {
 
         const statusLower = String(newTransaction.status || '').toLowerCase();
         const isCompleted = statusLower === 'completed';
+        const isQueued = statusLower === 'queued' || statusLower === 'processing';
         const isTerminalFailure = statusLower === 'failed' || statusLower === 'refunded';
 
-        if (!isCompleted && !isTerminalFailure) {
+        if (!isCompleted && !isQueued && !isTerminalFailure) {
             await transactionIntegrityService.failAndRefund(newTransaction, 'Data provider did not confirm success', t, {
                 flagAsAnomaly: true,
                 auditEvent: 'data_delivery_inconsistent_success',
@@ -469,9 +470,14 @@ const buyData = async (req, res) => {
         
         const updatedWallet = await walletService.getBalance(user);
 
+        const successMessage = finalStatusLower === 'queued' || finalStatusLower === 'processing'
+            ? 'Data purchase order submitted and is processing'
+            : 'Data purchase successful';
+
         res.json({
             success: true,
-            message: 'Data purchase successful',
+            status: finalStatusLower,
+            message: successMessage,
             balance: updatedWallet,
             charged_price: cost,
             transaction_ref: newTransaction.reference,
@@ -654,7 +660,7 @@ const buyAirtime = async (req, res) => {
         (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='airtime-success-refund';try{const e=fs.readFileSync('.dbg/airtime-success-refund.env','utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'transactionController.js:buyAirtime',msg:'[DEBUG] Airtime controller evaluated refund gate',data:{reference:newTransaction.reference,status:newTransaction.status||null,isQueued,isCompleted,isTerminalFailure,providerFailed:Boolean(providerResult?.failed),providerPending:Boolean(providerResult?.pending),providerRecoveredAfterError:Boolean(providerResult?.recoveredAfterError),failureReason:newTransaction.failure_reason||null,providerAttempts:newTransaction.metadata?.provider_attempts||[]},ts:Date.now()})}).catch(()=>{})})();
         // #endregion
 
-        if (!providerResult || (!isQueued && !isCompleted && !isTerminalFailure)) {
+        if (!isQueued && !isCompleted && !isTerminalFailure) {
             await transactionIntegrityService.failAndRefund(newTransaction, 'Airtime provider did not confirm success', null, {
                 flagAsAnomaly: true,
                 auditEvent: 'airtime_delivery_inconsistent_success',

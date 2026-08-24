@@ -72,6 +72,11 @@ async function refreshAccessToken(): Promise<string | null> {
 // Add a request interceptor to inject the token
 api.interceptors.request.use(
   (config: any) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers = config.headers || {};
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
     const pinSession = getStoredTransactionPinSession('financial');
     if (pinSession?.token) {
       config.headers = config.headers || {};

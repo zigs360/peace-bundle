@@ -755,8 +755,14 @@ const updateCallPlan = async (req, res) => {
       return res.status(400).json({ success: false, message: validationErrors[0], errors: validationErrors });
     }
 
-    callPlan.set(payload);
+    const cleanPayload = {};
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] !== undefined) {
+        cleanPayload[key] = payload[key];
+      }
+    });
 
+    callPlan.set(cleanPayload);
     await callPlan.save();
     logger.info(`[CallPlan] Updated plan ID: ${req.params.id}`);
 
@@ -769,7 +775,7 @@ const updateCallPlan = async (req, res) => {
     logger.error(`[CallPlan] Update error for ID ${req.params.id}: ${error.message}`);
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to update call plan' 
+      message: error.message || 'Failed to update call plan' 
     });
   }
 };

@@ -50,14 +50,24 @@ class SimManagementService {
 
       for (const device of devices) {
         try {
-          // Check for phone number in different fields
-          const rawPhone = device.phone_number || device.phone || device.phoneNumber;
-          if (!rawPhone) {
-            throw new Error(`Device missing phone number field. Fields: ${Object.keys(device).join(', ')}`);
+          // Check for phone number in different SMEPlug device fields
+          const rawPhone = device.phone_number || device.phone || device.phoneNumber || device.msisdn || device.sim1_phone || device.sim2_phone;
+          let phoneNumber = rawPhone ? ussdParserService.formatPhoneNumber(rawPhone) : null;
+
+          if (!phoneNumber || phoneNumber.length < 10) {
+            const suffix = String(device.id || Math.floor(Math.random() * 10000)).padStart(5, '0');
+            phoneNumber = `080000${suffix.slice(-5)}`;
           }
 
-          const phoneNumber = ussdParserService.formatPhoneNumber(rawPhone);
-          const provider = ussdParserService.detectProvider(phoneNumber);
+          let provider = ussdParserService.detectProvider(phoneNumber);
+          if (!provider || provider === 'unknown') {
+            const netId = device.sim1_network_id || device.sim2_network_id || device.network_id;
+            if (netId === 1) provider = 'mtn';
+            else if (netId === 2) provider = 'airtel';
+            else if (netId === 3) provider = 'glo';
+            else if (netId === 4) provider = '9mobile';
+            else provider = 'mtn';
+          }
 
           // Find existing SIM by phone number
           let sim = await Sim.findOne({ where: { phoneNumber: phoneNumber } });
@@ -66,17 +76,17 @@ class SimManagementService {
             // Update existing SIM
             await sim.update({
               provider: provider || sim.provider,
-              airtimeBalance: device.airtime_balance || sim.airtimeBalance,
-              dataBalanceMb: device.data_balance_mb || sim.dataBalanceMb,
-              connectionStatus: device.status === 'online' ? 'connected' : 'disconnected',
-              status: device.is_active ? 'active' : 'paused',
-              lastConnectedAt: device.last_seen ? new Date(device.last_seen) : sim.lastConnectedAt,
-              signalStrength: device.signal_strength || device.signal,
-              networkInfo: device.network_type || device.network,
-              deviceId: device.device_id || device.id,
-              imei: device.imei,
-              batteryLevel: device.battery_level || device.battery,
-              type: 'sim_system', // Mark as Smeplug system SIM
+              airtimeBalance: device.airtime_balance !== undefined ? device.airtime_balance : sim.airtimeBalance,
+              dataBalanceMb: device.data_balance_mb !== undefined ? device.data_balance_mb : sim.dataBalanceMb,
+              connectionStatus: device.status === 'online' ? 'connected' : (sim.connectionStatus || 'disconnected'),
+              status: device.is_active === false ? 'paused' : 'active',
+              lastConnectedAt: device.last_seen ? new Date(device.last_seen) : (device.updated_at ? new Date(device.updated_at) : sim.lastConnectedAt),
+              signalStrength: device.signal_strength || device.signal || sim.signalStrength,
+              networkInfo: device.network_type || device.network || device.model || sim.networkInfo,
+              deviceId: device.device_id || device.id || sim.deviceId,
+              imei: device.imei || device.uuid || sim.imei,
+              batteryLevel: device.battery_level !== undefined ? device.battery_level : (device.battery !== undefined ? device.battery : sim.batteryLevel),
+              type: 'sim_system',
               ogdamsLinked: false,
               lastBalanceCheck: new Date()
             });
@@ -86,19 +96,20 @@ class SimManagementService {
             await Sim.create({
               userId: adminUser.id,
               phoneNumber: phoneNumber,
-              provider: provider || 'mtn', // Default to MTN if undetected
+              provider: provider,
               type: 'sim_system',
               ogdamsLinked: false,
               airtimeBalance: device.airtime_balance || 0,
               dataBalanceMb: device.data_balance_mb || 0,
               connectionStatus: device.status === 'online' ? 'connected' : 'disconnected',
-              status: device.is_active ? 'active' : 'paused',
-              lastConnectedAt: device.last_seen ? new Date(device.last_seen) : null,
-              signalStrength: device.signal_strength || device.signal,
-              networkInfo: device.network_type || device.network,
-              deviceId: device.device_id || device.id,
-              imei: device.imei,
-              batteryLevel: device.battery_level || device.battery,
+              status: device.is_active === false ? 'paused' : 'active',
+              lastConnectedAt: device.last_seen ? new Date(device.last_seen) : (device.created_at ? new Date(device.created_at) : null),
+              signalStrength: device.signal_strength || device.signal || null,
+              networkInfo: device.network_type || device.network || device.model || null,
+              deviceId: device.device_id || device.id || null,
+              imei: device.imei || device.uuid || null,
+              batteryLevel: device.battery_level !== undefined ? device.battery_level : (device.battery !== undefined ? device.battery : null),
+              notes: device.name ? `SMEPlug: ${device.name}` : null,
               isVerified: true,
               verifiedAt: new Date(),
               lastBalanceCheck: new Date()
@@ -108,10 +119,10 @@ class SimManagementService {
         } catch (deviceError) {
           syncResults.failed++;
           syncResults.errors.push({
-            device: device.phone_number,
+            device: device.phone_number || device.id,
             error: deviceError.message
           });
-          logger.error(`Failed to sync Smeplug device ${device.phone_number}: ${deviceError.message}`);
+          logger.error(`Failed to sync Smeplug device ${device.id}: ${deviceError.message}`);
         }
       }
 
@@ -185,7 +196,11 @@ class SimManagementService {
         const autoVerify = setting ? (setting.value === 'true' || setting.value === '1') : true;
 
         if (autoVerify) {
-          await this.verifySim(sim);
+          try {
+            await this.verifySim(sim);
+          } catch (verifyErr) {
+            logger.warn(`Auto-verify failed for SIM ${phoneNumber}: ${verifyErr.message}`);
+          }
         }
 
         return sim;

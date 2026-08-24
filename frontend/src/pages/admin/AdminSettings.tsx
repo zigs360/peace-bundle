@@ -82,6 +82,44 @@ export default function AdminSettings() {
       <div className="bg-white rounded-lg shadow p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           
+          <div className="border-b pb-4 bg-gray-50 p-4 rounded-lg">
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Service Availability Controls</h2>
+            <p className="text-xs text-gray-500 mb-4">Master switches to enable or disable VTU services system-wide for regular users.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex items-center justify-between p-3 bg-white border rounded-md shadow-sm">
+                <div>
+                  <label htmlFor="data_purchase_enabled" className="block text-sm font-semibold text-gray-800 cursor-pointer">
+                    Enable Data Purchases
+                  </label>
+                  <span className="text-xs text-gray-500">Allow users to buy data plans</span>
+                </div>
+                <input
+                  id="data_purchase_enabled"
+                  type="checkbox"
+                  className="h-5 w-5 text-primary-600 rounded focus:ring-primary-500 cursor-pointer"
+                  checked={Boolean(settings['data_purchase_enabled'] ?? true)}
+                  onChange={(e) => handleChange('data_purchase_enabled', e.target.checked)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-white border rounded-md shadow-sm">
+                <div>
+                  <label htmlFor="airtime_purchase_enabled" className="block text-sm font-semibold text-gray-800 cursor-pointer">
+                    Enable Airtime Purchases
+                  </label>
+                  <span className="text-xs text-gray-500">Allow users to top-up airtime</span>
+                </div>
+                <input
+                  id="airtime_purchase_enabled"
+                  type="checkbox"
+                  className="h-5 w-5 text-primary-600 rounded focus:ring-primary-500 cursor-pointer"
+                  checked={Boolean(settings['airtime_purchase_enabled'] ?? true)}
+                  onChange={(e) => handleChange('airtime_purchase_enabled', e.target.checked)}
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="border-b pb-4">
             <h2 className="text-lg font-medium text-gray-900 mb-4">General Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -184,6 +222,26 @@ export default function AdminSettings() {
                   value={settings['monnify_api_key'] || ''}
                   onChange={(e) => handleChange('monnify_api_key', e.target.value)}
                   placeholder={maskedKeys['monnify_api_key'] ? '********' : ''}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">SmePlug Secret Key (Required for Devices & Wallet)</label>
+                <input
+                  type="password"
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  value={settings['smeplug_secret_key'] || ''}
+                  onChange={(e) => handleChange('smeplug_secret_key', e.target.value)}
+                  placeholder={maskedKeys['smeplug_secret_key'] ? '********' : 'sk_live_...'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">SmePlug Private Key</label>
+                <input
+                  type="password"
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  value={settings['smeplug_private_key'] || ''}
+                  onChange={(e) => handleChange('smeplug_private_key', e.target.value)}
+                  placeholder={maskedKeys['smeplug_private_key'] ? '********' : ''}
                 />
               </div>
               <div>

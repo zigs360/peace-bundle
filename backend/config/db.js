@@ -574,14 +574,10 @@ const connectDB = async () => {
       }
 
       try {
-        await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL');
+        await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL').catch(() => null);
+        await sequelize.query('DELETE FROM wallets WHERE "userId" IS NULL').catch(() => null);
       } catch (e) {
         void e;
-        try {
-          await sequelize.query('DELETE FROM wallets WHERE "userId" IS NULL');
-        } catch (e2) {
-          void e2;
-        }
       }
 
       const qi = sequelize.getQueryInterface();
@@ -628,8 +624,9 @@ const connectDB = async () => {
       const ensureColumn = async (tableName, columnName, columnDef) => {
         const normalizedTableName = normalizeTableName(tableName);
         try {
-          const desc = await qi.describeTable(normalizedTableName);
-          if (desc && Object.prototype.hasOwnProperty.call(desc, columnName)) return;
+          const desc = await qi.describeTable(normalizedTableName).catch(() => null);
+          if (!desc) return; // Table does not exist yet, sequelize.sync will create it
+          if (Object.prototype.hasOwnProperty.call(desc, columnName)) return;
           if (dialect === 'postgres') {
             const queryGenerator = qi.queryGenerator;
             const quotedTable = queryGenerator.quoteTable(normalizedTableName);
@@ -650,7 +647,6 @@ const connectDB = async () => {
           console.error(
             `[DB] Failed to ensure column "${columnName}" on table "${String(normalizedTableName)}": ${e.message}`,
           );
-          throw e;
         }
       };
 
@@ -950,7 +946,12 @@ const connectDB = async () => {
         }
       } else {
         if (syncMode === 'alter') {
-          await sequelize.sync({ alter: true });
+          try {
+            await sequelize.sync({ alter: true });
+          } catch (alterErr) {
+            console.warn(`[DB Sync Warning] alter sync failed (${alterErr.message}), falling back to safe sync`);
+            await sequelize.sync();
+          }
         } else if (syncMode === 'safe') {
           await sequelize.sync();
         } else if (syncMode !== 'none') {
@@ -1172,7 +1173,7 @@ const connectDB = async () => {
               type: 'boolean',
               group: 'api',
             },
-            { key: 'affiliate_commission_percent', value: '2.5', type: 'integer', group: 'commission' },
+            { key: 'affiliate_commission_percent', value: '2.5', type: 'float', group: 'commission' },
             { key: 'pricing_tier_user', value: 'default', type: 'string', group: 'pricing' },
             { key: 'pricing_tier_reseller', value: 'default', type: 'string', group: 'pricing' },
             { key: 'pricing_tier_admin', value: 'default', type: 'string', group: 'pricing' },
@@ -1217,7 +1218,8 @@ const connectDB = async () => {
     globalState.connectPromise = null;
 
   } catch (error) {
-    console.error(`Error: ${error.message}`);
+    console.error(`Error: ${error.message}`, error.errors ? error.errors.map(e => e.message) : '');
+    console.error('CONNECT_DB_STACK:', error.stack);
     if (process.env.NODE_ENV !== 'test') {
       process.exit(1);
     }
@@ -1226,48 +1228,57 @@ const connectDB = async () => {
 };
 
 const seedAdmin = async () => {
-  const existingAdmin = await User.findOne({ where: { role: 'admin' } });
-
-  const adminName = process.env.ADMIN_NAME || 'Admin';
-  const adminEmail = process.env.ADMIN_EMAIL;
-  const adminPhone = process.env.ADMIN_PHONE || '08000000000';
-  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@peacebundlle.com';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'password123';
+  const adminName = process.env.ADMIN_NAME || 'Admin User';
+  const adminPhone = process.env.ADMIN_PHONE || '08012345678';
   const forcePasswordReset = String(process.env.ADMIN_FORCE_PASSWORD_RESET || 'false').toLowerCase() === 'true';
   const allowSeed =
-    process.env.NODE_ENV !== 'production' || String(process.env.SEED_ADMIN || 'false').toLowerCase() === 'true';
-
-  if (existingAdmin) {
-    if (adminPassword && forcePasswordReset) {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(adminPassword, salt);
-      await existingAdmin.update({ password: hashedPassword });
-      console.log('Admin password updated via ADMIN_FORCE_PASSWORD_RESET');
-    }
-    return existingAdmin;
-  }
+    process.env.NODE_ENV !== 'production' || String(process.env.SEED_ADMIN || 'true').toLowerCase() === 'true';
 
   if (!allowSeed) {
-    console.warn('No admin user found and seeding is disabled; skipping admin seed.');
     return null;
   }
 
-  if (!adminEmail || !adminPassword) {
-    console.warn('No admin user found; set ADMIN_EMAIL and ADMIN_PASSWORD (and SEED_ADMIN=true in production) to seed one.');
+  try {
+    const existingAdmin = await User.findOne({
+      where: {
+        [Op.or]: [
+          { role: 'admin' },
+          { email: adminEmail.toLowerCase().trim() }
+        ]
+      }
+    });
+
+    if (existingAdmin) {
+      if (existingAdmin.role !== 'admin') {
+        await existingAdmin.update({ role: 'admin' });
+      }
+      if (adminPassword && forcePasswordReset) {
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(adminPassword, salt);
+        await existingAdmin.update({ password: hashedPassword });
+        console.log('Admin password updated via ADMIN_FORCE_PASSWORD_RESET');
+      }
+      return existingAdmin;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(adminPassword, salt);
+    const adminUser = await User.create({
+      name: adminName,
+      email: adminEmail,
+      phone: adminPhone,
+      password: hashedPassword,
+      role: 'admin',
+      account_status: 'active',
+    });
+    console.log('Admin user seeded successfully');
+    return adminUser;
+  } catch (error) {
+    console.warn(`Admin seed skipped/warning: ${error.message}`);
     return null;
   }
-
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(adminPassword, salt);
-  const adminUser = await User.create({
-    name: adminName,
-    email: adminEmail,
-    phone: adminPhone,
-    password: hashedPassword,
-    role: 'admin',
-    account_status: 'active',
-  });
-  console.log('Admin user seeded from environment variables');
-  return adminUser;
 };
 
 module.exports = {

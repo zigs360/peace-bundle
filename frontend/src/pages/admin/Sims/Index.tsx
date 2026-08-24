@@ -292,6 +292,33 @@ export default function SimsIndex() {
         </div>
       </div>
 
+      {/* Network Provider Summary Cards matching SMEPlug Dashboard */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { name: 'MTN', key: 'mtn', bg: 'bg-yellow-50 text-yellow-800 border-yellow-200' },
+          { name: 'Airtel', key: 'airtel', bg: 'bg-red-50 text-red-800 border-red-200' },
+          { name: 'Glo', key: 'glo', bg: 'bg-green-50 text-green-800 border-green-200' },
+          { name: '9mobile (T2)', key: '9mobile', bg: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+        ].map((net) => {
+          const netSims = sims.filter(s => (s.provider || '').toLowerCase() === net.key.toLowerCase());
+          const connected = netSims.filter(s => s.connectionStatus === 'connected' || s.status === 'active').length;
+          const totalBal = netSims.reduce((acc, curr) => acc + Number(curr.airtimeBalance || 0), 0);
+          return (
+            <div key={net.key} className={`p-4 rounded-xl border ${net.bg} shadow-sm space-y-1`}>
+              <div className="flex justify-between items-center font-bold text-sm">
+                <span>{net.name}</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-white border">{netSims.length} SIMs</span>
+              </div>
+              <div className="text-xl font-extrabold">₦{totalBal.toLocaleString()}</div>
+              <div className="text-xs opacity-80 flex items-center justify-between">
+                <span>{connected} Active/Online</span>
+                <Link to={`/admin/pricing`} className="underline font-semibold hover:opacity-100">Plans</Link>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       <div className="bg-white rounded-lg shadow p-2 flex space-x-2">
         <button
           onClick={() => setActiveTab('inventory')}

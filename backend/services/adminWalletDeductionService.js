@@ -27,12 +27,27 @@ class AdminWalletDeductionService {
     const metaFlag = meta.is_super_admin === true || meta.super_admin === true;
     return metaFlag || (email && allowList.includes(email));
   }
-  async getUserWalletSnapshot(userId) {
-    const [user, wallet] = await Promise.all([
-      User.findByPk(userId, { attributes: ['id', 'name', 'email', 'phone', 'role'] }),
-      Wallet.findOne({ where: { userId } }),
-    ]);
+  async getUserWalletSnapshot(identifier) {
+    const clean = String(identifier || '').trim();
+    const { Op } = require('sequelize');
+    let user = null;
+    if (/^[0-9a-fA-F-]{36}$/.test(clean)) {
+      user = await User.findByPk(clean, { attributes: ['id', 'name', 'email', 'phone', 'role'] });
+    }
+    if (!user) {
+      user = await User.findOne({
+        where: {
+          [Op.or]: [
+            { email: clean.toLowerCase() },
+            { phone: clean },
+            { id: clean }
+          ]
+        },
+        attributes: ['id', 'name', 'email', 'phone', 'role']
+      });
+    }
     if (!user) return { ok: false, reason: 'user_not_found' };
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
     if (!wallet) return { ok: false, reason: 'wallet_not_found' };
     return {
       ok: true,
@@ -71,8 +86,27 @@ class AdminWalletDeductionService {
     let walletAfter = null;
     let walletBefore = null;
 
+    const { Op } = require('sequelize');
+
     await sequelize.transaction(async (t) => {
-      const user = await User.findByPk(userId, { attributes: ['id', 'name', 'email', 'phone'], transaction: t });
+      const cleanId = String(userId || '').trim();
+      let user = null;
+      if (/^[0-9a-fA-F-]{36}$/.test(cleanId)) {
+        user = await User.findByPk(cleanId, { attributes: ['id', 'name', 'email', 'phone'], transaction: t });
+      }
+      if (!user) {
+        user = await User.findOne({
+          where: {
+            [Op.or]: [
+              { email: cleanId.toLowerCase() },
+              { phone: cleanId },
+              { id: cleanId }
+            ]
+          },
+          attributes: ['id', 'name', 'email', 'phone'],
+          transaction: t
+        });
+      }
       if (!user) {
         const err = new Error('user_not_found');
         err.code = 'user_not_found';

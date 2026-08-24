@@ -2,27 +2,36 @@ import { useEffect, useMemo, useState } from 'react';
 import { PhoneCall } from 'lucide-react';
 import api from '../../services/api';
 import Airtel from './callSub/Airtel';
+import Mtn from './callSub/Mtn';
 
 const providerComponents: Record<string, () => JSX.Element> = {
   airtel: Airtel,
+  mtn: Mtn,
 };
 
+const DEFAULT_PROVIDERS = [
+  { key: 'airtel', label: 'Airtel', description: 'Airtel call bundle analytics' },
+  { key: 'mtn', label: 'MTN', description: 'MTN voice & ExtraTime bundles' },
+  { key: 'glo', label: 'Glo', description: 'Glo TalkMore voice bundles' },
+  { key: '9mobile', label: '9mobile', description: '9mobile voice subscription' },
+];
+
 export default function CallSub() {
-  const [providers, setProviders] = useState<Array<{ key: string; label: string; description?: string }>>([]);
+  const [providers, setProviders] = useState<Array<{ key: string; label: string; description?: string }>>(DEFAULT_PROVIDERS);
   const [activeProvider, setActiveProvider] = useState('airtel');
 
   useEffect(() => {
     const loadProviders = async () => {
       try {
         const res = await api.get('/callplans/call-sub/providers');
-        const rows = Array.isArray(res.data?.data) && res.data.data.length > 0 ? res.data.data : [{ key: 'airtel', label: 'Airtel', description: 'Airtel call bundle analytics' }];
+        const rows = Array.isArray(res.data?.data) && res.data.data.length > 0 ? res.data.data : DEFAULT_PROVIDERS;
         setProviders(rows);
         if (!rows.find((provider: any) => provider.key === activeProvider)) {
           setActiveProvider(rows[0].key);
         }
       } catch (error) {
         void error;
-        setProviders([{ key: 'airtel', label: 'Airtel', description: 'Airtel call bundle analytics' }]);
+        setProviders(DEFAULT_PROVIDERS);
       }
     };
     void loadProviders();

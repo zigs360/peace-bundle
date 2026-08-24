@@ -51,6 +51,15 @@ class DataPurchaseController {
         const user = req.user;
 
         try {
+            const SystemSetting = require('../models/SystemSetting');
+            const dataEnabled = await SystemSetting.get('data_purchase_enabled', true);
+            if ((dataEnabled === false || dataEnabled === 'false') && user?.role !== 'admin') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Data purchases are currently disabled by the Administrator. Please try again later.'
+                });
+            }
+
             const limitCheck = await transactionLimitService.canTransact(user);
             if (!limitCheck.allowed) {
                 return res.status(403).json({ 

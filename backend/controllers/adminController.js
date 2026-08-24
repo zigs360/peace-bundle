@@ -257,6 +257,24 @@ const deleteSim = async (req, res) => {
     }
 };
 
+// @desc    Create / Add SIM (Admin)
+// @route   POST /api/admin/sims
+// @access  Private (Admin)
+const createSim = async (req, res) => {
+    const simManagementService = require('../services/simManagementService');
+    try {
+        const sim = await simManagementService.addSim(req.user, req.body);
+        res.status(201).json({
+            success: true,
+            message: 'SIM added successfully!',
+            data: sim
+        });
+    } catch (error) {
+        logger.error('Admin Create SIM Error:', { error: error.message });
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
 // @desc    Connect SIM (Admin)
 // @route   POST /api/admin/sims/:id/connect
 // @access  Private (Admin)
@@ -396,7 +414,10 @@ const syncSmeplugSims = async (req, res) => {
         });
     } catch (error) {
         logger.error('Admin Sync SIMs Error:', { error: error.message });
-        res.status(500).json({ success: false, message: error.message });
+        res.status(200).json({
+            success: false,
+            message: `SIM Sync Notice: ${error.message}. Please verify SMEPLUG_SECRET_KEY / SMEPLUG_PRIVATE_KEY in your environment configuration.`
+        });
     }
 };
 
@@ -957,9 +978,25 @@ const fundUserWallet = async (req, res) => {
     const t = await sequelize.transaction();
     try {
         const { amount } = req.body;
-        const user = await User.findByPk(req.params.id, {
-            include: [{ model: Wallet, as: 'wallet' }]
-        });
+        const cleanId = String(req.params.id || '').trim();
+        let user = null;
+        if (/^[0-9a-fA-F-]{36}$/.test(cleanId)) {
+            user = await User.findByPk(cleanId, {
+                include: [{ model: Wallet, as: 'wallet' }]
+            });
+        }
+        if (!user) {
+            user = await User.findOne({
+                where: {
+                    [Op.or]: [
+                        { email: cleanId.toLowerCase() },
+                        { phone: cleanId },
+                        { id: cleanId }
+                    ]
+                },
+                include: [{ model: Wallet, as: 'wallet' }]
+            });
+        }
 
         if (!user) {
             await t.rollback();
@@ -1038,6 +1075,21 @@ const fundUserWallet = async (req, res) => {
 // @access  Private (Admin)
 const getSystemSettings = async (req, res) => {
     try {
+        const defaults = [
+            { key: 'data_purchase_enabled', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable data plan purchases for regular users' },
+            { key: 'airtime_purchase_enabled', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable airtime purchases for regular users' },
+            { key: 'maintenanceMode', value: 'false', type: 'boolean', group: 'general', description: 'System maintenance mode' },
+            { key: 'allowRegistration', value: 'true', type: 'boolean', group: 'general', description: 'Allow new user registrations' },
+            { key: 'developerMode', value: 'false', type: 'boolean', group: 'general', description: 'Developer mode flag' }
+        ];
+
+        for (const def of defaults) {
+            const exists = await SystemSetting.findOne({ where: { key: def.key } });
+            if (!exists) {
+                await SystemSetting.create(def);
+            }
+        }
+
         const settings = await SystemSetting.findAll({
             order: [
                 ['group', 'ASC'],
@@ -1064,6 +1116,39 @@ const getSystemSettings = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// @desc    Get Public System Settings
+// @route   GET /api/auth/settings/public or /api/settings/public
+// @access  Public
+const getPublicSettings = async (req, res) => {
+    try {
+        const dataEnabled = await SystemSetting.get('data_purchase_enabled', true);
+        const airtimeEnabled = await SystemSetting.get('airtime_purchase_enabled', true);
+        const maintenanceMode = await SystemSetting.get('maintenanceMode', false);
+        const allowRegistration = await SystemSetting.get('allowRegistration', true);
+
+        res.set('Cache-Control', 'no-store');
+        res.json({
+            success: true,
+            settings: {
+                data_purchase_enabled: dataEnabled !== false && dataEnabled !== 'false',
+                airtime_purchase_enabled: airtimeEnabled !== false && airtimeEnabled !== 'false',
+                maintenanceMode: maintenanceMode === true || maintenanceMode === 'true',
+                allowRegistration: allowRegistration !== false && allowRegistration !== 'false'
+            }
+        });
+    } catch (error) {
+        res.json({
+            success: true,
+            settings: {
+                data_purchase_enabled: true,
+                airtime_purchase_enabled: true,
+                maintenanceMode: false,
+                allowRegistration: true
+            }
+        });
     }
 };
 
@@ -1115,18 +1200,17 @@ const getKycRequests = async (req, res) => {
 
         const where = {};
         
-        // Filter by status if provided, otherwise show all non-'none' by default or filter by specific statuses
         if (status && status !== 'all') {
             where.kyc_status = status;
-        } else {
-            where.kyc_status = { [Op.ne]: 'none' };
         }
+
+        const likeOp = sequelize.getDialect() === 'postgres' ? Op.iLike : Op.like;
 
         if (search) {
             where[Op.or] = [
-                { name: { [Op.iLike]: `%${search}%` } },
-                { email: { [Op.iLike]: `%${search}%` } },
-                { phone: { [Op.iLike]: `%${search}%` } }
+                { name: { [likeOp]: `%${search}%` } },
+                { email: { [likeOp]: `%${search}%` } },
+                { phone: { [likeOp]: `%${search}%` } }
             ];
         }
 
@@ -1137,20 +1221,21 @@ const getKycRequests = async (req, res) => {
                 'kyc_document', 'kyc_submitted_at', 'kyc_verified_at', 
                 'kyc_rejection_reason', 'account_status', 'bvn', 'is_bvn_verified'
             ],
-            order: [['kyc_submitted_at', 'DESC']],
+            order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset)
         });
 
         res.json({
+            success: true,
             data: rows,
             total: count,
-            totalPages: Math.ceil(count / limit),
+            totalPages: Math.max(1, Math.ceil(count / limit)),
             currentPage: parseInt(page)
         });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        console.error('getKycRequests Error:', error);
+        res.status(500).json({ success: false, message: 'Server Error: ' + error.message });
     }
 };
 
@@ -1405,12 +1490,15 @@ const getBulkSMSHistory = async (req, res) => {
         const offset = (page - 1) * limit;
         
         const where = {
-            source: 'bulk_sms_payment'
+            [Op.or]: [
+                { source: 'bulk_sms_payment' },
+                { source: 'bulk_sms' }
+            ]
         };
 
         const { count, rows } = await Transaction.findAndCountAll(await withSafeTransactionReadOptions({
             where,
-            include: [{ model: User, as: 'user', attributes: ['name', 'email'] }],
+            include: [{ model: User, as: 'user', attributes: ['name', 'email', 'phone'] }],
             order: [['createdAt', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset)
@@ -1426,11 +1514,11 @@ const getBulkSMSHistory = async (req, res) => {
                 return json;
             }),
             total: count,
-            totalPages: Math.ceil(count / limit),
+            totalPages: Math.max(1, Math.ceil(count / limit)),
             currentPage: parseInt(page)
         });
     } catch (error) {
-        console.error(error);
+        console.error('getBulkSMSHistory Error:', error);
         res.status(500).json({ success: false, message: 'Server Error', error: error.message });
     }
 };
@@ -1446,17 +1534,32 @@ const sendAdminBulkSMS = async (req, res) => {
         let recipientList = [];
 
         if (targetGroup === 'all_users') {
-            const users = await User.findAll({ attributes: ['phoneNumber'] });
-            recipientList = users.map(u => u.phoneNumber).filter(Boolean);
+            const users = await User.findAll({ attributes: ['phone'] });
+            recipientList = users.map(u => u.phone).filter(Boolean);
         } else if (targetGroup === 'resellers') {
-             const users = await User.findAll({ where: { role: 'reseller' }, attributes: ['phoneNumber'] });
-             recipientList = users.map(u => u.phoneNumber).filter(Boolean);
+             const users = await User.findAll({ where: { role: 'reseller' }, attributes: ['phone'] });
+             recipientList = users.map(u => u.phone).filter(Boolean);
         } else if (recipients) {
             recipientList = (Array.isArray(recipients) ? recipients : recipients.split(',')).map(r => r.trim()).filter(r => r.length > 0);
         }
 
         if (recipientList.length === 0) {
-            return res.status(400).json({ message: 'No recipients found' });
+            return res.status(400).json({ success: false, message: 'No recipients found' });
+        }
+
+        // Record transaction in history
+        try {
+            await Transaction.create({
+                userId: req.user.id,
+                type: 'debit',
+                amount: 0,
+                status: 'completed',
+                description: `Admin Bulk SMS [${senderId || 'PeaceBundle'}] (${recipientList.length} recipients): ${message.slice(0, 60)}`,
+                source: 'bulk_sms_payment',
+                reference: `BULK_SMS_${Date.now()}`
+            });
+        } catch (txErr) {
+            logger.warn('Bulk SMS transaction record creation failed:', txErr.message);
         }
 
         // Fire and forget
@@ -1464,11 +1567,11 @@ const sendAdminBulkSMS = async (req, res) => {
             sendSMS(recipient, message, { senderId }) 
         ));
         
-        res.json({ message: `SMS sending initiated to ${recipientList.length} recipients` });
+        res.json({ success: true, message: `SMS sending initiated to ${recipientList.length} recipients` });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        console.error('sendAdminBulkSMS Error:', error);
+        res.status(500).json({ success: false, message: 'Server Error: ' + error.message });
     }
 };
 
@@ -1845,6 +1948,31 @@ const rejectPendingFundingReview = async (req, res) => {
     }
 };
 
+const passwordResetService = require('../services/passwordResetService');
+
+// @desc    Send password reset link to customer
+// @route   POST /api/admin/users/:id/reset-password
+// @access  Private (Admin)
+const sendUserPasswordResetLink = async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Customer account not found' });
+        }
+        const result = await passwordResetService.requestPasswordReset(user.email, req);
+        logger.info(`[Admin] Password reset link sent for customer ${user.email} by admin ${req.user?.id || 'admin'}`);
+        return res.json({
+            success: true,
+            message: `Password reset link sent to ${user.email} successfully`,
+            devResetLink: result.devResetLink || null,
+        });
+    } catch (error) {
+        logger.error(`[Admin] Failed to send password reset link for user ${req.params.id}: ${error.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to send password reset link' });
+    }
+};
+
 module.exports = {
     getAdminStats,
     updateUser,
@@ -1860,6 +1988,7 @@ module.exports = {
     updateDataPlan,
     deleteDataPlan,
     getSims,
+    createSim,
     approveSim,
     suspendSim,
     deleteSim,
@@ -1885,5 +2014,8 @@ module.exports = {
     getVirtualAccountHealth,
     listPendingFundingReviews,
     approvePendingFundingReview,
-    rejectPendingFundingReview
+    rejectPendingFundingReview,
+    sendUserPasswordResetLink,
+    getPublicSettings
 };
+

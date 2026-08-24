@@ -32,13 +32,19 @@ export default function KycIndex() {
           limit: 10
         }
       });
-      const { data, totalPages, currentPage } = res.data;
-      setKycs(data);
-      setTotalPages(totalPages);
-      setCurrentPage(currentPage);
+      const responseData = res.data || {};
+      const kycList = Array.isArray(responseData.data)
+        ? responseData.data
+        : Array.isArray(responseData)
+        ? responseData
+        : [];
+      setKycs(kycList);
+      setTotalPages(responseData.totalPages || 1);
+      setCurrentPage(responseData.currentPage || 1);
     } catch (err) {
       console.error('Failed to fetch KYCs', err);
       toast.error('Failed to load KYC requests');
+      setKycs([]);
     } finally {
       setLoading(false);
     }

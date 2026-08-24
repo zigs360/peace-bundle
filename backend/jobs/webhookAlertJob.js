@@ -39,16 +39,24 @@ const runWebhookAlertOnce = async () => {
       },
     });
 
+    const isPostgres = WebhookEvent.sequelize.getDialect?.() === 'postgres';
+    const slowClause = isPostgres
+      ? WebhookEvent.sequelize.where(
+          WebhookEvent.sequelize.literal('EXTRACT(EPOCH FROM ("processed_at" - "createdAt")) * 1000'),
+          { [Op.gt]: slowMs },
+        )
+      : WebhookEvent.sequelize.where(
+          WebhookEvent.sequelize.literal('(julianday("processed_at") - julianday("createdAt")) * 86400000'),
+          { [Op.gt]: slowMs },
+        );
+
     const slow = await WebhookEvent.count({
       where: {
         provider: 'billstack',
         status: 'processed',
         createdAt: { [Op.gte]: since },
         processed_at: { [Op.ne]: null },
-        [Op.and]: WebhookEvent.sequelize.where(
-          WebhookEvent.sequelize.literal('EXTRACT(EPOCH FROM ("processed_at" - "createdAt")) * 1000'),
-          { [Op.gt]: slowMs },
-        ),
+        [Op.and]: slowClause,
       },
     });
 

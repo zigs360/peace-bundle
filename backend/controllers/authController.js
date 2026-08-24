@@ -382,6 +382,9 @@ const loginUser = async (req, res) => {
             setAuthCookies(res, { accessToken: token, refreshToken });
             res.json({
                 success: true,
+                token,
+                accessToken: token,
+                refreshToken,
                 user: mapUserForClient(user),
                 message: 'Login successful'
             });

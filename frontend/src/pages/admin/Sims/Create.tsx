@@ -21,7 +21,7 @@ export default function CreateSim() {
     
     try {
       console.log('Sending SIM data:', formData);
-      await api.post('/sims', formData);
+      await api.post('/admin/sims', formData);
       navigate('/admin/sims');
     } catch (error: any) {
       console.error('Failed to add SIM', error);

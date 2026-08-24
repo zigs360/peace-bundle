@@ -80,7 +80,8 @@ export default function UserDashboard() {
   }, [isConnected, user?.id, fetchStats]);
 
   if (loading) return <div className="flex items-center justify-center h-full">{t('common.loading')}</div>;
-  const balanceFromStats = Number((stats as any)?.balance ?? 0);
+  const userBalance = Number(user?.wallet?.balance ?? user?.balance ?? 0);
+  const balanceFromStats = (stats as any)?.balance !== undefined ? Number((stats as any)?.balance) : userBalance;
   const hasRealtime = walletBalance !== null && walletBalanceUpdatedAt > statsFetchedAt;
   const displayBalance = hasRealtime ? walletBalance : balanceFromStats;
   const userName = user?.fullName || user?.name || 'User';
