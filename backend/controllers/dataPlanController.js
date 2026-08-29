@@ -436,16 +436,20 @@ const getVtuDataPlanCatalog = async (req, res) => {
         const catalog = buildNestedCatalog(catalogItems);
         return res.json({
             items: catalogItems.map((plan) => sanitizePlanForClient(cleanCatalogPlan(plan))),
-            networks: CATALOG_NETWORKS.map((network) => ({
-                code: network,
-                name: network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO',
-                categories: Object.fromEntries(
-                    Object.entries(catalog[network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : 'GLO']).map(([categoryKey, plans]) => [
-                        categoryKey,
-                        Array.isArray(plans) ? plans.map((plan) => sanitizePlanForClient(plan)) : [],
-                    ])
-                ),
-            })),
+            networks: CATALOG_NETWORKS.map((network) => {
+                const networkKey = network === 'mtn' ? 'MTN' : network === 'airtel' ? 'Airtel' : network === 'glo' ? 'GLO' : '9mobile';
+                const categories = catalog[networkKey] || {};
+                return {
+                    code: network,
+                    name: networkKey,
+                    categories: Object.fromEntries(
+                        Object.entries(categories).map(([categoryKey, plans]) => [
+                            categoryKey,
+                            Array.isArray(plans) ? plans.map((plan) => sanitizePlanForClient(plan)) : [],
+                        ])
+                    ),
+                };
+            }),
             catalog: Object.fromEntries(
                 Object.entries(catalog).map(([networkKey, categories]) => [
                     networkKey,

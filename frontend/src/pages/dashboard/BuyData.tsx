@@ -7,19 +7,21 @@ import { useTranslation } from 'react-i18next';
 import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 import { formatPlanCurrency, getLowestValidPlanPrice, getPlanPriceInfo, sortPlansByAscendingPrice } from '../../utils/planPriceSort';
 
-const NETWORK_KEYS = ['mtn', 'airtel', 'glo'] as const;
+const NETWORK_KEYS = ['mtn', 'airtel', 'glo', '9mobile'] as const;
 const NETWORK_LABELS = {
   mtn: 'MTN',
   airtel: 'Airtel',
   glo: 'GLO',
+  '9mobile': '9mobile',
 } as const;
 const NETWORK_TOP_KEYS = {
   mtn: 'MTN',
   airtel: 'Airtel',
   glo: 'GLO',
+  '9mobile': '9mobile',
 } as const;
-const PLAN_CACHE_KEY = 'buy_data_plan_catalog_v2';
-const PLAN_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+const PLAN_CACHE_KEY = 'buy_data_plan_catalog_v3';
+const PLAN_CACHE_MAX_AGE_MS = 0; // Fetch real-time catalog without stale caching
 const DUPLICATE_GUARD_MS = 45 * 1000;
 
 type NetworkKey = typeof NETWORK_KEYS[number];
@@ -65,7 +67,7 @@ interface CatalogPlan {
   badges: PlanBadge[];
 }
 
-type NestedCatalog = Record<NetworkTopKey, Record<string, CatalogPlan[]>>;
+type NestedCatalog = Record<string, Record<string, CatalogPlan[]>>;
 
 interface CachedPlanCatalog {
   fetchedAt: number;
@@ -75,9 +77,10 @@ interface CachedPlanCatalog {
 }
 
 const PHONE_PREFIXES: Record<NetworkKey, string[]> = {
-  mtn: ['0803', '0806', '0703', '0706', '0810', '0813', '0814', '0816'],
-  airtel: ['0802', '0808', '0708', '0812', '0901', '0902', '0907', '0904'],
-  glo: ['0805', '0807', '0705', '0811', '0905', '0915'],
+  mtn: ['0702', '0703', '0704', '0706', '0707', '0803', '0806', '0810', '0813', '0814', '0816', '0903', '0906', '0913', '0916'],
+  airtel: ['0701', '0708', '0802', '0808', '0812', '0901', '0902', '0904', '0907', '0911', '0912'],
+  glo: ['0705', '0805', '0807', '0811', '0815', '0905', '0915'],
+  '9mobile': ['0809', '0817', '0818', '0908', '0909'],
 };
 
 function toNumber(value: unknown, fallback = 0) {
@@ -96,7 +99,11 @@ function getPhoneError(network: NetworkKey, phone: string, t: (key: string, opti
   const normalized = normalizePhone(phone);
   if (!/^\d{11}$/.test(normalized)) return t('buyDataPage.phoneDigitsError');
   const prefixes = PHONE_PREFIXES[network] || [];
-  if (!prefixes.includes(normalized.slice(0, 4))) {
+  const prefix4 = normalized.slice(0, 4);
+  const prefix3 = normalized.slice(0, 3);
+  const matches4 = prefixes.includes(prefix4);
+  const matches3 = prefixes.some((p) => p.startsWith(prefix3));
+  if (!matches4 && !matches3) {
     return t('buyDataPage.phonePrefixError', { network: NETWORK_LABELS[network] || network });
   }
   return null;

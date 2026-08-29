@@ -163,7 +163,15 @@ class DataPurchaseService {
     }
 
     if (attempt >= maxAttempts) {
-      await this.handleFailedAirtimeTransaction(txn, 'Airtime verification timed out', null);
+      logger.warn('[Airtime] Reconcile max attempts reached without explicit failure confirmation; retaining debited transaction for review', {
+        transactionId,
+        reference: txn.reference,
+        attempts: attempt,
+      });
+      await txn.update({
+        status: 'processing',
+        metadata: { ...meta, reconcile_max_attempts_reached: true, provider_unconfirmed: true }
+      });
       return;
     }
 

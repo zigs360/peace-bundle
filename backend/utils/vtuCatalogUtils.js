@@ -1,10 +1,11 @@
 const { parseValidityToDays, toFiniteNumber } = require('./dataPlanUtils');
 
-const CATALOG_NETWORKS = ['mtn', 'airtel', 'glo'];
+const CATALOG_NETWORKS = ['mtn', 'airtel', 'glo', '9mobile'];
 const NETWORK_LABELS = {
   mtn: 'MTN',
   airtel: 'Airtel',
   glo: 'GLO',
+  '9mobile': '9mobile',
 };
 
 const NETWORK_CATEGORY_ORDER = {
@@ -40,6 +41,13 @@ const NETWORK_CATEGORY_ORDER = {
     'CORPORATE_GIFTING_CG',
     'VOICE_COMBO',
     'NIGHT',
+    'GENERAL',
+  ],
+  '9mobile': [
+    'GIFTING',
+    'AWOOF',
+    'CORPORATE',
+    'GENERAL',
   ],
 };
 
@@ -230,8 +238,15 @@ function compareCatalogPlans(left, right) {
 
 function enrichCatalogPlan(plan) {
   const networkKey = normalizeText(plan.provider || plan.network);
-  const rawCategory = getRawCategory(plan.name || plan.plan, plan.category || plan.category_name);
-  const categoryKey = mapCategoryForNetwork(networkKey, rawCategory);
+  
+  // Use real category from plan if defined, otherwise derive
+  let categoryKey = plan.category ? String(plan.category).toUpperCase().replace(/[\s-]+/g, '_') : null;
+  if (!categoryKey || categoryKey === 'NULL' || categoryKey === 'UNDEFINED') {
+    const rawCategory = getRawCategory(plan.name || plan.plan, plan.category || plan.category_name);
+    categoryKey = mapCategoryForNetwork(networkKey, rawCategory);
+  }
+  
+  const categoryLabel = plan.category_name || CATEGORY_LABELS[categoryKey] || categoryKey.replace(/_/g, ' ');
   const dataAmount = extractDataAmount(plan);
   const minutesLabel = extractMinutes(plan.name || plan.plan);
   const isVoiceOnly = Boolean(minutesLabel) && !dataAmount;
@@ -245,7 +260,7 @@ function enrichCatalogPlan(plan) {
     network_key: networkKey,
     network_label: NETWORK_LABELS[networkKey] || String(networkKey || '').toUpperCase(),
     category_key: categoryKey,
-    category_label: CATEGORY_LABELS[categoryKey] || categoryKey,
+    category_label: categoryLabel,
     display_amount: dataAmount,
     minutes_label: minutesLabel,
     display_title: isVoiceOnly ? `${minutesLabel} Voice` : (dataAmount || String(plan.name || '')),
@@ -277,33 +292,16 @@ function enrichCatalogPlan(plan) {
 }
 
 function mergeAndDeduplicatePlans(plans) {
-  const flattened = [];
+  const enrichedList = [];
 
   for (const rawPlan of plans) {
     const networkKey = normalizeText(rawPlan.provider || rawPlan.network);
     if (!CATALOG_NETWORKS.includes(networkKey)) continue;
-    flattened.push(enrichCatalogPlan(rawPlan));
+    enrichedList.push(enrichCatalogPlan(rawPlan));
   }
 
-  const deduped = [];
-  const mtnSeen = new Map();
-
-  for (const plan of flattened) {
-    if (plan.network_key !== 'mtn') {
-      deduped.push(plan);
-      continue;
-    }
-
-    const key = buildDuplicateKey(plan);
-    if (!mtnSeen.has(key)) {
-      mtnSeen.set(key, plan);
-      continue;
-    }
-    mtnSeen.set(key, pickPreferredDuplicate(mtnSeen.get(key), plan));
-  }
-
-  deduped.push(...mtnSeen.values());
-  return deduped.sort(compareCatalogPlans);
+  // Preserve all distinct plans created by Admin without dropping duplicates
+  return enrichedList.sort(compareCatalogPlans);
 }
 
 function cleanCatalogPlan(plan) {
@@ -314,17 +312,22 @@ function cleanCatalogPlan(plan) {
 
 function buildNestedCatalog(items) {
   const catalog = {
-    MTN: Object.fromEntries(NETWORK_CATEGORY_ORDER.mtn.map((key) => [key, []])),
-    Airtel: Object.fromEntries(NETWORK_CATEGORY_ORDER.airtel.map((key) => [key, []])),
-    GLO: Object.fromEntries(NETWORK_CATEGORY_ORDER.glo.map((key) => [key, []])),
+    MTN: {},
+    Airtel: {},
+    GLO: {},
+    '9mobile': {},
   };
 
   for (const plan of items) {
-    const networkLabel = NETWORK_LABELS[plan.network_key];
-    if (!networkLabel) continue;
-    const topKey = networkLabel === 'MTN' ? 'MTN' : networkLabel === 'Airtel' ? 'Airtel' : 'GLO';
-    const categoryKey = plan.category_key;
-    if (!catalog[topKey][categoryKey]) continue;
+    const networkLabel = NETWORK_LABELS[plan.network_key] || String(plan.network_key || '').toUpperCase();
+    let topKey = 'MTN';
+    if (networkLabel.toLowerCase().includes('airtel')) topKey = 'Airtel';
+    else if (networkLabel.toLowerCase().includes('glo')) topKey = 'GLO';
+    else if (networkLabel.toLowerCase().includes('9mobile')) topKey = '9mobile';
+
+    const categoryKey = plan.category_key || 'GENERAL';
+    if (!catalog[topKey]) catalog[topKey] = {};
+    if (!catalog[topKey][categoryKey]) catalog[topKey][categoryKey] = [];
     catalog[topKey][categoryKey].push(cleanCatalogPlan(plan));
   }
 
