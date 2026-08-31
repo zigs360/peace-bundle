@@ -312,7 +312,15 @@ DataPlan.addHook('beforeValidate', (plan) => {
 
 // Instance Methods
 DataPlan.prototype.getPriceForUser = async function(user, options = {}) {
-  const fallbackBasePrice = parseFloat(String(this.your_price ?? this.admin_price ?? this.wallet_price ?? 0));
+  const numericPrices = [
+    parseFloat(String(this.your_price)),
+    parseFloat(String(this.admin_price)),
+    parseFloat(String(this.wallet_price)),
+    parseFloat(String(this.api_cost)),
+    parseFloat(String(this.original_price)),
+  ].filter((p) => Number.isFinite(p) && p > 0);
+
+  const fallbackBasePrice = numericPrices.length > 0 ? numericPrices[0] : 0;
 
   if (!user) {
     return fallbackBasePrice;

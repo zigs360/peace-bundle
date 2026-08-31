@@ -133,6 +133,21 @@ function syncWalletBalanceCache(balance: number | null) {
 }
 
 function normalizePlan(plan: any): CatalogPlan {
+  const ourPrice = [
+    toNumber(plan.our_price, 0),
+    toNumber(plan.your_price, 0),
+    toNumber(plan.effective_price, 0),
+    toNumber(plan.admin_price, 0),
+    toNumber(plan.wallet_price, 0),
+    toNumber(plan.api_cost, 0),
+  ].find((p) => p > 0) || 0;
+
+  const telecoPrice = [
+    toNumber(plan.teleco_price, 0),
+    toNumber(plan.original_price, 0),
+    toNumber(plan.api_cost, 0),
+  ].find((p) => p > 0) || ourPrice;
+
   return {
     ...plan,
     id: String(plan.id),
@@ -144,17 +159,17 @@ function normalizePlan(plan: any): CatalogPlan {
     name: String(plan.name || plan.plan || ''),
     plan_id: plan.plan_id ? String(plan.plan_id) : null,
     validity: String(plan.validity || ''),
-    teleco_price: toNumber(plan.teleco_price, 0),
-    our_price: toNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, 0),
-    effective_price: toNumber(plan.effective_price ?? plan.our_price ?? plan.admin_price, 0),
-    admin_price: toNumber(plan.admin_price, 0),
+    teleco_price: telecoPrice,
+    our_price: ourPrice,
+    effective_price: ourPrice,
+    admin_price: toNumber(plan.admin_price, ourPrice),
     display_amount: plan.display_amount ? String(plan.display_amount) : null,
     minutes_label: plan.minutes_label ? String(plan.minutes_label) : null,
     display_title: plan.display_title ? String(plan.display_title) : null,
     bonus_text: plan.bonus_text ? String(plan.bonus_text) : null,
     is_voice_only: Boolean(plan.is_voice_only),
-    is_free: Boolean(plan.is_free),
-    is_add_on: Boolean(plan.is_add_on),
+    is_free: ourPrice === 0 && telecoPrice === 0,
+    is_add_on: ourPrice === 0 && telecoPrice === 0,
     badges: Array.isArray(plan.badges) ? plan.badges.map((badge: any): PlanBadge => ({
       key: String(badge.key || ''),
       label: String(badge.label || ''),

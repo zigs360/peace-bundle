@@ -20,9 +20,23 @@ const {
 
 function normalizePlanForCatalog(plan, effectivePrice) {
     const json = plan.toJSON();
+    const validPrice = [
+        toFiniteNumber(effectivePrice, 0),
+        toFiniteNumber(json.your_price, 0),
+        toFiniteNumber(json.admin_price, 0),
+        toFiniteNumber(json.wallet_price, 0),
+        toFiniteNumber(json.api_cost, 0),
+    ].find((p) => p > 0) || 0;
+
+    const telecoPrice = [
+        toFiniteNumber(json.original_price, 0),
+        toFiniteNumber(json.api_cost, 0),
+        toFiniteNumber(json.wallet_price, 0),
+    ].find((p) => p > 0) || validPrice;
+
     return {
         ...json,
-        effective_price: toFiniteNumber(effectivePrice, toFiniteNumber(json.admin_price, 0)),
+        effective_price: validPrice,
         plan_id: json.plan_id || json.smeplug_plan_id || json.ogdams_sku || String(json.id),
         network: json.provider,
         network_display_name: json.network_display_name || String(json.provider || '').toUpperCase(),
@@ -37,9 +51,11 @@ function normalizePlanForCatalog(plan, effectivePrice) {
         subcategory_name: json.subcategory_name || null,
         subcategory_slug: json.subcategory_slug || null,
         data_size: json.data_size || json.size || null,
-        teleco_price: toFiniteNumber(json.original_price ?? json.api_cost, NaN),
-        our_price: toFiniteNumber(effectivePrice, toFiniteNumber(json.your_price ?? json.admin_price)),
-        wallet_price: toFiniteNumber(json.wallet_price ?? json.api_cost, 0),
+        teleco_price: telecoPrice,
+        our_price: validPrice,
+        your_price: validPrice,
+        admin_price: toFiniteNumber(json.admin_price, validPrice) > 0 ? toFiniteNumber(json.admin_price, validPrice) : validPrice,
+        wallet_price: toFiniteNumber(json.wallet_price ?? json.api_cost, validPrice) > 0 ? toFiniteNumber(json.wallet_price ?? json.api_cost, validPrice) : validPrice,
         validity_days: parseValidityToDays(json.validity),
         search_text: extractPlanSearchTokens({
             ...json,

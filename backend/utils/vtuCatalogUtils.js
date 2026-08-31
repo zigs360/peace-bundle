@@ -10,61 +10,79 @@ const NETWORK_LABELS = {
 
 const NETWORK_CATEGORY_ORDER = {
   mtn: [
-    'GIFTING',
+    'SME',
+    'SME2',
     'AWOOF',
+    'CORPORATE_GIFTING',
     'DATA_SHARE',
+    'DATA_COUPONS',
+    'GIFTING',
     'SOCIAL',
-    'CORPORATE',
+    'NIGHT',
     'BROADBAND',
     'UNLIMITED',
-    'SME_THRYVE',
-    'NIGHT',
     'VOICE_COMBO',
     'GENERAL',
     'OTHER_PLANS',
   ],
   airtel: [
-    'GIFTING',
+    'SME',
+    'SME2',
     'AWOOF',
-    'VOICE_COMBO',
-    'ROAMING',
-    'UNLIMITED',
-    'ROUTER',
-    'BINGE',
+    'CORPORATE_GIFTING',
+    'DATA_SHARE',
+    'DATA_COUPONS',
+    'GIFTING',
     'SOCIAL',
     'NIGHT',
+    'ROUTER',
+    'BROADBAND',
+    'UNLIMITED',
+    'ROAMING',
+    'VOICE_COMBO',
+    'BINGE',
     'GENERAL',
   ],
   glo: [
-    'GIFTING',
+    'SME',
+    'SME2',
     'AWOOF',
-    'CORPORATE_GIFTING_CG',
-    'VOICE_COMBO',
+    'CORPORATE_GIFTING',
+    'DATA_SHARE',
+    'DATA_COUPONS',
+    'GIFTING',
+    'SOCIAL',
     'NIGHT',
+    'VOICE_COMBO',
     'GENERAL',
   ],
   '9mobile': [
-    'GIFTING',
+    'SME',
+    'SME2',
     'AWOOF',
-    'CORPORATE',
+    'CORPORATE_GIFTING',
+    'DATA_SHARE',
+    'DATA_COUPONS',
+    'GIFTING',
     'GENERAL',
   ],
 };
 
 const CATEGORY_LABELS = {
-  GIFTING: 'Gifting',
+  SME: 'SME',
+  SME2: 'SME2',
   AWOOF: 'Awoof',
+  CORPORATE_GIFTING: 'Corporate Gifting',
   DATA_SHARE: 'Data Share',
+  DATA_COUPONS: 'Data Coupons',
+  GIFTING: 'Gifting',
   SOCIAL: 'Social',
-  CORPORATE: 'Corporate',
-  CORPORATE_GIFTING_CG: 'Corporate Gifting CG',
-  BROADBAND: 'Broadband',
-  UNLIMITED: 'Unlimited',
-  SME_THRYVE: 'SME Thryve',
   NIGHT: 'Night',
-  VOICE_COMBO: 'Voice Combo',
+  BROADBAND: 'Broadband',
   ROUTER: 'Router',
+  UNLIMITED: 'Unlimited',
   ROAMING: 'Roaming',
+  VOICE_COMBO: 'Voice Combo',
   BINGE: 'Binge',
   GENERAL: 'General',
   OTHER_PLANS: 'Other Plans',
@@ -78,60 +96,32 @@ function containsAny(text, parts) {
   return parts.some((part) => text.includes(String(part).toLowerCase()));
 }
 
-function getRawCategory(planName, planCategory) {
-  if (planCategory) {
-    const cat = normalizeText(planCategory);
-    if (containsAny(cat, ['sme'])) return 'SME_THRYVE';
-    if (containsAny(cat, ['share', 'data_share'])) return 'DATA_SHARE';
-    if (containsAny(cat, ['cg', 'corporate'])) return 'CORPORATE';
-    if (containsAny(cat, ['gifting'])) return 'GIFTING';
-  }
+function getRawCategory(planName, planCategory, planCategoryName) {
+  const nameText = normalizeText(planName);
+  const catNameText = normalizeText(planCategoryName);
+  const catText = normalizeText(planCategory);
+  const combined = `${nameText} ${catNameText} ${catText}`;
 
-  const text = normalizeText(planName);
+  // 1. Check for specific tags & types first
+  if (containsAny(combined, ['sme2', '[sme2]'])) return 'SME2';
+  if (containsAny(combined, ['sme', 'thryve', 'sme_thryve', '[sme]'])) return 'SME';
+  if (containsAny(combined, ['[awoof]', 'awoof', 'special'])) return 'AWOOF';
+  if (containsAny(combined, ['[cg]', 'cg', 'corporate gifting', 'corporate_gifting', '[corporate]', 'corporate'])) return 'CORPORATE_GIFTING';
+  if (containsAny(combined, ['[data_share]', 'data_share', 'data share', 'share', 'transfer'])) return 'DATA_SHARE';
+  if (containsAny(combined, ['coupon', 'data coupon', 'data_coupon'])) return 'DATA_COUPONS';
+  if (containsAny(combined, ['social', 'facebook', 'whatsapp', 'tiktok', 'instagram', 'youtube', 'ayoba', 'pulse', 'buffet'])) return 'SOCIAL';
+  if (containsAny(combined, ['night', '* night', 'nightlife'])) return 'NIGHT';
+  if (containsAny(combined, ['broadband', 'fibrex', 'hynetflex', 'router'])) return 'BROADBAND';
+  if (containsAny(combined, ['unlimited'])) return 'UNLIMITED';
+  if (containsAny(combined, ['roamlike', 'roamone', 'roamtheworld', 'roam'])) return 'ROAMING';
+  if (containsAny(combined, ['talk more', 'talkmore', 'flexi', '6x', 'mins', 'minutes'])) return 'VOICE_COMBO';
+  if (containsAny(combined, ['[gifting]', 'gifting', 'glomega', 'xtradata', 'direct'])) return 'GIFTING';
 
-  if (containsAny(text, ['share'])) return 'DATA_SHARE';
-  if (containsAny(text, ['[data_share]'])) return 'DATA_SHARE';
-  if (containsAny(text, ['[cg]'])) return 'CORPORATE_GIFTING_CG';
-  if (containsAny(text, ['corporate'])) return 'CORPORATE';
-  if (containsAny(text, ['broadband', 'fibrex', 'hynetflex'])) return 'BROADBAND';
-  if (containsAny(text, ['unlimited'])) return 'UNLIMITED';
-  if (containsAny(text, ['router'])) return 'ROUTER';
-  if (containsAny(text, ['roamlike', 'roamone', 'roamtheworld', 'roam'])) return 'ROAMING';
-  if (containsAny(text, ['thryvetalk', 'thryvedata', 'sme'])) return 'SME_THRYVE';
-  if (containsAny(text, ['[awoof]', 'awoof'])) return 'AWOOF';
-  if (containsAny(text, ['[gifting]', 'gifting', 'special', 'glomega', 'xtradata'])) return 'GIFTING';
-  if (containsAny(text, ['social', 'facebook', 'whatsapp', 'tiktok', 'instagram', 'youtube', 'ayoba', 'pulse', 'nightlife', 'buffet'])) return 'SOCIAL';
-  if (containsAny(text, ['night', '* night', 'nightlife'])) return 'NIGHT';
-  if (containsAny(text, ['talk more', 'talkmore', 'flexi', '6x', 'mins', 'minutes'])) return 'VOICE_COMBO';
-  if (containsAny(text, ['binge'])) return 'BINGE';
-  if (containsAny(text, ['monthly plan', 'weekly plan', 'daily plan', '2-day', 'daily'])) return 'GENERAL';
-  return 'OTHER_PLANS';
+  return 'GIFTING';
 }
 
 function mapCategoryForNetwork(network, rawCategory) {
-  const allowed = NETWORK_CATEGORY_ORDER[network] || [];
-  if (allowed.includes(rawCategory)) return rawCategory;
-
-  if (network === 'mtn') {
-    if (rawCategory === 'ROUTER') return 'BROADBAND';
-    if (rawCategory === 'CORPORATE_GIFTING_CG') return 'CORPORATE';
-    if (rawCategory === 'BINGE' || rawCategory === 'ROAMING') return 'OTHER_PLANS';
-    return rawCategory === 'OTHER_PLANS' ? 'OTHER_PLANS' : 'GIFTING';
-  }
-
-  if (network === 'airtel') {
-    if (rawCategory === 'BROADBAND') return 'ROUTER';
-    if (rawCategory === 'OTHER_PLANS') return 'GENERAL';
-    return 'GIFTING';
-  }
-
-  if (network === 'glo') {
-    if (rawCategory === 'OTHER_PLANS' || rawCategory === 'GENERAL') return 'GIFTING';
-    if (rawCategory === 'SOCIAL' || rawCategory === 'UNLIMITED' || rawCategory === 'ROUTER' || rawCategory === 'ROAMING' || rawCategory === 'BINGE') return 'GIFTING';
-    if (rawCategory === 'CORPORATE') return 'CORPORATE_GIFTING_CG';
-  }
-
-  return allowed[0] || rawCategory;
+  return rawCategory;
 }
 
 function extractDataAmount(plan) {
@@ -173,23 +163,37 @@ function getPlanBadges(plan) {
   const badges = [];
   if (plan.is_voice_only) badges.push({ key: 'VOICE', label: 'Voice', icon: '🎙️' });
   if (plan.category_key === 'ROAMING') badges.push({ key: 'ROAMING', label: 'Roaming', icon: '🌍' });
-  if (plan.category_key === 'ROUTER') badges.push({ key: 'ROUTER', label: 'Router', icon: '📡' });
+  if (plan.category_key === 'ROUTER' || plan.category_key === 'BROADBAND') badges.push({ key: 'BROADBAND', label: 'Broadband', icon: '📡' });
   if (plan.category_key === 'NIGHT') badges.push({ key: 'NIGHT', label: 'Night', icon: '🌙' });
   if (plan.category_key === 'SOCIAL') badges.push({ key: 'SOCIAL', label: 'Social', icon: '📱' });
   if (plan.category_key === 'DATA_SHARE') badges.push({ key: 'SHARE', label: 'Share', icon: '🔄' });
-  if (plan.category_key === 'CORPORATE' || plan.category_key === 'CORPORATE_GIFTING_CG') {
-    badges.push({ key: 'CORPORATE', label: 'Corporate', icon: '🏢' });
-  }
-  if (plan.category_key === 'BROADBAND') badges.push({ key: 'BROADBAND', label: 'Broadband', icon: '📶' });
+  if (plan.category_key === 'CORPORATE_GIFTING') badges.push({ key: 'CORPORATE', label: 'Corporate', icon: '🏢' });
+  if (plan.category_key === 'SME' || plan.category_key === 'SME2') badges.push({ key: 'SME', label: 'SME', icon: '⚡' });
+  if (plan.category_key === 'AWOOF') badges.push({ key: 'AWOOF', label: 'Awoof', icon: '🔥' });
   return badges;
 }
 
 function getPrimaryPrice(plan) {
-  return toFiniteNumber(plan.our_price ?? plan.effective_price ?? plan.admin_price, 0);
+  const prices = [
+    toFiniteNumber(plan.our_price, 0),
+    toFiniteNumber(plan.your_price, 0),
+    toFiniteNumber(plan.effective_price, 0),
+    toFiniteNumber(plan.admin_price, 0),
+    toFiniteNumber(plan.wallet_price, 0),
+    toFiniteNumber(plan.api_cost, 0),
+  ].filter((p) => p > 0);
+
+  return prices.length > 0 ? prices[0] : 0;
 }
 
 function getTelecoPrice(plan) {
-  return toFiniteNumber(plan.teleco_price, 0);
+  const prices = [
+    toFiniteNumber(plan.teleco_price, 0),
+    toFiniteNumber(plan.original_price, 0),
+    toFiniteNumber(plan.api_cost, 0),
+  ].filter((p) => p > 0);
+
+  return prices.length > 0 ? prices[0] : getPrimaryPrice(plan);
 }
 
 function getApproximatePriceBucket(plan) {
@@ -238,15 +242,9 @@ function compareCatalogPlans(left, right) {
 
 function enrichCatalogPlan(plan) {
   const networkKey = normalizeText(plan.provider || plan.network);
-  
-  // Use real category from plan if defined, otherwise derive
-  let categoryKey = plan.category ? String(plan.category).toUpperCase().replace(/[\s-]+/g, '_') : null;
-  if (!categoryKey || categoryKey === 'NULL' || categoryKey === 'UNDEFINED') {
-    const rawCategory = getRawCategory(plan.name || plan.plan, plan.category || plan.category_name);
-    categoryKey = mapCategoryForNetwork(networkKey, rawCategory);
-  }
-  
-  const categoryLabel = plan.category_name || CATEGORY_LABELS[categoryKey] || categoryKey.replace(/_/g, ' ');
+  const rawCategory = getRawCategory(plan.name || plan.plan, plan.category, plan.category_name);
+  const categoryKey = rawCategory;
+  const categoryLabel = CATEGORY_LABELS[categoryKey] || categoryKey.replace(/_/g, ' ');
   const dataAmount = extractDataAmount(plan);
   const minutesLabel = extractMinutes(plan.name || plan.plan);
   const isVoiceOnly = Boolean(minutesLabel) && !dataAmount;
@@ -257,6 +255,11 @@ function enrichCatalogPlan(plan) {
 
   const enriched = {
     ...plan,
+    your_price: yourPrice,
+    our_price: yourPrice,
+    effective_price: yourPrice,
+    admin_price: toFiniteNumber(plan.admin_price, yourPrice) > 0 ? toFiniteNumber(plan.admin_price, yourPrice) : yourPrice,
+    wallet_price: toFiniteNumber(plan.wallet_price, yourPrice) > 0 ? toFiniteNumber(plan.wallet_price, yourPrice) : yourPrice,
     network_key: networkKey,
     network_label: NETWORK_LABELS[networkKey] || String(networkKey || '').toUpperCase(),
     category_key: categoryKey,
@@ -325,7 +328,7 @@ function buildNestedCatalog(items) {
     else if (networkLabel.toLowerCase().includes('glo')) topKey = 'GLO';
     else if (networkLabel.toLowerCase().includes('9mobile')) topKey = '9mobile';
 
-    const categoryKey = plan.category_key || 'GENERAL';
+    const categoryKey = plan.category_key || 'GIFTING';
     if (!catalog[topKey]) catalog[topKey] = {};
     if (!catalog[topKey][categoryKey]) catalog[topKey][categoryKey] = [];
     catalog[topKey][categoryKey].push(cleanCatalogPlan(plan));
