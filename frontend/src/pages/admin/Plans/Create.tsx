@@ -73,8 +73,14 @@ export default function CreatePlan() {
                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
              >
                <option value="sme">SME</option>
-               <option value="gifting">Gifting</option>
                <option value="corporate_gifting">Corporate Gifting</option>
+               <option value="awoof">Awoof</option>
+               <option value="gifting">Gifting</option>
+               <option value="data_share">Data Share</option>
+               <option value="data_coupons">Data Coupons</option>
+               <option value="social">Social</option>
+               <option value="night">Night</option>
+               <option value="broadband">Broadband</option>
              </select>
           </div>
           <div>

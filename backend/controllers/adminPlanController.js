@@ -18,10 +18,14 @@ const EDITABLE_FIELDS = new Set([
   'service_name',
   'service_slug',
   'your_price',
+  'admin_price',
+  'price',
   'wallet_price',
+  'api_cost',
   'available_sim',
   'available_wallet',
   'is_active',
+  'isActive',
   'category_name',
   'category_slug',
   'category',
@@ -34,7 +38,9 @@ const EDITABLE_FIELDS = new Set([
   'sort_order',
   'validity',
   'data_size',
+  'size',
   'name',
+  'plan',
   'source',
   'provider',
   'network',
@@ -43,8 +49,8 @@ const EDITABLE_FIELDS = new Set([
   'ogdams_sku',
 ]);
 
-const PRICE_FIELDS = new Set(['your_price', 'wallet_price', 'original_price']);
-const BOOLEAN_FIELDS = new Set(['available_sim', 'available_wallet', 'is_active']);
+const PRICE_FIELDS = new Set(['your_price', 'admin_price', 'price', 'wallet_price', 'api_cost', 'original_price']);
+const BOOLEAN_FIELDS = new Set(['available_sim', 'available_wallet', 'is_active', 'isActive']);
 const TEXT_LIKE = sequelize.getDialect && sequelize.getDialect() === 'postgres' ? Op.iLike : Op.like;
 
 function toNumber(value, fallback = null) {
@@ -185,21 +191,37 @@ async function recordHistory({ planId, fieldName, oldValue, newValue, changedBy,
 
 function applyLegacyPriceMirrors(plan) {
   const yourPrice = toNumber(plan.your_price, null);
+  const adminPrice = toNumber(plan.admin_price, null);
+  const price = toNumber(plan.price, null);
   const walletPrice = toNumber(plan.wallet_price, null);
+  const apiCost = toNumber(plan.api_cost, null);
   const originalPrice = toNumber(plan.original_price, null);
 
-  if (yourPrice !== null) {
-    plan.admin_price = yourPrice;
+  const finalSelling = yourPrice ?? price ?? adminPrice;
+  if (finalSelling !== null) {
+    plan.admin_price = finalSelling;
+    plan.your_price = finalSelling;
   }
 
-  if (walletPrice !== null) {
-    plan.api_cost = walletPrice;
-  } else if (originalPrice !== null) {
-    plan.api_cost = originalPrice;
+  const finalCost = walletPrice ?? apiCost ?? originalPrice;
+  if (finalCost !== null) {
+    plan.api_cost = finalCost;
+    plan.wallet_price = finalCost;
   }
 
   if (plan.network && !plan.provider) {
     plan.provider = String(plan.network).toLowerCase();
+  }
+
+  if (plan.plan && !plan.name) {
+    plan.name = plan.plan;
+  }
+  if (plan.size && !plan.data_size) {
+    plan.data_size = plan.size;
+  }
+
+  if (plan.isActive !== undefined && plan.is_active === undefined) {
+    plan.is_active = Boolean(plan.isActive);
   }
 
   const effectivePlanId = plan.plan_id || plan.smeplug_plan_id || plan.ogdams_sku;

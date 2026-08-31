@@ -96,17 +96,31 @@ function containsAny(text, parts) {
   return parts.some((part) => text.includes(String(part).toLowerCase()));
 }
 
-function getRawCategory(planName, planCategory, planCategoryName) {
-  const nameText = normalizeText(planName);
-  const catNameText = normalizeText(planCategoryName);
-  const catText = normalizeText(planCategory);
-  const combined = `${nameText} ${catNameText} ${catText}`;
+function getRawCategory(planOrName, planCategory, planCategoryName) {
+  let name = '';
+  let category = '';
+  let categoryName = '';
+
+  if (planOrName && typeof planOrName === 'object') {
+    name = planOrName.name || planOrName.plan || '';
+    category = planOrName.category || planOrName.category_slug || '';
+    categoryName = planOrName.category_name || planOrName.category_label || planOrName.planType || '';
+  } else {
+    name = planOrName || '';
+    category = planCategory || '';
+    categoryName = planCategoryName || '';
+  }
+
+  const nameText = normalizeText(name);
+  const catNameText = normalizeText(categoryName);
+  const catText = normalizeText(category);
+  const combined = ` ${nameText} ${catNameText} ${catText} `;
 
   // 1. Check for specific tags & types first
   if (containsAny(combined, ['sme2', '[sme2]'])) return 'SME2';
   if (containsAny(combined, ['sme', 'thryve', 'sme_thryve', '[sme]'])) return 'SME';
   if (containsAny(combined, ['[awoof]', 'awoof', 'special'])) return 'AWOOF';
-  if (containsAny(combined, ['[cg]', 'cg', 'corporate gifting', 'corporate_gifting', '[corporate]', 'corporate'])) return 'CORPORATE_GIFTING';
+  if (containsAny(combined, ['[cg]', 'corporate gifting', 'corporate_gifting', '[corporate]', 'corporate', ' cg '])) return 'CORPORATE_GIFTING';
   if (containsAny(combined, ['[data_share]', 'data_share', 'data share', 'share', 'transfer'])) return 'DATA_SHARE';
   if (containsAny(combined, ['coupon', 'data coupon', 'data_coupon'])) return 'DATA_COUPONS';
   if (containsAny(combined, ['social', 'facebook', 'whatsapp', 'tiktok', 'instagram', 'youtube', 'ayoba', 'pulse', 'buffet'])) return 'SOCIAL';

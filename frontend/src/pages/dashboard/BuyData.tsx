@@ -375,13 +375,37 @@ export default function BuyData() {
   const networkCategories = useMemo(() => {
     if (!activeNetwork) return [];
     const topKey = NETWORK_TOP_KEYS[activeNetwork];
+    const preferredOrder = [
+      'SME',
+      'SME2',
+      'CORPORATE_GIFTING',
+      'AWOOF',
+      'DATA_SHARE',
+      'DATA_COUPONS',
+      'GIFTING',
+      'SOCIAL',
+      'NIGHT',
+      'BROADBAND',
+      'UNLIMITED',
+      'VOICE_COMBO',
+      'GENERAL',
+    ];
+
     return Object.entries(catalog[topKey] || {})
       .map(([categoryKey, categoryPlans]) => ({
         key: categoryKey,
         label: categoryPlans[0]?.category_label || categoryKey.replace(/_/g, ' '),
         count: categoryPlans.length,
       }))
-      .filter((category) => category.count > 0);
+      .filter((category) => category.count > 0)
+      .sort((a, b) => {
+        const indexA = preferredOrder.indexOf(a.key);
+        const indexB = preferredOrder.indexOf(b.key);
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        return a.label.localeCompare(b.label);
+      });
   }, [activeNetwork, catalog]);
 
   useEffect(() => {

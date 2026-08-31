@@ -287,8 +287,10 @@ const getAdminDataPlans = async (req, res) => {
 // @route   POST /api/plans
 // @access  Private/Admin
 const createDataPlan = async (req, res) => {
+const createDataPlan = async (req, res) => {
     const { 
         provider, 
+        network,
         category, 
         service_name,
         service_slug,
@@ -297,24 +299,41 @@ const createDataPlan = async (req, res) => {
         subcategory_name,
         subcategory_slug,
         name, 
+        plan: planTitle,
         size, 
+        data_size,
         size_mb, 
         validity, 
         admin_price, 
+        your_price,
+        price,
         api_cost, 
-        smeplug_plan_id 
+        wallet_price,
+        original_price,
+        smeplug_plan_id,
+        plan_id,
+        ogdams_sku,
+        available_sim,
+        available_wallet,
+        is_active,
+        isActive
     } = req.body;
 
-    if (!provider || !name || !admin_price) {
+    const net = (provider || network || '').toLowerCase();
+    const finalName = name || planTitle || 'Data Plan';
+    const finalSellingPrice = your_price ?? price ?? admin_price;
+    const finalCostPrice = wallet_price ?? api_cost ?? original_price;
+
+    if (!net || !finalName || finalSellingPrice === undefined) {
         return res.status(400).json({ 
             success: false,
-            message: 'Please provide all required fields: provider, name, admin_price' 
+            message: 'Please provide all required fields: provider, name, price' 
         });
     }
 
     try {
         const plan = await DataPlan.create({
-            provider: provider.toLowerCase(),
+            provider: net,
             category: category || 'sme',
             service_name: service_name || 'Data Plans',
             service_slug: service_slug || 'data-plans',
@@ -322,16 +341,25 @@ const createDataPlan = async (req, res) => {
             category_slug: category_slug || null,
             subcategory_name: subcategory_name || null,
             subcategory_slug: subcategory_slug || null,
-            name,
-            size,
+            name: finalName,
+            size: size || data_size || '',
+            data_size: data_size || size || '',
             size_mb: size_mb || (size ? parseInt(size) : 0),
-            validity,
-            admin_price,
-            api_cost,
-            smeplug_plan_id
+            validity: validity || '30 Days',
+            admin_price: finalSellingPrice,
+            your_price: finalSellingPrice,
+            api_cost: finalCostPrice,
+            wallet_price: finalCostPrice,
+            original_price: original_price ?? finalCostPrice,
+            smeplug_plan_id: smeplug_plan_id || plan_id || null,
+            plan_id: plan_id || smeplug_plan_id || ogdams_sku || null,
+            ogdams_sku: ogdams_sku || null,
+            available_sim: available_sim !== undefined ? Boolean(available_sim) : true,
+            available_wallet: available_wallet !== undefined ? Boolean(available_wallet) : true,
+            is_active: is_active !== undefined ? Boolean(is_active) : (isActive !== undefined ? Boolean(isActive) : true),
         });
 
-        logger.info(`[DataPlan] Created new plan: ${name} for ${provider}`);
+        logger.info(`[DataPlan] Created new plan: ${finalName} for ${net}`);
 
         res.status(201).json({
             success: true,
@@ -353,6 +381,7 @@ const createDataPlan = async (req, res) => {
 const updateDataPlan = async (req, res) => {
     const { 
         provider, 
+        network,
         category, 
         service_name,
         service_slug,
@@ -361,13 +390,24 @@ const updateDataPlan = async (req, res) => {
         subcategory_name,
         subcategory_slug,
         name, 
+        plan: planTitle,
         size, 
+        data_size,
         size_mb, 
         validity, 
         admin_price, 
+        your_price,
+        price,
         api_cost, 
+        wallet_price,
+        original_price,
         smeplug_plan_id,
-        is_active
+        plan_id,
+        ogdams_sku,
+        available_sim,
+        available_wallet,
+        is_active,
+        isActive
     } = req.body;
 
     try {
@@ -380,23 +420,43 @@ const updateDataPlan = async (req, res) => {
             });
         }
 
-        plan.provider = provider ? provider.toLowerCase() : plan.provider;
-        plan.category = category || plan.category;
-        plan.service_name = service_name || plan.service_name;
-        plan.service_slug = service_slug || plan.service_slug;
-        plan.category_name = category_name || plan.category_name;
-        plan.category_slug = category_slug || plan.category_slug;
-        plan.subcategory_name = subcategory_name || plan.subcategory_name;
-        plan.subcategory_slug = subcategory_slug || plan.subcategory_slug;
-        plan.name = name || plan.name;
-        plan.size = size || plan.size;
-        plan.size_mb = size_mb || plan.size_mb;
-        plan.validity = validity || plan.validity;
-        plan.admin_price = admin_price || plan.admin_price;
-        plan.api_cost = api_cost || plan.api_cost;
-        plan.smeplug_plan_id = smeplug_plan_id || plan.smeplug_plan_id;
+        const net = provider || network;
+        if (net) plan.provider = net.toLowerCase();
+        if (category) plan.category = category;
+        if (service_name) plan.service_name = service_name;
+        if (service_slug) plan.service_slug = service_slug;
+        if (category_name) plan.category_name = category_name;
+        if (category_slug) plan.category_slug = category_slug;
+        if (subcategory_name) plan.subcategory_name = subcategory_name;
+        if (subcategory_slug) plan.subcategory_slug = subcategory_slug;
+        if (name || planTitle) plan.name = name || planTitle;
+        if (size || data_size) {
+            plan.size = size || data_size;
+            plan.data_size = data_size || size;
+        }
+        if (size_mb !== undefined) plan.size_mb = size_mb;
+        if (validity) plan.validity = validity;
         
-        if (is_active !== undefined) plan.is_active = is_active;
+        const finalSellingPrice = your_price ?? price ?? admin_price;
+        if (finalSellingPrice !== undefined && finalSellingPrice !== null && !Number.isNaN(Number(finalSellingPrice))) {
+            plan.admin_price = finalSellingPrice;
+            plan.your_price = finalSellingPrice;
+        }
+
+        const finalCostPrice = wallet_price ?? api_cost ?? original_price;
+        if (finalCostPrice !== undefined && finalCostPrice !== null && !Number.isNaN(Number(finalCostPrice))) {
+            plan.api_cost = finalCostPrice;
+            plan.wallet_price = finalCostPrice;
+            if (original_price !== undefined) plan.original_price = original_price;
+        }
+
+        if (smeplug_plan_id) plan.smeplug_plan_id = smeplug_plan_id;
+        if (plan_id) plan.plan_id = plan_id;
+        if (ogdams_sku) plan.ogdams_sku = ogdams_sku;
+        if (available_sim !== undefined) plan.available_sim = Boolean(available_sim);
+        if (available_wallet !== undefined) plan.available_wallet = Boolean(available_wallet);
+        if (is_active !== undefined) plan.is_active = Boolean(is_active);
+        else if (isActive !== undefined) plan.is_active = Boolean(isActive);
 
         const updatedPlan = await plan.save();
         logger.info(`[DataPlan] Updated plan ID: ${req.params.id}`);
