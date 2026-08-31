@@ -394,16 +394,50 @@ class SmeplugService {
         endpoint === '/api/v1/airtime/purchase' ||
         endpoint === '/api/v1/vtu' ||
         endpoint === '/api/v1/data/purchase';
-      const rawStatus = response?.data?.status ?? response?.data?.data?.status ?? null;
-      const statusOk = rawStatus === true || String(rawStatus).toLowerCase() === 'success';
+      const rawStatus =
+        response?.data?.status ??
+        response?.data?.data?.status ??
+        response?.data?.success ??
+        response?.data?.data?.success ??
+        response?.data?.code ??
+        null;
+      const statusStr = String(rawStatus ?? '').toLowerCase().trim();
+      const msgStr = String(
+        response?.data?.msg ||
+        response?.data?.message ||
+        response?.data?.data?.msg ||
+        response?.data?.data?.message ||
+        ''
+      ).toLowerCase();
+
+      const statusOk =
+        rawStatus === true ||
+        rawStatus === 1 ||
+        rawStatus === 200 ||
+        statusStr === 'true' ||
+        statusStr === '1' ||
+        statusStr === '200' ||
+        ['success', 'successful', 'completed', 'complete', 'delivered', 'ok'].includes(statusStr) ||
+        msgStr.includes('success') ||
+        msgStr.includes('successful') ||
+        msgStr.includes('delivered') ||
+        msgStr.includes('credited');
+
       const providerReference =
         response?.data?.reference ||
         response?.data?.transaction_id ||
         response?.data?.data?.reference ||
         response?.data?.data?.transaction_id ||
-        null;
+        response?.data?.id ||
+        response?.data?.data?.id ||
+        response?.data?.order_id ||
+        response?.data?.data?.order_id ||
+        response?.data?.ref ||
+        response?.data?.data?.ref ||
+        (data?.reference || data?.client_reference || null);
+
       const hasProviderReference = Boolean(providerReference);
-      const businessOk = isVendEndpoint ? (statusOk && hasProviderReference) : true;
+      const businessOk = isVendEndpoint ? statusOk : true;
       const businessErrorMessage = (() => {
         if (!isVendEndpoint) return null;
         if (!statusOk) {
@@ -416,7 +450,6 @@ class SmeplugService {
               'SMEPlug returned a non-success status',
           );
         }
-        if (!hasProviderReference) return 'SMEPlug success response is missing a provider reference';
         return null;
       })();
 

@@ -26,7 +26,8 @@ function isAlreadyReconciled(txn) {
 }
 
 function isSuccessLikeAttempt(attempt) {
-  if (!attempt || attempt.provider !== 'ogdams') return false;
+  if (!attempt) return false;
+  if (attempt.ok === true) return true;
   const rawStatus = attempt.status;
   const normalized =
     typeof rawStatus === 'string'
@@ -35,15 +36,19 @@ function isSuccessLikeAttempt(attempt) {
         ? 'true'
         : rawStatus === false
           ? 'false'
-          : '';
-  const httpStatus = Number(attempt.http_status || 0) || null;
-  const hasReference = Boolean(attempt.provider_reference || attempt.request_reference);
+          : rawStatus !== null && rawStatus !== undefined
+            ? String(rawStatus).trim().toLowerCase()
+            : '';
+  const httpStatus = Number(attempt.http_status || attempt.status_code || 0) || null;
+  const hasReference = Boolean(attempt.provider_reference || attempt.request_reference || attempt.reference);
   const successLike =
     attempt.success_like === true ||
     rawStatus === true ||
+    rawStatus === 200 ||
+    rawStatus === 1 ||
     (normalized && SUCCESS_STATES.has(normalized));
   const httpLooksGood = httpStatus === null || (httpStatus >= 200 && httpStatus < 300);
-  return successLike && hasReference && httpLooksGood;
+  return successLike && (hasReference || httpLooksGood);
 }
 
 function isFalseRefundCandidate(txn) {

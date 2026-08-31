@@ -93,10 +93,45 @@ class DataPurchaseService {
 
   parseOgdamsStatus(raw) {
     if (!raw) return null;
-    const direct = String(raw?.status || raw?.data?.status || raw?.result?.status || '').toLowerCase();
-    if (direct.includes('success') || direct === 'completed') return { status: 'success', raw };
-    if (direct.includes('fail') || direct.includes('error') || direct === 'failed') return { status: 'failed', raw };
-    if (direct.includes('pending') || direct.includes('process') || direct.includes('queue')) return { status: 'pending', raw };
+    const rawStatus = raw?.status ?? raw?.data?.status ?? raw?.result?.status ?? raw?.success ?? raw?.data?.success ?? raw?.code ?? null;
+    const direct = String(rawStatus ?? '').toLowerCase().trim();
+    const msg = String(raw?.message || raw?.msg || raw?.data?.message || raw?.data?.msg || '').toLowerCase();
+    
+    if (
+      rawStatus === true ||
+      rawStatus === 1 ||
+      rawStatus === 200 ||
+      direct === 'true' ||
+      direct === '1' ||
+      direct === '200' ||
+      ['success', 'successful', 'completed', 'complete', 'delivered', 'ok'].includes(direct) ||
+      msg.includes('success') ||
+      msg.includes('completed') ||
+      msg.includes('delivered') ||
+      msg.includes('credited')
+    ) {
+      return { status: 'success', raw };
+    }
+    
+    if (
+      rawStatus === false ||
+      direct === 'false' ||
+      direct.includes('fail') ||
+      direct.includes('error') ||
+      direct.includes('cancel') ||
+      direct.includes('revers') ||
+      direct === 'failed' ||
+      msg.includes('failed') ||
+      msg.includes('error') ||
+      msg.includes('insufficient')
+    ) {
+      return { status: 'failed', raw };
+    }
+    
+    if (direct.includes('pending') || direct.includes('process') || direct.includes('queue') || msg.includes('pending') || msg.includes('processing')) {
+      return { status: 'pending', raw };
+    }
+    
     return { status: 'unknown', raw };
   }
 
@@ -808,6 +843,9 @@ class DataPurchaseService {
       );
     };
 
+    const findConfirmedDeliveryAttempt = () =>
+      attempts.find((entry) => entry && (entry.ok === true || entry.success_like === true) && (entry.provider_reference || entry.request_reference || entry.reference));
+
     const persistFailure = async (reason) => {
       const confirmedDeliveryAttempt = findConfirmedDeliveryAttempt();
       if (confirmedDeliveryAttempt) {
@@ -870,36 +908,73 @@ class DataPurchaseService {
         const rand6 = String(n).padStart(6, '0');
         return `OGD|${networkId}|${rand6}|${ts}`;
       };
-      const successStates = new Set(['success', 'successful', 'completed', 'complete', 'delivered', 'ok']);
-      const failureStates = new Set(['failed', 'failure', 'error', 'cancelled', 'reversed']);
+      const successStates = new Set(['success', 'successful', 'completed', 'complete', 'delivered', 'ok', 'true', '200', '1']);
+      const failureStates = new Set(['failed', 'failure', 'error', 'cancelled', 'reversed', 'false']);
       const classifyOgdamsResponse = (response, requestReference) => {
         const rawStatus =
           response?.status ??
           response?.data?.status ??
           response?.success ??
           response?.data?.success ??
+          response?.code ??
+          response?.data?.code ??
           null;
         const normalizedStatus =
-          typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : rawStatus === true ? 'true' : rawStatus === false ? 'false' : '';
+          typeof rawStatus === 'string'
+            ? rawStatus.trim().toLowerCase()
+            : rawStatus === true
+              ? 'true'
+              : rawStatus === false
+                ? 'false'
+                : rawStatus !== null && rawStatus !== undefined
+                  ? String(rawStatus).trim().toLowerCase()
+                  : '';
         const providerReference =
-          response?.reference || response?.data?.reference || response?.data?.transaction_id || requestReference || null;
+          response?.reference ||
+          response?.data?.reference ||
+          response?.data?.transaction_id ||
+          response?.transaction_id ||
+          response?.id ||
+          response?.data?.id ||
+          response?.order_id ||
+          response?.data?.order_id ||
+          requestReference ||
+          null;
+        const msg = String(
+          response?.message ||
+          response?.msg ||
+          response?.data?.message ||
+          response?.data?.msg ||
+          ''
+        ).toLowerCase();
         const successLike =
           rawStatus === true ||
+          rawStatus === 200 ||
+          rawStatus === 1 ||
           response?.success === true ||
           response?.data?.success === true ||
-          (normalizedStatus && successStates.has(normalizedStatus));
+          (normalizedStatus && successStates.has(normalizedStatus)) ||
+          msg.includes('success') ||
+          msg.includes('completed') ||
+          msg.includes('delivered') ||
+          msg.includes('credited');
         const failureLike =
-          rawStatus === false ||
+          (rawStatus === false ||
           response?.success === false ||
           response?.data?.success === false ||
-          (normalizedStatus && failureStates.has(normalizedStatus));
+          (normalizedStatus && failureStates.has(normalizedStatus)) ||
+          msg.includes('insufficient') ||
+          msg.includes('failed') ||
+          msg.includes('error')) && !successLike;
         const pendingLike =
           normalizedStatus.includes('queue') ||
           normalizedStatus.includes('process') ||
           normalizedStatus.includes('pending') ||
           normalizedStatus === 'queued' ||
           normalizedStatus === 'processing' ||
-          normalizedStatus === 'accepted';
+          normalizedStatus === 'accepted' ||
+          msg.includes('pending') ||
+          msg.includes('processing');
         return {
           rawStatus,
           normalizedStatus,
@@ -910,8 +985,6 @@ class DataPurchaseService {
           ok: successLike && !failureLike,
         };
       };
-      const findConfirmedDeliveryAttempt = () =>
-        attempts.find((entry) => entry && entry.success_like === true && (entry.provider_reference || entry.request_reference));
       const buildOgdamsPayload = (requestReference) => ({
         networkId,
         amount: vendAmount,
