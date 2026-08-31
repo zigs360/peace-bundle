@@ -16,6 +16,7 @@ const {
     buildNestedCatalog,
     cleanCatalogPlan,
     mergeAndDeduplicatePlans,
+    getRawCategory,
 } = require('../utils/vtuCatalogUtils');
 
 function normalizePlanForCatalog(plan, effectivePrice) {
@@ -34,8 +35,16 @@ function normalizePlanForCatalog(plan, effectivePrice) {
         toFiniteNumber(json.wallet_price, 0),
     ].find((p) => p > 0) || validPrice;
 
+    const rawCategory = getRawCategory(json);
+    const categorySlug = rawCategory.toLowerCase().replace(/_/g, '-');
+    const categoryName = rawCategory.replace(/_/g, ' ');
+
     return {
         ...json,
+        category: (json.category && json.category !== 'gifting' && json.category !== 'general') ? json.category : categorySlug,
+        category_name: (json.category_name && json.category_name !== 'Gifting' && json.category_name !== 'General Plans') ? json.category_name : categoryName,
+        category_slug: (json.category_slug && json.category_slug !== 'gifting' && json.category_slug !== 'general') ? json.category_slug : categorySlug,
+        category_key: categorySlug,
         effective_price: validPrice,
         plan_id: json.plan_id || json.smeplug_plan_id || json.ogdams_sku || String(json.id),
         network: json.provider,
