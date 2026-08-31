@@ -60,7 +60,7 @@ describe('Profile photo upload', () => {
       .attach('avatar', jpg, { filename: 'avatar.jpg', contentType: 'image/jpeg' });
 
     expect(res.statusCode).toBe(200);
-    expect(res.body.avatar).toMatch(/^uploads\\//);
+    expect(res.body.avatar).toMatch(/^uploads\//);
   });
 
   it('accepts WebP and does not reject it as an invalid file type', async () => {
@@ -77,7 +77,7 @@ describe('Profile photo upload', () => {
       .attach('avatar', webp, { filename: 'avatar.webp', contentType: 'image/webp' });
 
     expect(res.statusCode).toBe(200);
-    expect(res.body.avatar).toMatch(/^uploads\\//);
+    expect(res.body.avatar).toMatch(/^uploads\//);
   });
 
   it('rejects unsupported file types with a clear 400 response', async () => {

@@ -296,7 +296,6 @@ const getAdminDataPlans = async (req, res) => {
 // @route   POST /api/plans
 // @access  Private/Admin
 const createDataPlan = async (req, res) => {
-const createDataPlan = async (req, res) => {
     const { 
         provider, 
         network,
