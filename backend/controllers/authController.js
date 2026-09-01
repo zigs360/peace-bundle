@@ -457,9 +457,22 @@ const getMe = async (req, res) => {
           }
         }
 
+        // Auto-generate referral code if user doesn't have one
+        if (!user.referral_code) {
+          try {
+            const newRefCode = await ReferralService.generateUniqueCode(user.name);
+            user.referral_code = newRefCode;
+            await user.update({ referral_code: newRefCode });
+          } catch (refErr) {
+            logger.warn(`[Auth] Failed to generate referral code for ${user.id}: ${refErr.message}`);
+          }
+        }
+
         // Transform response to flat structure expected by frontend
         const userResponse = user.toJSON();
         userResponse.fullName = user.name;
+        userResponse.referralCode = user.referral_code;
+        userResponse.referral_code = user.referral_code;
         userResponse.role = user.role ? String(user.role).trim().toLowerCase() : 'user';
         userResponse.balance = user.wallet ? user.wallet.balance : 0;
         const userFull = await User.findByPk(req.user.id, { attributes: ['transaction_pin_hash'] });

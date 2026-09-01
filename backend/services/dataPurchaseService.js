@@ -844,7 +844,20 @@ class DataPurchaseService {
     };
 
     const findConfirmedDeliveryAttempt = () =>
-      attempts.find((entry) => entry && (entry.ok === true || entry.success_like === true) && (entry.provider_reference || entry.request_reference || entry.reference));
+      attempts.find(
+        (entry) =>
+          entry &&
+          (entry.ok === true ||
+            entry.success_like === true ||
+            entry.status === true ||
+            entry.status === 'true' ||
+            entry.status === 200 ||
+            entry.status === '200' ||
+            entry.status_code === 200 ||
+            entry.http_status === 200 ||
+            entry.http_status === 201) &&
+          (entry.provider_reference || entry.request_reference || entry.reference),
+      );
 
     const persistFailure = async (reason) => {
       const confirmedDeliveryAttempt = findConfirmedDeliveryAttempt();

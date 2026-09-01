@@ -10,6 +10,7 @@ const { Op } = require('sequelize');
 
 const virtualAccountService = require('../services/virtualAccountService');
 const dualVirtualAccountService = require('../services/dualVirtualAccountService');
+const referralService = require('../services/referralService');
 const logger = require('../utils/logger');
 
 const maskAccountNumber = (accountNumber) => {
@@ -472,6 +473,16 @@ const getAffiliateStats = async (req, res) => {
                 success: false,
                 message: 'User not found' 
             });
+        }
+
+        if (!user.referral_code) {
+            try {
+                const newRefCode = await referralService.generateUniqueCode(user.name);
+                user.referral_code = newRefCode;
+                await user.update({ referral_code: newRefCode });
+            } catch (refErr) {
+                logger.warn(`[Affiliate] Failed to generate referral code for ${user.id}: ${refErr.message}`);
+            }
         }
 
         const referrals = await Referral.findAll({
