@@ -463,12 +463,24 @@ class DataPurchaseService {
           simRouteError = 'No active SIM available for this provider';
         }
 
-        // If SIM route failed or no SIM available, check if wallet fallback is allowed for this plan
+        // If SIM was attempted and failed, do NOT fallback to Wallet API because the SIM
+        // may have already sent the USSD command upstream (causing duplicate delivery).
+        if (sim && simRouteFailed) {
+          await transactionIntegrityService.failAndRefund(
+            transaction,
+            simRouteError || 'SIM route failed',
+            t,
+            { flagAsAnomaly: true },
+          );
+          return;
+        }
+
+        // If no SIM was available, check if wallet fallback is allowed for this plan
         const allowWalletFallbackForPlan = plan ? plan.available_wallet !== false : true;
         if (!allowWalletFallbackForPlan) {
           await transactionIntegrityService.failAndRefund(
             transaction,
-            simRouteError || 'SIM route failed and wallet fallback is disabled for this plan',
+            simRouteError || 'No active SIM available and wallet fallback is disabled for this plan',
             t,
             { flagAsAnomaly: true },
           );

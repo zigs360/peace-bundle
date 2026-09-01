@@ -5,7 +5,7 @@
  */
 export const NETWORK_PREFIXES: Record<string, string[]> = {
   mtn: [
-    '0702', '0703', '0704', '0706', '0707',
+    '07025', '07026', '0702', '0703', '0704', '0706', '0707',
     '0803', '0806',
     '0810', '0813', '0814', '0816',
     '0903', '0906', '0913', '0916',
@@ -46,7 +46,7 @@ export const isValidNigerianNumber = (phone: string): boolean => {
 
 /**
  * Detects the network provider from a Nigerian phone number.
- * Supports 4-digit exact match with 3-digit prefix fallback
+ * Supports 5-digit and 4-digit exact match with 3-digit prefix fallback
  * for partial typing (e.g. '091' → MTN).
  */
 export const detectNetwork = (phone: string): string | null => {
@@ -64,7 +64,17 @@ export const detectNetwork = (phone: string): string | null => {
 
   if (cleanPhone.length < 3) return null;
 
-  // Try exact 4-digit prefix match first
+  // Try exact 5-digit prefix match first (e.g. 07025, 07026)
+  if (cleanPhone.length >= 5) {
+    const prefix5 = cleanPhone.substring(0, 5);
+    for (const [network, prefixes] of Object.entries(NETWORK_PREFIXES)) {
+      if (prefixes.includes(prefix5)) {
+        return network;
+      }
+    }
+  }
+
+  // Try exact 4-digit prefix match
   if (cleanPhone.length >= 4) {
     const prefix4 = cleanPhone.substring(0, 4);
     for (const [network, prefixes] of Object.entries(NETWORK_PREFIXES)) {

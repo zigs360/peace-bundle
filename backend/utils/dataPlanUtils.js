@@ -1,10 +1,23 @@
 const NETWORK_ORDER = ['mtn', 'airtel', 'glo', '9mobile'];
 
 const NETWORK_PREFIXES = {
-  mtn: ['0803', '0806', '0703', '0706', '0810', '0813', '0814', '0816'],
-  airtel: ['0802', '0808', '0708', '0812', '0901', '0902', '0907', '0904'],
-  glo: ['0805', '0807', '0705', '0811', '0905', '0915'],
-  '9mobile': ['0809', '0817', '0818', '0908', '0909'],
+  mtn: [
+    '07025', '07026', '0702', '0703', '0704', '0706', '0707',
+    '0803', '0806', '0810', '0813', '0814', '0816',
+    '0903', '0906', '0913', '0916'
+  ],
+  airtel: [
+    '0701', '0708',
+    '0802', '0808', '0812',
+    '0901', '0902', '0904', '0907',
+    '0911', '0912'
+  ],
+  glo: [
+    '0705', '0805', '0807', '0811', '0815', '0905', '0915'
+  ],
+  '9mobile': [
+    '0809', '0817', '0818', '0908', '0909'
+  ],
 };
 
 function normalizePhone(value) {
@@ -39,7 +52,9 @@ function getPhoneValidationError(network, phone) {
   }
 
   const prefixes = NETWORK_PREFIXES[cleanNetwork] || [];
-  if (!prefixes.includes(normalizedPhone.slice(0, 4))) {
+  const prefix5 = normalizedPhone.slice(0, 5);
+  const prefix4 = normalizedPhone.slice(0, 4);
+  if (!prefixes.includes(prefix5) && !prefixes.includes(prefix4)) {
     return `Phone number prefix does not match ${cleanNetwork.toUpperCase()}`;
   }
 
