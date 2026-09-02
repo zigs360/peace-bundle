@@ -493,7 +493,7 @@ class TransactionIntegrityService {
   }
 
   selectAirtimeRoute({ network, preferredSim = null }) {
-    const strategy = String(process.env.AIRTIME_PRIMARY_ROUTE || 'ogdams').toLowerCase();
+    const strategy = String(process.env.AIRTIME_PRIMARY_ROUTE || 'smeplug').toLowerCase();
     if (preferredSim && strategy === 'sim') {
       return {
         paymentChannel: 'connected_sim',
@@ -502,16 +502,9 @@ class TransactionIntegrityService {
         simId: preferredSim.id,
       };
     }
-    if (strategy === 'smeplug') {
-      return {
-        paymentChannel: 'smeplug_wallet',
-        fulfillmentRoute: 'smeplug_api',
-        provider: String(network || '').toLowerCase(),
-      };
-    }
     return {
-      paymentChannel: 'ogdams_wallet',
-      fulfillmentRoute: 'ogdams_api',
+      paymentChannel: 'smeplug_wallet',
+      fulfillmentRoute: 'smeplug_api',
       provider: String(network || '').toLowerCase(),
     };
   }
