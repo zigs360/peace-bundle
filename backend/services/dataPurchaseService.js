@@ -69,19 +69,34 @@ class DataPurchaseService {
 
   isUncertainProviderStateError(error) {
     const code = String(error?.code || '').toUpperCase();
-    const statusCode = Number(error?.statusCode);
+    const statusCode = Number(error?.statusCode || error?.response?.status || 0);
+    const message = String(error?.message || error?.response?.data?.msg || error?.response?.data?.message || '').toLowerCase();
+
     if (code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'ECONNRESET' || code === 'EAI_AGAIN' || code === 'ENOTFOUND') {
       return true;
     }
     if (code === 'OGDAMS_DUPLICATE_REFERENCE') return true;
-    if (Number.isFinite(statusCode) && statusCode >= 500) return true;
+    if (message.includes('insufficient balance') || message.includes('invalid phone') || message.includes('invalid amount') || message.includes('unauthorized') || message.includes('forbidden')) {
+      return false;
+    }
+    if (Number.isFinite(statusCode) && (statusCode >= 500 || statusCode === 424 || statusCode === 408 || statusCode === 429)) {
+      return true;
+    }
+    if (message.includes('maintenance') || message.includes('busy') || message.includes('timeout') || message.includes('processing') || message.includes('reference exists')) {
+      return true;
+    }
     return false;
   }
 
   isOgdamsAvailabilityError(error) {
     const code = String(error?.code || '').toUpperCase();
-    const statusCode = Number(error?.statusCode);
+    const statusCode = Number(error?.statusCode || error?.response?.status || 0);
+    const message = String(error?.message || error?.response?.data?.msg || error?.response?.data?.message || '').toLowerCase();
+
     if (code === 'OGDAMS_DUPLICATE_REFERENCE' || code === 'OGDAMS_INSUFFICIENT_BALANCE') {
+      return false;
+    }
+    if (message.includes('insufficient balance') || message.includes('invalid')) {
       return false;
     }
     if (code === 'ECONNRESET' || code === 'EAI_AGAIN' || code === 'ENOTFOUND' || code === 'ECONNREFUSED' || code === 'EHOSTUNREACH') {
@@ -1395,18 +1410,6 @@ class DataPurchaseService {
           return (await persistFailure(lastSmeplugFallbackError || ogReason)) || { provider: 'ogdams', failed: true, terminal: true };
         }
 
-        if (unavailable) {
-          await ogdamsFailoverService.markFailure('unavailable', {
-            reference: transaction.reference,
-            status: ogStatus,
-            code: ogCode || null,
-            message: ogReason,
-          });
-          const fallback = await attemptSmeplugFallback('ogdams_unavailable');
-          if (fallback) return fallback;
-          return (await persistFailure(lastSmeplugFallbackError || ogReason)) || { provider: 'ogdams', failed: true };
-        }
-
         if (uncertain && statusCheckEnabled) {
           try {
             const statusReference = String(
@@ -1496,6 +1499,18 @@ class DataPurchaseService {
           this.scheduleAirtimeReconciliation(transaction.id, 1);
           logger.warn('[Airtime] Queued due to uncertain Ogdams state', { reference: transaction.reference, reason: ogReason });
           return { provider: 'ogdams', pending: true };
+        }
+
+        if (unavailable) {
+          await ogdamsFailoverService.markFailure('unavailable', {
+            reference: transaction.reference,
+            status: ogStatus,
+            code: ogCode || null,
+            message: ogReason,
+          });
+          const fallback = await attemptSmeplugFallback('ogdams_unavailable');
+          if (fallback) return fallback;
+          return (await persistFailure(lastSmeplugFallbackError || ogReason)) || { provider: 'ogdams', failed: true };
         }
 
         const fallback = await attemptSmeplugFallback('ogdams_confirmed_failure');
