@@ -1411,13 +1411,14 @@ class DataPurchaseService {
         }
 
         if (uncertain && statusCheckEnabled) {
+          const statusReference = String(
+            (transaction.metadata && transaction.metadata.provider_reference) ||
+              baseMeta.provider_reference ||
+              ogErr.__ogdams_request_reference ||
+              transaction.reference ||
+              '',
+          ).trim();
           try {
-            const statusReference = String(
-              (transaction.metadata && transaction.metadata.provider_reference) ||
-                baseMeta.provider_reference ||
-                transaction.reference ||
-                '',
-            ).trim();
             const statusRaw = await this.withTimeout(
               ogdamsService.checkAirtimeStatus(statusReference),
               ogdamsTimeoutMs,
