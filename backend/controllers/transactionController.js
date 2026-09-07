@@ -454,6 +454,7 @@ const buyData = async (req, res) => {
         const finalStatusLower = String(newTransaction.status || '').toLowerCase();
         if (finalStatusLower === 'failed' || finalStatusLower === 'refunded') {
             await t.commit();
+            if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
             const updatedWallet = await walletService.getBalance(user);
             return res.status(502).json({
                 success: false,
@@ -468,6 +469,7 @@ const buyData = async (req, res) => {
         await t.commit();
         await sendTransactionNotification(user, newTransaction);
         
+        if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
         const updatedWallet = await walletService.getBalance(user);
 
         const successMessage = finalStatusLower === 'queued' || finalStatusLower === 'processing'
@@ -491,6 +493,7 @@ const buyData = async (req, res) => {
             userId,
             phone: maskNotificationPhone(phone),
         });
+        if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
         const msg = String(error?.message || 'Server Error');
         const status =
             msg.includes('Insufficient wallet balance') ? 400 :
@@ -672,6 +675,7 @@ const buyAirtime = async (req, res) => {
         const finalTerminalFailure = providerResult?.failed || finalStatusLower === 'failed' || finalStatusLower === 'refunded';
 
         if (finalTerminalFailure) {
+            if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
             const updatedWallet = await walletService.getBalance(user);
             await notifyAirtimePurchaseStatus({
                 user,
@@ -709,6 +713,7 @@ const buyAirtime = async (req, res) => {
             await sendTransactionNotification(user, newTransaction);
         }
         
+        if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
         const updatedWallet = await walletService.getBalance(user);
 
         res.json({
@@ -726,6 +731,7 @@ const buyAirtime = async (req, res) => {
             userId,
             phone: maskNotificationPhone(phone),
         });
+        if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
         const msg = String(error?.message || 'Server Error');
         const status =
             msg.includes('Insufficient wallet balance') ? 400 :

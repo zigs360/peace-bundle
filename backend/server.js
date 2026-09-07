@@ -89,7 +89,7 @@ app.use((req, res, next) => {
     ? 120000
     : req.path.startsWith('/api/transactions/stats')
       ? Math.max(defaultTimeoutMs, 60000)
-    : urlPath.startsWith('/api/purchase/unified') || req.path === '/unified'
+    : urlPath.startsWith('/api/purchase/unified') || req.path === '/unified' || urlPath.startsWith('/api/transactions') || urlPath.startsWith('/api/purchase')
       ? Math.max(defaultTimeoutMs, 60000)
     : req.path.startsWith('/api/admin')
       ? Math.max(defaultTimeoutMs, 60000)

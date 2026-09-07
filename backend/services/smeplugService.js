@@ -328,6 +328,11 @@ class SmeplugService {
         throw new Error(auth.error || 'SMEPlug API/Secret Key is missing in environment variables');
       }
 
+      const isVendEndpoint =
+        endpoint === '/api/v1/airtime/purchase' ||
+        endpoint === '/api/v1/vtu' ||
+        endpoint === '/api/v1/data/purchase';
+
       const config = {
         method: method,
         url: `${currentBaseUrl}${endpoint}`,
@@ -336,7 +341,7 @@ class SmeplugService {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        timeout: this.timeout
+        timeout: isVendEndpoint ? 20000 : this.timeout
       };
       if (this.publicKey) {
         config.headers['Public-Key'] = this.publicKey;
@@ -389,11 +394,6 @@ class SmeplugService {
         status: response.status,
         response: response.data
       });
-
-      const isVendEndpoint =
-        endpoint === '/api/v1/airtime/purchase' ||
-        endpoint === '/api/v1/vtu' ||
-        endpoint === '/api/v1/data/purchase';
       const rawStatus =
         response?.data?.status ??
         response?.data?.data?.status ??
@@ -464,8 +464,14 @@ class SmeplugService {
       const errorResponse = error.response ? error.response.data : { message: error.message };
       const statusCode = error.response ? error.response.status : 500;
 
-      // Handle DNS resolution failures (EAI_AGAIN, ENOTFOUND) or Timeouts with a retry
-      if ((error.code === 'EAI_AGAIN' || error.code === 'ENOTFOUND' || error.code === 'ECONNABORTED') && retryCount < maxRetries) {
+      // Handle DNS resolution failures (EAI_AGAIN, ENOTFOUND).
+      // IMPORTANT: NEVER retry a vending purchase on timeout (ECONNABORTED)!
+      // Retrying a vend causes duplicate data/airtime delivery and 60s+ hangs.
+      const isVend = endpoint === '/api/v1/airtime/purchase' || endpoint === '/api/v1/vtu' || endpoint === '/api/v1/data/purchase';
+      const isDnsError = error.code === 'EAI_AGAIN' || error.code === 'ENOTFOUND';
+      const isRetryableTimeout = !isVend && error.code === 'ECONNABORTED';
+
+      if ((isDnsError || isRetryableTimeout) && retryCount < maxRetries) {
         logger.warn(`Smeplug API DNS/Timeout Error. Retrying (${retryCount + 1}/${maxRetries})...`, {
           error: error.message,
           endpoint

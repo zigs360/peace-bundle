@@ -52,18 +52,32 @@ SystemSetting.castValue = function(value, type) {
   }
 };
 
+// In-memory cache for fast lookups without hammering the database
+const settingCache = new Map();
+const SETTING_CACHE_TTL_MS = 30000; // 30 seconds cache TTL
+
 // Static Methods
 SystemSetting.get = async function(key, defaultValue = null) {
+  const cached = settingCache.get(key);
+  if (cached && (Date.now() - cached.timestamp < SETTING_CACHE_TTL_MS)) {
+    return cached.value !== undefined ? cached.value : defaultValue;
+  }
+
   const setting = await this.findOne({ where: { key } });
   
   if (!setting) {
+    settingCache.set(key, { value: defaultValue, timestamp: Date.now() });
     return defaultValue;
   }
 
-  return this.castValue(setting.value, setting.type);
+  const parsed = this.castValue(setting.value, setting.type);
+  settingCache.set(key, { value: parsed, timestamp: Date.now() });
+  return parsed;
 };
 
 SystemSetting.set = async function(key, value, type = 'string', group = 'general', description = null) {
+  settingCache.delete(key);
+
   const stringValue = (type === 'json' || type === 'array') && typeof value !== 'string' 
     ? JSON.stringify(value) 
     : String(value);
@@ -86,7 +100,13 @@ SystemSetting.set = async function(key, value, type = 'string', group = 'general
     await setting.save();
   }
 
+  const parsed = this.castValue(setting.value, setting.type);
+  settingCache.set(key, { value: parsed, timestamp: Date.now() });
   return setting;
+};
+
+SystemSetting.clearCache = function() {
+  settingCache.clear();
 };
 
 module.exports = SystemSetting;

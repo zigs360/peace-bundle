@@ -8,7 +8,27 @@ class PricingService {
       tiersByName: new Map(),
       settings: null,
       settingsAt: 0,
+      rulesByTierProduct: new Map(),
     };
+  }
+
+  async getRulesForTierAndProduct(tierId, product_type, transaction = null) {
+    const key = `${tierId}:${product_type}`;
+    const now = Date.now();
+    if (!transaction) {
+      const cached = this.cache.rulesByTierProduct.get(key);
+      if (cached && now - cached.at < 30000) {
+        return cached.rules;
+      }
+    }
+    const rules = await PricingRule.findAll({
+      where: { tierId, product_type, is_active: true },
+      transaction,
+    });
+    if (!transaction) {
+      this.cache.rulesByTierProduct.set(key, { rules, at: now });
+    }
+    return rules;
   }
 
   async getSystemSettingMap(transaction = null) {
@@ -137,10 +157,7 @@ class PricingService {
 
   async quoteAirtime({ user, provider, faceValue, transaction = null }) {
     const tier = await this.getTierForUser(user, transaction);
-    const rules = await PricingRule.findAll({
-      where: { tierId: tier.id, product_type: 'airtime', is_active: true },
-      transaction,
-    });
+    const rules = await this.getRulesForTierAndProduct(tier.id, 'airtime', transaction);
 
     const rule = this.pickBestRule(rules, { provider });
     if (!rule) {
@@ -163,10 +180,7 @@ class PricingService {
 
   async quoteDataPlan({ user, plan, transaction = null }) {
     const tier = await this.getTierForUser(user, transaction);
-    const rules = await PricingRule.findAll({
-      where: { tierId: tier.id, product_type: 'data', is_active: true },
-      transaction,
-    });
+    const rules = await this.getRulesForTierAndProduct(tier.id, 'data', transaction);
 
     const rule = this.pickBestRule(rules, { provider: plan.provider, dataPlanId: plan.id });
     if (!rule) {
@@ -189,11 +203,9 @@ class PricingService {
     };
   }
 
-  async quoteSubscriptionPlan({ user, plan }) {
-    const tier = await this.getTierForUser(user);
-    const rules = await PricingRule.findAll({
-      where: { tierId: tier.id, product_type: 'subscription', is_active: true },
-    });
+  async quoteSubscriptionPlan({ user, plan, transaction = null }) {
+    const tier = await this.getTierForUser(user, transaction);
+    const rules = await this.getRulesForTierAndProduct(tier.id, 'subscription', transaction);
 
     const rule = this.pickBestRule(rules, { subscriptionPlanId: plan.id });
     if (!rule) {
@@ -220,6 +232,7 @@ class PricingService {
     this.cache.tiersByName.clear();
     this.cache.settings = null;
     this.cache.settingsAt = 0;
+    this.cache.rulesByTierProduct.clear();
   }
 }
 
