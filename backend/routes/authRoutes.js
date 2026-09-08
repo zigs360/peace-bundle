@@ -14,6 +14,7 @@ const {
   logoutUser,
   trackReferralClick,
   requestPasswordReset,
+  verifyPasswordResetCode,
   validatePasswordResetToken,
   completePasswordReset,
 } = require('../controllers/authController');
@@ -85,8 +86,13 @@ const passwordResetRequestValidation = [
     .normalizeEmail(),
 ];
 
+const passwordResetVerifyValidation = [
+  body('email').trim().notEmpty().withMessage('Email is required').bail().isEmail().withMessage('Please include a valid email').normalizeEmail(),
+  body('code').trim().notEmpty().withMessage('Verification code is required'),
+];
+
 const passwordResetCompleteValidation = [
-  body('token').trim().notEmpty().withMessage('Reset token is required'),
+  body('token').trim().notEmpty().withMessage('Reset token or code is required'),
   body('newPassword').isString().withMessage('New password is required'),
   body('confirmPassword').isString().withMessage('Password confirmation is required'),
 ];
@@ -110,6 +116,8 @@ router.post('/referral/click', authLimiter, trackReferralClick);
 router.post('/login', authLimiter, validate(loginValidation), loginUser);
 router.post('/password-reset/request', enforceSensitiveHttps, passwordResetRequestLimiter, validate(passwordResetRequestValidation), requestPasswordReset);
 router.post('/forgot-password', enforceSensitiveHttps, passwordResetRequestLimiter, validate(passwordResetRequestValidation), requestPasswordReset);
+router.post('/password-reset/verify', enforceSensitiveHttps, validate(passwordResetVerifyValidation), verifyPasswordResetCode);
+router.post('/verify-reset-code', enforceSensitiveHttps, validate(passwordResetVerifyValidation), verifyPasswordResetCode);
 router.get('/password-reset/validate', enforceSensitiveHttps, validatePasswordResetToken);
 router.post('/password-reset/complete', enforceSensitiveHttps, validate(passwordResetCompleteValidation), completePasswordReset);
 router.post('/reset-password', enforceSensitiveHttps, validate(passwordResetCompleteValidation), completePasswordReset);

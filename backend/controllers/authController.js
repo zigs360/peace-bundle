@@ -920,14 +920,32 @@ const validatePasswordResetToken = async (req, res) => {
     }
 };
 
+// @desc    Verify a 4-digit password reset code
+// @route   POST /api/auth/password-reset/verify
+// @access  Public
+const verifyPasswordResetCode = async (req, res) => {
+    const { email, code } = req.body;
+
+    try {
+        const response = await passwordResetService.verifyResetCode(email, code, req);
+        return res.status(200).json(response);
+    } catch (error) {
+        return res.status(error.status || 400).json({
+            success: false,
+            code: error.code || 'VERIFY_CODE_FAILED',
+            message: error.message || 'Verification code is invalid or expired.',
+        });
+    }
+};
+
 // @desc    Complete a password reset
 // @route   POST /api/auth/password-reset/complete
 // @access  Public
 const completePasswordReset = async (req, res) => {
-    const { token, newPassword, confirmPassword } = req.body;
+    const { token, newPassword, confirmPassword, email } = req.body;
 
     try {
-        const response = await passwordResetService.completePasswordReset(token, newPassword, confirmPassword, req);
+        const response = await passwordResetService.completePasswordReset(token, newPassword, confirmPassword, req, email);
         return res.status(200).json(response);
     } catch (error) {
         return res.status(error.status || 400).json({
@@ -953,6 +971,7 @@ module.exports = {
     refreshUserToken,
     logoutUser,
     requestPasswordReset,
+    verifyPasswordResetCode,
     validatePasswordResetToken,
     completePasswordReset,
 };

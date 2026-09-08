@@ -24,6 +24,7 @@ export default function ResetPassword() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') || '';
+  const email = searchParams.get('email') || '';
   const [validationState, setValidationState] = useState<ValidationState>('loading');
   const [validationMessage, setValidationMessage] = useState('');
   const [password, setPassword] = useState('');
@@ -87,6 +88,7 @@ export default function ResetPassword() {
     try {
       const res = await api.post('/auth/password-reset/complete', {
         token,
+        email: email || undefined,
         newPassword: password,
         confirmPassword,
       });
