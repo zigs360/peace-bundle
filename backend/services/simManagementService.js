@@ -140,6 +140,94 @@ class SimManagementService {
   }
 
   /**
+   * Sync SIMs from any dynamic provider (e.g. QuicklySIM)
+   * @param {string} providerSlug
+   * @returns {Promise<Object>}
+   */
+  async syncProviderSims(providerSlug = 'quicklysim') {
+    try {
+      const dynamicProviderService = require('./dynamicProviderService');
+      logger.info(`Syncing SIMs from dynamic provider: ${providerSlug}...`);
+      const result = await dynamicProviderService.getLinkedDevices(providerSlug);
+
+      if (!result.success) {
+        throw new Error(result.error || `Failed to fetch devices from ${providerSlug}`);
+      }
+
+      const devices = result.devices || [];
+      const syncResults = {
+        total: devices.length,
+        created: 0,
+        updated: 0,
+        failed: 0,
+        errors: []
+      };
+
+      const adminUser = await User.findOne({ where: { role: 'admin' } });
+      if (!adminUser) {
+        throw new Error('No admin user found to associate SIMs with');
+      }
+
+      for (const device of devices) {
+        try {
+          let phoneNumber = device.phone_number ? ussdParserService.formatPhoneNumber(device.phone_number) : null;
+          if (!phoneNumber || phoneNumber.length < 10) {
+            const suffix = String(device.id || Math.floor(Math.random() * 10000)).padStart(5, '0');
+            phoneNumber = `080000${suffix.slice(-5)}`;
+          }
+
+          let provider = device.network || ussdParserService.detectProvider(phoneNumber);
+          if (!provider || provider === 'unknown') provider = 'mtn';
+
+          let sim = await Sim.findOne({ where: { phoneNumber } });
+          if (sim) {
+            await sim.update({
+              provider: provider || sim.provider,
+              airtimeBalance: Number.isFinite(device.balance) ? device.balance : sim.airtimeBalance,
+              connectionStatus: device.status === 'online' || device.status === 'active' ? 'connected' : 'disconnected',
+              status: device.status === 'paused' ? 'paused' : 'active',
+              deviceId: String(device.id || sim.deviceId),
+              notes: `${result.provider}: ${device.device_name || 'Linked SIM'}`,
+              lastBalanceCheck: new Date(),
+            });
+            syncResults.updated++;
+          } else {
+            await Sim.create({
+              userId: adminUser.id,
+              phoneNumber,
+              provider,
+              type: 'sim_system',
+              ogdamsLinked: false,
+              airtimeBalance: Number.isFinite(device.balance) ? device.balance : 0,
+              dataBalanceMb: 0,
+              connectionStatus: device.status === 'online' || device.status === 'active' ? 'connected' : 'disconnected',
+              status: 'active',
+              deviceId: String(device.id),
+              notes: `${result.provider}: ${device.device_name || 'Linked SIM'}`,
+              isVerified: true,
+              verifiedAt: new Date(),
+              lastBalanceCheck: new Date(),
+            });
+            syncResults.created++;
+          }
+        } catch (deviceError) {
+          syncResults.failed++;
+          syncResults.errors.push({
+            device: device.phone_number || device.id,
+            error: deviceError.message
+          });
+        }
+      }
+
+      logger.info(`[DynamicProvider] SIM sync completed for ${providerSlug}: ${syncResults.created} created, ${syncResults.updated} updated`);
+      return syncResults;
+    } catch (err) {
+      logger.error(`[DynamicProvider] SIM sync error for ${providerSlug}: ${err.message}`);
+      throw err;
+    }
+  }
+
+  /**
    * Add new SIM for user
    * @param {User} user
    * @param {object} data

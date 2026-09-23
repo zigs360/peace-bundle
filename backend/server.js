@@ -316,10 +316,12 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const unifiedPurchaseRoutes = require('./routes/unifiedPurchaseRoutes');
 const transferRoutes = require('./routes/transferRoutes');
+const apiProviderRoutes = require('./routes/apiProviderRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/sims', simRoutes);
+app.use('/api/admin/providers', apiProviderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/webhooks', webhookRoutes);

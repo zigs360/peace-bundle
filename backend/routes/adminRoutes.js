@@ -7,6 +7,7 @@ const {
     updateUser, 
     toggleBlockUser, 
     fundUserWallet,
+    deductUserWallet,
     getSystemSettings,
     updateSystemSettings,
     getUsers,
@@ -125,6 +126,7 @@ router.post('/users/kyc/bulk', protect, admin, bulkProcessKyc);
 router.put('/users/:id', protect, admin, updateUser);
 router.patch('/users/:id/block', protect, admin, toggleBlockUser);
 router.post('/users/:id/fund', protect, admin, fundUserWallet);
+router.post('/users/:id/deduct', protect, admin, deductUserWallet);
 router.post('/users/:id/reset-password', protect, admin, sendUserPasswordResetLink);
 router.post('/users/:id/send-reset-link', protect, admin, sendUserPasswordResetLink);
 router.put('/users/:id/kyc/approve', protect, admin, approveKyc);

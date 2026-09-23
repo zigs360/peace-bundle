@@ -357,6 +357,7 @@ const TransactionPinSecurityEvent = require('../models/TransactionPinSecurityEve
 const TransactionIntegrityAudit = require('../models/TransactionIntegrityAudit');
 const AccountDeletionRequest = require('../models/AccountDeletionRequest');
 const AccountDeletionAudit = require('../models/AccountDeletionAudit');
+const ApiProvider = require('../models/ApiProvider');
 
 // Define Associations (Top Level)
 
@@ -565,6 +566,7 @@ const connectDB = async () => {
       await ensureTransactionsDashboardIndexes();
       await ensureUsersOperationalIndexes();
       await ensureAdminWalletDeductionIndexes();
+      await ApiProvider.sync().catch((err) => console.error('[DB] ApiProvider table sync error:', err.message));
 
       try {
         const { getTransactionSchemaCompatibility } = require('../services/transactionSchemaCompatibilityService');

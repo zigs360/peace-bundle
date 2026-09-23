@@ -335,11 +335,22 @@ export default function AdminDashboard() {
                       {isCreditTransaction(tx) ? <Wallet className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-900">{tx.description}</p>
+                      <p className="text-sm font-medium text-slate-900">
+                        {tx.description || 'Transaction'}
+                        {tx.user ? (
+                          <span className="ml-1 text-xs text-slate-500 font-normal">
+                            ({tx.user.name || tx.user.email})
+                          </span>
+                        ) : null}
+                      </p>
                       <div className="mt-1 flex items-center">
                         <span className="mr-2 text-xs text-slate-500">{new Date(tx.createdAt).toLocaleDateString()}</span>
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          tx.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                          tx.status === 'completed' || tx.status === 'success'
+                            ? 'bg-green-100 text-green-800'
+                            : tx.status === 'failed'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-yellow-100 text-yellow-800'
                         }`}>
                           {tx.status}
                         </span>

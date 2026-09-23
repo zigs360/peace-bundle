@@ -36,6 +36,7 @@ import Treasury from './pages/admin/Treasury';
 import OgdamsDataPurchase from './pages/admin/OgdamsDataPurchase';
 import WalletDeductions from './pages/admin/WalletDeductions';
 import CallSubAdmin from './pages/admin/CallSub';
+import ApiProviders from './pages/admin/ApiProviders';
 import UserLayout from './components/UserLayout';
 import CookieConsent from './components/common/CookieConsent';
 import UserDashboard from './pages/dashboard/UserDashboard';
@@ -99,6 +100,7 @@ function App() {
           {/* Admin Routes */}
           <Route path="/admin" element={<Layout />}>
             <Route index element={<AdminDashboard />} />
+            <Route path="providers" element={<ApiProviders />} />
             <Route path="treasury" element={<Treasury />} />
             <Route path="ogdams-data" element={<OgdamsDataPurchase />} />
             <Route path="wallet-deductions" element={<WalletDeductions />} />

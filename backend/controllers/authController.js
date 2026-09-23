@@ -222,6 +222,22 @@ const registerUser = async (req, res) => {
 
         logger.info(`[Auth] New user registered: ${tokenPayloadEmail} (${user.id})`);
 
+        // Automatically provision virtual account in the background on registration
+        setImmediate(async () => {
+            try {
+                const readiness = await VirtualAccountService.getProvisioningReadiness(user);
+                if (readiness.canAttempt) {
+                    await VirtualAccountService.recordProvisioningAttempt(user.id);
+                    await VirtualAccountService.assignVirtualAccount(user);
+                    await VirtualAccountService.recordProvisioningSuccess(user.id);
+                    logger.info(`[Auth] Virtual account provisioned on signup for user ${user.id}`);
+                }
+            } catch (vaErr) {
+                logger.warn(`[Auth] Post-registration virtual account provisioning deferred: ${vaErr.message}`);
+                await VirtualAccountService.recordProvisioningFailure(user.id, vaErr.message).catch(() => {});
+            }
+        });
+
         const emailValidationPassed = welcomeEmailService.isValidEmail(tokenPayloadEmail);
 
         // Track referral reward if applicable

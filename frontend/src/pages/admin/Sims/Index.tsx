@@ -12,6 +12,7 @@ export default function SimsIndex() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingQuicklySim, setIsSyncingQuicklySim] = useState(false);
   const [activeTab, setActiveTab] = useState<'inventory' | 'admin_data'>('inventory');
 
   const fetchSims = async () => {
@@ -127,6 +128,25 @@ export default function SimsIndex() {
       toast.error(err.response?.data?.message || 'Failed to sync SIMs from Smeplug');
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleQuicklySimSync = async () => {
+    try {
+      setIsSyncingQuicklySim(true);
+      const provRes = await api.get('/admin/providers');
+      const qProv = (provRes.data?.providers || []).find((p: any) => p.slug === 'quicklysim');
+      if (qProv) {
+        const res = await api.post(`/admin/providers/${qProv.id}/sync-sims`);
+        toast.success(res.data?.message || 'QuicklySIM devices synchronized successfully');
+        fetchSims();
+      } else {
+        toast.error('QuicklySIM provider not found. Please register it in API Providers first.');
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to sync SIMs from QuicklySIM');
+    } finally {
+      setIsSyncingQuicklySim(false);
     }
   };
 
@@ -284,6 +304,14 @@ export default function SimsIndex() {
           >
             <RotateCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
             {isSyncing ? 'Syncing...' : 'Sync from Smeplug'}
+          </button>
+          <button 
+            onClick={handleQuicklySimSync}
+            disabled={isSyncingQuicklySim || loading}
+            className="flex items-center px-4 py-2 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-100 transition-all shadow-sm disabled:opacity-50"
+          >
+            <RotateCw className={`w-4 h-4 mr-2 ${isSyncingQuicklySim ? 'animate-spin' : ''}`} />
+            {isSyncingQuicklySim ? 'Syncing...' : 'Sync from QuicklySIM'}
           </button>
           <Link to="/admin/sims/create" className="flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-all shadow-sm">
             <Plus className="w-4 h-4 mr-2" />

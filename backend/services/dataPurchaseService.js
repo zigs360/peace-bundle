@@ -515,20 +515,45 @@ class DataPurchaseService {
         });
 
         const effectivePlanId = smeplugPlanId || plan?.plan_id || plan?.smeplug_plan_id || '1';
-        const response = await smeplugService.purchaseData(
-          transaction.provider,
-          transaction.recipient_phone,
-          effectivePlanId,
-          'wallet'
-        );
+        let response = null;
+        let providerName = 'smeplug';
+
+        const dynamicProviderService = require('./dynamicProviderService');
+        const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
+
+        if (primaryProvider && primaryProvider.slug !== 'smeplug') {
+          logger.info(`[DataPurchase] Dispensing via primary dynamic provider: ${primaryProvider.name} (${primaryProvider.slug})`, {
+            transactionId: transaction.id,
+          });
+          response = await dynamicProviderService.purchaseData(
+            transaction.provider,
+            transaction.recipient_phone,
+            effectivePlanId,
+            transaction.amount
+          );
+          providerName = primaryProvider.slug;
+        } else {
+          logger.info('[DataPurchase] Falling back to SMEPlug Wallet API', {
+            transactionId: transaction.id,
+            reason: simRouteError,
+          });
+
+          response = await smeplugService.purchaseData(
+            transaction.provider,
+            transaction.recipient_phone,
+            effectivePlanId,
+            'wallet'
+          );
+          providerName = 'smeplug';
+        }
 
         if (response.success) {
           await transactionIntegrityService.markProviderSuccess(
             transaction,
             {
-              provider: 'smeplug',
-              providerReference: response.data?.reference || response.data?.transaction_id || transaction.reference,
-              response: { provider: 'smeplug', data: response.data },
+              provider: providerName,
+              providerReference: response.data?.reference || response.data?.transaction_id || response.reference || transaction.reference,
+              response: { provider: providerName, data: response.data },
             },
             t,
           );
@@ -572,21 +597,37 @@ class DataPurchaseService {
       if (route.fulfillmentRoute === 'smeplug_api') {
         const mode = sim ? 'device_based' : 'wallet';
         const options = sim ? { sim_number: sim.phoneNumber } : {};
-        const response = await smeplugService.purchaseData(
-          transaction.provider,
-          transaction.recipient_phone,
-          smeplugPlanId || '1',
-          mode,
-          options
-        );
+        let response = null;
+        let providerName = 'smeplug';
+
+        const dynamicProviderService = require('./dynamicProviderService');
+        const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
+
+        if (!sim && primaryProvider && primaryProvider.slug !== 'smeplug') {
+          response = await dynamicProviderService.purchaseData(
+            transaction.provider,
+            transaction.recipient_phone,
+            smeplugPlanId || '1',
+            transaction.amount
+          );
+          providerName = primaryProvider.slug;
+        } else {
+          response = await smeplugService.purchaseData(
+            transaction.provider,
+            transaction.recipient_phone,
+            smeplugPlanId || '1',
+            mode,
+            options
+          );
+        }
 
         if (response.success) {
           await transactionIntegrityService.markProviderSuccess(
             transaction,
             {
-              provider: 'smeplug',
-              providerReference: response.data?.reference || response.data?.transaction_id || transaction.reference,
-              response: { provider: 'smeplug', data: response.data },
+              provider: providerName,
+              providerReference: response.data?.reference || response.data?.transaction_id || response.reference || transaction.reference,
+              response: { provider: providerName, data: response.data },
             },
             t,
           );

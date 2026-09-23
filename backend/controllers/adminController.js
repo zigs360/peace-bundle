@@ -975,6 +975,29 @@ const toggleBlockUser = async (req, res) => {
 const fundUserWallet = async (req, res) => {
     const { sendEmail } = require('../services/notificationService');
     const notificationRealtimeService = require('../services/notificationRealtimeService');
+
+    const idempotencyKey = req.headers['idempotency-key'] || req.body?.idempotency_key || req.body?.idempotencyKey || null;
+    if (idempotencyKey) {
+        const existingTxn = await Transaction.findOne({
+            where: {
+                [Op.or]: [
+                    { reference: String(idempotencyKey) },
+                    sequelize.literal(`metadata->>'idempotency_key' = '${String(idempotencyKey).replace(/'/g, "''")}'`),
+                    sequelize.literal(`metadata->>'idempotencyKey' = '${String(idempotencyKey).replace(/'/g, "''")}'`)
+                ]
+            }
+        });
+        if (existingTxn) {
+            return res.json({
+                success: true,
+                message: 'Transaction already processed',
+                newBalance: parseFloat(String(existingTxn.balance_after)),
+                transaction: existingTxn,
+                alreadyProcessed: true
+            });
+        }
+    }
+
     const t = await sequelize.transaction();
     try {
         const { amount } = req.body;
@@ -1024,7 +1047,8 @@ const fundUserWallet = async (req, res) => {
                 reference,
                 kind: 'wallet_funding_admin',
                 admin_id: req.user?.id || null,
-                user_id: user.id
+                user_id: user.id,
+                idempotency_key: idempotencyKey || null,
             },
             t
         );
@@ -1059,14 +1083,146 @@ const fundUserWallet = async (req, res) => {
         }
 
         res.json({
+            success: true,
             message: 'Wallet funded successfully',
             newBalance: parseFloat(String(txn.balance_after)),
             transaction: txn
         });
     } catch (error) {
-        await t.rollback();
+        if (t && !t.finished) await t.rollback();
         console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        res.status(500).json({ message: error.message || 'Server Error' });
+    }
+};
+
+const deductUserWallet = async (req, res) => {
+    const { sendEmail } = require('../services/notificationService');
+    const notificationRealtimeService = require('../services/notificationRealtimeService');
+
+    const idempotencyKey = req.headers['idempotency-key'] || req.body?.idempotency_key || req.body?.idempotencyKey || null;
+    if (idempotencyKey) {
+        const existingTxn = await Transaction.findOne({
+            where: {
+                [Op.or]: [
+                    { reference: String(idempotencyKey) },
+                    sequelize.literal(`metadata->>'idempotency_key' = '${String(idempotencyKey).replace(/'/g, "''")}'`),
+                    sequelize.literal(`metadata->>'idempotencyKey' = '${String(idempotencyKey).replace(/'/g, "''")}'`)
+                ]
+            }
+        });
+        if (existingTxn) {
+            return res.json({
+                success: true,
+                message: 'Deduction already processed',
+                newBalance: parseFloat(String(existingTxn.balance_after)),
+                transaction: existingTxn,
+                alreadyProcessed: true
+            });
+        }
+    }
+
+    const t = await sequelize.transaction();
+    try {
+        const { amount, reason } = req.body;
+        const cleanId = String(req.params.id || '').trim();
+        let user = null;
+        if (/^[0-9a-fA-F-]{36}$/.test(cleanId)) {
+            user = await User.findByPk(cleanId, {
+                include: [{ model: Wallet, as: 'wallet' }]
+            });
+        }
+        if (!user) {
+            user = await User.findOne({
+                where: {
+                    [Op.or]: [
+                        { email: cleanId.toLowerCase() },
+                        { phone: cleanId },
+                        { id: cleanId }
+                    ]
+                },
+                include: [{ model: Wallet, as: 'wallet' }]
+            });
+        }
+
+        if (!user) {
+            await t.rollback();
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        if (!user.wallet) {
+            await t.rollback();
+            return res.status(404).json({ message: 'User wallet not found' });
+        }
+
+        const numericAmount = parseFloat(amount);
+        if (isNaN(numericAmount) || numericAmount <= 0) {
+            await t.rollback();
+            return res.status(400).json({ message: 'Invalid amount' });
+        }
+
+        const currentBalance = parseFloat(user.wallet.balance || 0);
+        if (currentBalance < numericAmount) {
+            await t.rollback();
+            return res.status(400).json({ message: `Insufficient balance (Wallet balance: ₦${currentBalance.toLocaleString()})` });
+        }
+
+        const reference = `ADMIN-DEDUCT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const deductReason = reason || 'Admin Wallet Deduction';
+        const result = await walletService.adminAdjust(
+            user,
+            -numericAmount,
+            'withdrawal',
+            deductReason,
+            {
+                reference,
+                kind: 'wallet_deduction_admin',
+                admin_id: req.user?.id || null,
+                user_id: user.id,
+                reason: deductReason,
+                idempotency_key: idempotencyKey || null,
+            },
+            t
+        );
+        const txn = result.txn;
+
+        await t.commit();
+
+        try {
+            const balance = parseFloat(String(txn.balance_after));
+            notificationRealtimeService.emitToUser(user.id, 'wallet_balance_updated', {
+                reference: txn.reference,
+                amount: numericAmount,
+                gateway: 'admin_deduct',
+                balance
+            });
+            await notificationRealtimeService.sendToUser(user.id, {
+                title: 'Wallet deducted',
+                message: `₦${Number(numericAmount).toLocaleString()} was deducted from your wallet by admin. Reason: ${deductReason}`,
+                type: 'warning',
+                priority: 'medium',
+                link: '/dashboard',
+                metadata: { kind: 'wallet_deduction_admin', reference: txn.reference, amount: numericAmount, balance, reason: deductReason }
+            });
+        } catch (e) {
+            void e;
+        }
+
+        try {
+            await sendEmail(user.email, 'Wallet Debit Notification', `₦${numericAmount} was debited from your wallet by admin. Reason: ${deductReason}. New balance: ₦${txn.balance_after}`);
+        } catch (e) {
+            void e;
+        }
+
+        res.json({
+            success: true,
+            message: 'Wallet deducted successfully',
+            newBalance: parseFloat(String(txn.balance_after)),
+            transaction: txn
+        });
+    } catch (error) {
+        if (t && !t.finished) await t.rollback();
+        logger.error(`[Admin] Wallet deduct error: ${error.message}`);
+        res.status(500).json({ message: error.message || 'Server Error' });
     }
 };
 
@@ -1978,6 +2134,7 @@ module.exports = {
     updateUser,
     toggleBlockUser,
     fundUserWallet,
+    deductUserWallet,
     getSystemSettings,
     updateSystemSettings,
     getUsers,

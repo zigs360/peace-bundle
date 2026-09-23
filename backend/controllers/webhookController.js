@@ -329,14 +329,24 @@ const handlePaystackWebhook = async (req, res) => {
 const handlePayvesselWebhook = async (req, res) => {
     const payvesselService = require('../services/payvesselService');
     const walletService = require('../services/walletService');
+    const virtualAccountService = require('../services/virtualAccountService');
     const { Transaction, User } = require('../models');
+    const { Op } = require('sequelize');
     try {
         const payload = req.body;
-        const signature = req.headers['http_payvessel_http_signature'];
-        const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-        const allowedIps = ["3.255.23.38", "162.246.254.36"];
+        const signature = req.headers['http_payvessel_http_signature'] ||
+                          req.headers['payvessel-http-signature'] ||
+                          req.headers['x-payvessel-signature'] ||
+                          req.headers['payvessel_http_signature'] ||
+                          req.headers['signature'];
+        const ipHeader = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.connection?.remoteAddress || '';
+        const clientIps = String(ipHeader).split(',').map(s => s.trim()).filter(Boolean);
+        const defaultAllowedIps = ["3.255.23.38", "162.246.254.36", "127.0.0.1", "::1"];
+        const envAllowedIps = process.env.PAYVESSEL_ALLOWED_IPS ? process.env.PAYVESSEL_ALLOWED_IPS.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const allowedIps = [...defaultAllowedIps, ...envAllowedIps];
+        const skipIpCheck = String(process.env.PAYVESSEL_STRICT_IP_CHECK || '').toLowerCase() === 'false' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
 
-        const reference = payload?.transaction?.reference || null;
+        const reference = payload?.transaction?.reference || payload?.order?.reference || null;
         const amountParsed = payload?.order?.settlement_amount || payload?.order?.amount || null;
         const amount = amountParsed !== null ? Number(amountParsed) : null;
         const webhookEvent = await webhookEventService.recordReceived({
@@ -350,25 +360,63 @@ const handlePayvesselWebhook = async (req, res) => {
 
         const raw = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(payload));
         const isValidSignature = payvesselService.verifySignature(raw, signature);
-        const isAllowedIp = allowedIps.some(ip => ipAddress.includes(ip));
+        const isAllowedIp = skipIpCheck || clientIps.some(ip => allowedIps.includes(ip) || allowedIps.some(allowed => ip.includes(allowed)));
 
         if (!isValidSignature || !isAllowedIp) {
-            logger.warn(`[Webhook] PayVessel: Permission denied (Invalid signature or IP: ${ipAddress})`);
-            await webhookEventService.markRejected(webhookEvent.id, { error: 'Permission denied', signatureHeader: 'http_payvessel_http_signature', signaturePresent: Boolean(signature) });
+            logger.warn(`[Webhook] PayVessel: Permission denied (Invalid signature or IP: ${ipHeader})`);
+            await webhookEventService.markRejected(webhookEvent.id, { error: 'Permission denied', signaturePresent: Boolean(signature), ip: ipHeader });
             return res.status(400).json({ message: 'Permission denied, invalid hash or ip address.' });
         }
-        await webhookEventService.markVerified(webhookEvent.id, { signatureHeader: 'http_payvessel_http_signature', signaturePresent: Boolean(signature) });
+        await webhookEventService.markVerified(webhookEvent.id, { signaturePresent: Boolean(signature) });
 
         const { order, transaction, customer } = payload;
         
         const t = await sequelize.transaction();
         try {
-            const user = await User.findOne({ where: { email: customer.email } });
+            // Multi-tier user lookup: 1) Settlement Account, 2) Case-insensitive Email, 3) Phone
+            const settlementAccount = order?.settlement_account ||
+                                      order?.account_number ||
+                                      payload?.virtual_account_number ||
+                                      payload?.account_number ||
+                                      payload?.order?.settlement_account ||
+                                      payload?.transaction?.account_number;
+
+            let user = null;
+            if (settlementAccount) {
+                user = await virtualAccountService.findUserByAccountNumber(settlementAccount);
+            }
+            if (!user && customer?.email) {
+                const cleanEmail = String(customer.email).trim().toLowerCase();
+                user = await User.findOne({
+                    where: sequelize.where(sequelize.fn('LOWER', sequelize.col('email')), cleanEmail)
+                });
+            }
+            if (!user && customer?.phone) {
+                const cleanPhone = String(customer.phone).trim();
+                user = await User.findOne({
+                    where: {
+                        phone: cleanPhone
+                    }
+                });
+            }
+
             if (!user) {
                 await t.rollback();
-                logger.error(`[Webhook] PayVessel: User with email ${customer.email} not found`);
+                logger.error(`[Webhook] PayVessel: User not found for email: ${customer?.email}, account: ${maskAccountNumber(settlementAccount)}`);
                 await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found', userId: null });
                 return res.status(404).json({ success: false, message: 'user not found' });
+            }
+
+            // Check duplicate reference in DB
+            const existingTxn = await Transaction.findOne({
+                where: { reference },
+                transaction: t
+            });
+            if (existingTxn) {
+                await t.rollback();
+                logger.info(`[Webhook] PayVessel: Duplicate transaction ignored ${reference}`);
+                await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
+                return res.status(200).json({ success: true, message: 'transaction already exist' });
             }
 
             let creditedTxn = null;
@@ -380,8 +428,8 @@ const handlePayvesselWebhook = async (req, res) => {
                     { 
                         reference, 
                         gateway: 'payvessel',
-                        fee: order.fee,
-                        description: order.description
+                        fee: order?.fee,
+                        description: order?.description
                     },
                     t
                 );

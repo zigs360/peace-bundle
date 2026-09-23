@@ -26,8 +26,9 @@ const requirePasswordReauth = async (req) => {
 
   const ok = await bcrypt.compare(password, admin.password || '');
   if (!ok) {
-    // If admin is authenticated via JWT session, allow request
-    return admin;
+    const err = new Error('invalid_admin_password');
+    err.code = 'invalid_admin_password';
+    throw err;
   }
   return admin;
 };

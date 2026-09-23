@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
-import { Users, Search, Edit, Wallet, ShieldBan, ShieldCheck, X, FileCheck, CheckCircle, XCircle, Download, FileText, Bell, Loader2, KeyRound } from 'lucide-react';
+import { Users, Search, Edit, Wallet, MinusCircle, ShieldBan, ShieldCheck, X, FileCheck, CheckCircle, XCircle, Download, FileText, Bell, Loader2, KeyRound } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User } from '../../types';
@@ -13,6 +13,7 @@ export default function AdminUsersPage() {
   // Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
+  const [isDeductModalOpen, setIsDeductModalOpen] = useState(false);
   const [isKycModalOpen, setIsKycModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -20,6 +21,10 @@ export default function AdminUsersPage() {
   // Form States
   const [editFormData, setEditFormData] = useState({ name: '', email: '', phone: '', role: 'user' });
   const [fundAmount, setFundAmount] = useState('');
+  const [deductAmount, setDeductAmount] = useState('');
+  const [deductReason, setDeductReason] = useState('');
+  const [isSubmittingFund, setIsSubmittingFund] = useState(false);
+  const [isSubmittingDeduct, setIsSubmittingDeduct] = useState(false);
   const [kycRejectReason, setKycRejectReason] = useState('');
   const [notificationData, setNotificationData] = useState({ title: '', message: '', type: 'info' });
   const [isSubmittingNotification, setIsSubmittingNotification] = useState(false);
@@ -67,6 +72,13 @@ export default function AdminUsersPage() {
     setIsFundModalOpen(true);
   };
 
+  const handleDeductClick = (user: User) => {
+    setSelectedUser(user);
+    setDeductAmount('');
+    setDeductReason('');
+    setIsDeductModalOpen(true);
+  };
+
   const handleKycClick = (user: User) => {
     setSelectedUser(user);
     setKycRejectReason('');
@@ -110,15 +122,49 @@ export default function AdminUsersPage() {
   const submitFund = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
+    if (isSubmittingFund) return;
 
     try {
-      await api.post(`/admin/users/${selectedUser.id}/fund`, { amount: fundAmount });
+      setIsSubmittingFund(true);
+      const idempotencyKey = `ADMIN-FUND-${selectedUser.id}-${Date.now()}`;
+      await api.post(`/admin/users/${selectedUser.id}/fund`, { 
+        amount: fundAmount 
+      }, {
+        headers: { 'idempotency-key': idempotencyKey }
+      });
       toast.success('Wallet funded successfully');
       setIsFundModalOpen(false);
       fetchUsers();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fund wallet', err);
-      toast.error('Failed to fund wallet');
+      toast.error(err.response?.data?.message || 'Failed to fund wallet');
+    } finally {
+      setIsSubmittingFund(false);
+    }
+  };
+
+  const submitDeduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser) return;
+    if (isSubmittingDeduct) return;
+
+    try {
+      setIsSubmittingDeduct(true);
+      const idempotencyKey = `ADMIN-DEDUCT-${selectedUser.id}-${Date.now()}`;
+      await api.post(`/admin/users/${selectedUser.id}/deduct`, { 
+        amount: deductAmount,
+        reason: deductReason || 'Admin Wallet Deduction'
+      }, {
+        headers: { 'idempotency-key': idempotencyKey }
+      });
+      toast.success('Wallet deducted successfully');
+      setIsDeductModalOpen(false);
+      fetchUsers();
+    } catch (err: any) {
+      console.error('Failed to deduct wallet', err);
+      toast.error(err.response?.data?.message || 'Failed to deduct wallet');
+    } finally {
+      setIsSubmittingDeduct(false);
     }
   };
 
@@ -284,6 +330,13 @@ export default function AdminUsersPage() {
                         <Wallet className="w-5 h-5" />
                     </button>
                     <button 
+                      onClick={() => handleDeductClick(user)}
+                      className="text-amber-600 hover:text-amber-900 mr-3" 
+                      title="Deduct Wallet"
+                    >
+                        <MinusCircle className="w-5 h-5" />
+                    </button>
+                    <button 
                       onClick={() => handleNotificationClick(user)}
                       className="text-primary-600 hover:text-primary-900 mr-3" 
                       title="Send Notification"
@@ -429,9 +482,61 @@ export default function AdminUsersPage() {
                 </div>
                 <button 
                   type="submit" 
-                  className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700"
+                  disabled={isSubmittingFund}
+                  className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 font-bold transition flex items-center justify-center gap-2"
                 >
-                  Fund Wallet
+                  {isSubmittingFund && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isSubmittingFund ? 'Funding...' : 'Fund Wallet'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Deduct Wallet Modal */}
+      {isDeductModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-amber-700">Deduct User Wallet</h3>
+              <button onClick={() => setIsDeductModalOpen(false)}><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={submitDeduct}>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                    Deducting wallet for <strong>{selectedUser?.name || selectedUser?.fullName}</strong>
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Amount to Deduct (₦)</label>
+                  <input 
+                    type="number" 
+                    className="mt-1 block w-full border rounded-md px-3 py-2"
+                    value={deductAmount}
+                    onChange={(e) => setDeductAmount(e.target.value)}
+                    required
+                    min="1"
+                    placeholder="Enter amount"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Reason</label>
+                  <input 
+                    type="text" 
+                    className="mt-1 block w-full border rounded-md px-3 py-2"
+                    value={deductReason}
+                    onChange={(e) => setDeductReason(e.target.value)}
+                    required
+                    placeholder="e.g. Reversing double funding / Admin correction"
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={isSubmittingDeduct}
+                  className="w-full bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 font-bold transition flex items-center justify-center gap-2"
+                >
+                  {isSubmittingDeduct && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isSubmittingDeduct ? 'Deducting...' : 'Deduct Wallet'}
                 </button>
               </div>
             </form>
