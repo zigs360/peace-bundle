@@ -333,9 +333,21 @@ class SmeplugService {
         endpoint === '/api/v1/vtu' ||
         endpoint === '/api/v1/data/purchase';
 
+      let cleanBase = String(currentBaseUrl || 'https://smeplug.ng').trim().replace(/\/+$/, '');
+      let cleanEndpoint = String(endpoint || '').trim();
+      if (!cleanEndpoint.startsWith('/')) cleanEndpoint = `/${cleanEndpoint}`;
+
+      if (cleanBase.endsWith('/api/v1') && cleanEndpoint.startsWith('/api/v1')) {
+        cleanBase = cleanBase.replace(/\/api\/v1$/, '');
+      } else if (cleanBase.endsWith('/api') && cleanEndpoint.startsWith('/api/')) {
+        cleanBase = cleanBase.replace(/\/api$/, '');
+      }
+
+      const fullUrl = `${cleanBase}${cleanEndpoint}`;
+
       const config = {
         method: method,
-        url: `${currentBaseUrl}${endpoint}`,
+        url: fullUrl,
         headers: {
           'Authorization': `Bearer ${authHeader}`,
           'Content-Type': 'application/json',
@@ -474,6 +486,13 @@ class SmeplugService {
       if ((isDnsError || isRetryableTimeout) && retryCount < maxRetries) {
         logger.warn(`Smeplug API DNS/Timeout Error. Retrying (${retryCount + 1}/${maxRetries})...`, {
           error: error.message,
+          endpoint
+        });
+        return this.makeRequest(method, endpoint, data, retryCount + 1);
+      }
+
+      if (statusCode === 404 && !isVend && currentBaseUrl.includes('.ng') && retryCount < maxRetries) {
+        logger.warn(`Smeplug API 404 on .ng. Retrying with .com (${retryCount + 1}/${maxRetries})...`, {
           endpoint
         });
         return this.makeRequest(method, endpoint, data, retryCount + 1);
