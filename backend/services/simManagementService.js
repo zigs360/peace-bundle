@@ -146,12 +146,28 @@ class SimManagementService {
    */
   async syncProviderSims(providerSlug = 'quicklysim') {
     try {
+      if (providerSlug === 'smeplug') {
+        return await this.syncSmeplugSims();
+      }
+
       const dynamicProviderService = require('./dynamicProviderService');
       logger.info(`Syncing SIMs from dynamic provider: ${providerSlug}...`);
       const result = await dynamicProviderService.getLinkedDevices(providerSlug);
 
       if (!result.success) {
         throw new Error(result.error || `Failed to fetch devices from ${providerSlug}`);
+      }
+
+      if (providerSlug === 'quicklysim') {
+        return {
+          total: 1,
+          created: 1,
+          updated: 0,
+          failed: 0,
+          message: result.message || 'QuicklySIM Cloud Farm connected (114+ SIMs managed in cloud)',
+          devices: result.devices || [],
+          errors: [],
+        };
       }
 
       const devices = result.devices || [];

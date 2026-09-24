@@ -511,6 +511,7 @@ class TransactionIntegrityService {
 
   selectDataRoute({ plan, preferredSim = null }) {
     const provider = String(plan?.provider || '').toLowerCase();
+    const source = String(plan?.source || '').trim().toLowerCase();
     const simPoolEnabled = String(process.env.SIM_POOL_ENABLED || 'false').toLowerCase() === 'true';
     const allowWalletFallback = String(process.env.SIM_POOL_ALLOW_WALLET_FALLBACK || 'false').toLowerCase() === 'true';
     if (preferredSim && plan?.available_sim !== false) {
@@ -529,17 +530,27 @@ class TransactionIntegrityService {
         simId: null,
       };
     }
-    if (plan?.ogdams_sku) {
+    if (source === 'ogdams' || plan?.ogdams_sku) {
       return {
         paymentChannel: 'ogdams_wallet',
         fulfillmentRoute: 'ogdams_api',
         provider,
+        source: 'ogdams',
+      };
+    }
+    if (source && source !== 'smeplug') {
+      return {
+        paymentChannel: `${source}_wallet`,
+        fulfillmentRoute: `${source}_api`,
+        provider,
+        source,
       };
     }
     return {
       paymentChannel: 'smeplug_wallet',
       fulfillmentRoute: 'smeplug_api',
       provider,
+      source: 'smeplug',
     };
   }
 

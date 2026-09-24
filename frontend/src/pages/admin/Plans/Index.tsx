@@ -949,8 +949,9 @@ export default function PlansIndex() {
                 <span className="text-sm font-medium text-gray-700">{t('admin.sourceOverride')}</span>
                 <select value={importSource} onChange={(e) => setImportSource(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2">
                   <option value="">{t('admin.inferFromFile')}</option>
-                  <option value="ogdams">OGDams</option>
-                  <option value="smeplug">SMEPlug</option>
+                  {filterOptions.sources.map((src) => (
+                    <option key={src} value={src}>{src.toUpperCase()}</option>
+                  ))}
                 </select>
               </label>
               <label className="block">

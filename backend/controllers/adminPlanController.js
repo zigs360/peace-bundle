@@ -419,8 +419,15 @@ const getPlanFilters = async (_req, res) => {
       ],
       order: [['provider', 'ASC']],
     });
+
+    const ApiProvider = require('../models/ApiProvider');
+    const dbProviders = await ApiProvider.findAll({ attributes: ['slug', 'name', 'is_primary', 'is_active'] }).catch(() => []);
+    const providerSlugs = dbProviders.map((p) => p.slug.toLowerCase());
+    const allSources = [...new Set(['smeplug', 'ogdams', ...providerSlugs, ...plans.map((plan) => String(plan.source || '').trim().toLowerCase())].filter(Boolean))];
+
     const values = {
-      sources: [...new Set(plans.map((plan) => String(plan.source || '').trim()).filter(Boolean))],
+      sources: allSources,
+      providers_list: dbProviders,
       networks: [...new Set(plans.map((plan) => String(plan.provider || '').trim()).filter(Boolean))],
       services: [...new Set(plans.map((plan) => String(plan.service_name || '').trim()).filter(Boolean))],
       service_slugs: [...new Set(plans.map((plan) => String(plan.service_slug || '').trim()).filter(Boolean))],
@@ -825,7 +832,8 @@ const createPlan = async (req, res) => {
     };
 
     const plan = await DataPlan.create(payload);
-    return res.status(201).json({ success: true, item: normalizePlan(plan) });
+    const normalized = normalizePlan(plan);
+    return res.status(201).json({ success: true, item: normalized, plan: normalized });
   } catch (error) {
     logger.error('[AdminPlans] create failed', { error: error.message });
     return res.status(500).json({ success: false, message: 'Failed to create plan' });

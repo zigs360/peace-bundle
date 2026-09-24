@@ -37,7 +37,7 @@ const DataPlan = sequelize.define('DataPlan', {
     allowNull: false,
   },
   source: {
-    type: DataTypes.ENUM('ogdams', 'smeplug'),
+    type: DataTypes.STRING,
     allowNull: false,
     defaultValue: 'smeplug',
   },

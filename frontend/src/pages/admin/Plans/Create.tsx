@@ -1,12 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import SelectProvider from '../../../components/Forms/SelectProvider';
 import api from '../../../services/api';
 import { useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 
+interface ProviderOption {
+  slug: string;
+  name: string;
+  is_primary?: boolean;
+}
+
 export default function CreatePlan() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [availableProviders, setAvailableProviders] = useState<ProviderOption[]>([
+    { slug: 'smeplug', name: 'SMEPlug' },
+    { slug: 'ogdams', name: 'OGDams' },
+    { slug: 'quicklysim', name: 'QuicklySIM' },
+  ]);
+
   const [formData, setFormData] = useState({
     source: 'smeplug',
     provider: 'mtn',
@@ -23,6 +35,29 @@ export default function CreatePlan() {
     available_wallet: true,
     is_active: true,
   });
+
+  useEffect(() => {
+    api.get('/admin/providers')
+      .then((res) => {
+        if (res.data?.success && Array.isArray(res.data.providers)) {
+          const list: ProviderOption[] = res.data.providers.map((p: any) => ({
+            slug: p.slug,
+            name: p.name,
+            is_primary: p.is_primary,
+          }));
+          if (list.length > 0) {
+            setAvailableProviders(list);
+            const primary = list.find((p) => p.is_primary);
+            if (primary) {
+              setFormData((prev) => ({ ...prev, source: primary.slug }));
+            }
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to fetch providers for plan creation:', err);
+      });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,14 +83,20 @@ export default function CreatePlan() {
       
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Source</label>
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium text-gray-700">API Provider / Source</label>
+            <span className="text-xs text-primary-600 font-medium">Auto-routes to this provider</span>
+          </div>
           <select
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm p-2 border"
             value={formData.source}
             onChange={(e) => setFormData({ ...formData, source: e.target.value })}
           >
-            <option value="smeplug">SMEPlug</option>
-            <option value="ogdams">OGDams</option>
+            {availableProviders.map((p) => (
+              <option key={p.slug} value={p.slug}>
+                {p.name} {p.is_primary ? '★ (Primary Active)' : ''}
+              </option>
+            ))}
           </select>
         </div>
 

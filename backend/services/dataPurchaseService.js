@@ -529,7 +529,9 @@ class DataPurchaseService {
             transaction.provider,
             transaction.recipient_phone,
             effectivePlanId,
-            transaction.amount
+            transaction.amount,
+            primaryProvider.slug,
+            { reference: transaction.reference }
           );
           providerName = primaryProvider.slug;
         } else {
@@ -561,6 +563,43 @@ class DataPurchaseService {
         }
 
         await transactionIntegrityService.failAndRefund(transaction, response.error || simRouteError || 'Data purchase failed', t, {
+          flagAsAnomaly: true,
+        });
+        return;
+      }
+
+      if (route.fulfillmentRoute && !['sim_pool', 'ogdams_sim', 'ogdams_api', 'smeplug_api'].includes(route.fulfillmentRoute)) {
+        const targetSlug = route.source || route.fulfillmentRoute.replace('_api', '');
+        const dynamicProviderService = require('./dynamicProviderService');
+        const effectivePlanId = plan?.plan_id || smeplugPlanId || plan?.provider_plan_id || '1';
+        logger.info(`[DataPurchase] Dispensing via designated plan provider: ${targetSlug}`, {
+          transactionId: transaction.id,
+          effectivePlanId,
+        });
+
+        const response = await dynamicProviderService.purchaseData(
+          transaction.provider,
+          transaction.recipient_phone,
+          effectivePlanId,
+          transaction.amount,
+          targetSlug,
+          { reference: transaction.reference }
+        );
+
+        if (response.success) {
+          await transactionIntegrityService.markProviderSuccess(
+            transaction,
+            {
+              provider: targetSlug,
+              providerReference: response.data?.reference || response.data?.ident || response.reference || transaction.reference,
+              response: { provider: targetSlug, data: response.data },
+            },
+            t,
+          );
+          return;
+        }
+
+        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Provider data purchase failed', t, {
           flagAsAnomaly: true,
         });
         return;
