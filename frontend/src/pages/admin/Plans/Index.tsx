@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../../services/api';
-import { Download, Eye, Plus, Save, Search, Trash2, Upload } from 'lucide-react';
+import { Download, Eye, Loader2, Plus, Save, Search, Trash2, Upload } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'react-hot-toast';
@@ -91,6 +91,7 @@ export default function PlansIndex() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingIds, setSavingIds] = useState<number[]>([]);
+  const [togglingIds, setTogglingIds] = useState<number[]>([]);
   const [deletingIds, setDeletingIds] = useState<number[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -217,13 +218,6 @@ export default function PlansIndex() {
       return;
     }
 
-    const confirmSummary = changedEntries
-      .map(([key, value]) => `${key}: ${String((plan as any)[key] ?? '')} -> ${String(value ?? '')}`)
-      .join('\n');
-    if (!window.confirm(`Confirm plan update?\n\n${confirmSummary}`)) {
-      return;
-    }
-
     const optimisticPlan: Plan = {
       ...plan,
       ...(payload as Partial<Plan>),
@@ -253,6 +247,32 @@ export default function PlansIndex() {
       toast.error(t('admin.savePlanChangesFailed'));
     } finally {
       setSavingIds((prev) => prev.filter((id) => id !== plan.id));
+    }
+  };
+
+  const togglePlanActive = async (plan: Plan) => {
+    const currentActive = Boolean(plan.is_active);
+    const nextActive = !currentActive;
+
+    // Optimistic update
+    setPlans((prev) =>
+      prev.map((item) => (item.id === plan.id ? { ...item, is_active: nextActive } : item))
+    );
+    setTogglingIds((prev) => [...prev, plan.id]);
+
+    try {
+      await api.put(`/admin/plans/${plan.id}/toggle-status`, { is_active: nextActive });
+      toast.success(nextActive ? 'Plan activated successfully' : 'Plan deactivated successfully');
+      await fetchSidebarData();
+    } catch (err: any) {
+      console.error('Failed to toggle plan status:', err);
+      // Revert optimistic update
+      setPlans((prev) =>
+        prev.map((item) => (item.id === plan.id ? { ...item, is_active: currentActive } : item))
+      );
+      toast.error(err.response?.data?.message || 'Failed to toggle plan status');
+    } finally {
+      setTogglingIds((prev) => prev.filter((id) => id !== plan.id));
     }
   };
 
@@ -707,10 +727,20 @@ export default function PlansIndex() {
                     </td>
                     <td className="px-4 py-4">
                       <button
-                        onClick={() => updateDraft(plan.id, { is_active: !Boolean(getPlanValue(plan, 'is_active')) })}
-                        className={`px-2 py-1 rounded-full text-xs ${Boolean(getPlanValue(plan, 'is_active')) ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}
+                        type="button"
+                        onClick={() => void togglePlanActive(plan)}
+                        disabled={togglingIds.includes(plan.id)}
+                        className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer transition-all duration-150 disabled:opacity-50 ${
+                          Boolean(plan.is_active)
+                            ? 'bg-green-100 text-green-800 hover:bg-green-200 border border-green-300'
+                            : 'bg-red-100 text-red-800 hover:bg-red-200 border border-red-300'
+                        }`}
+                        title="Click to toggle active status"
                       >
-                        {Boolean(getPlanValue(plan, 'is_active')) ? t('common.active') : t('common.inactive')}
+                        {togglingIds.includes(plan.id) && (
+                          <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                        )}
+                        {Boolean(plan.is_active) ? t('common.active') : t('common.inactive')}
                       </button>
                     </td>
                     <td className="px-4 py-4">

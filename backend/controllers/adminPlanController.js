@@ -793,10 +793,17 @@ const getCheapestPlans = async (_req, res) => {
 
 const createPlan = async (req, res) => {
   try {
+    const rawSize = String(req.body?.data_size || req.body?.size || '').trim();
+    const rawSizeMb = Number.parseInt(String(req.body?.size_mb || '0'), 10) || 0;
+    const rawValidity = String(req.body?.validity || '30 Days').trim();
+    const rawName = String(req.body?.name || '').trim();
+    const network = String(req.body?.network || req.body?.provider || 'mtn').toLowerCase();
+    const category = String(req.body?.category || 'gifting').toLowerCase();
+
     const payload = {
       source: String(req.body?.source || 'smeplug').toLowerCase(),
-      provider: String(req.body?.network || req.body?.provider || '').toLowerCase(),
-      category: req.body?.category || 'gifting',
+      provider: network,
+      category: category,
       service_name: req.body?.service_name || 'Data Plans',
       service_slug: req.body?.service_slug || 'data-plans',
       category_name: req.body?.category_name || null,
@@ -806,11 +813,11 @@ const createPlan = async (req, res) => {
       network_display_name: req.body?.network_display_name || null,
       network_color: req.body?.network_color || null,
       network_icon: req.body?.network_icon || null,
-      name: req.body?.name,
-      size: req.body?.data_size || req.body?.size,
-      size_mb: Number.parseInt(String(req.body?.size_mb || '0'), 10) || 0,
-      validity: req.body?.validity,
-      data_size: req.body?.data_size || req.body?.size || null,
+      name: rawName || (rawSize ? `${rawSize} ${category.toUpperCase()}` : 'Data Plan'),
+      size: rawSize || (rawSizeMb > 0 ? (rawSizeMb >= 1024 && rawSizeMb % 1024 === 0 ? `${rawSizeMb / 1024}GB` : `${rawSizeMb}MB`) : '1GB'),
+      size_mb: rawSizeMb,
+      validity: rawValidity || '30 Days',
+      data_size: rawSize || null,
       plan_id: req.body?.plan_id || req.body?.smeplug_plan_id || null,
       original_price: toNumber(req.body?.original_price ?? req.body?.api_cost, 0),
       your_price: toNumber(req.body?.your_price ?? req.body?.admin_price, 0),
@@ -835,8 +842,11 @@ const createPlan = async (req, res) => {
     const normalized = normalizePlan(plan);
     return res.status(201).json({ success: true, item: normalized, plan: normalized });
   } catch (error) {
-    logger.error('[AdminPlans] create failed', { error: error.message });
-    return res.status(500).json({ success: false, message: 'Failed to create plan' });
+    logger.error('[AdminPlans] create failed', { error: error.message, details: error.errors });
+    const message = error.errors?.length
+      ? error.errors.map((e) => e.message).join(', ')
+      : error.message || 'Failed to create plan';
+    return res.status(400).json({ success: false, message });
   }
 };
 

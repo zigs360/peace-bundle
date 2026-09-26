@@ -10,6 +10,30 @@ const extractDataSize = (name, fallback = null) => {
   return `${match[1]}${match[2].toUpperCase()}`;
 };
 
+const sizeStringToMb = (sizeStr) => {
+  if (!sizeStr) return null;
+  const match = String(sizeStr).trim().match(/^(\d+(?:\.\d+)?)\s*(GB|MB|TB)?$/i);
+  if (!match) return null;
+  const val = parseFloat(match[1]);
+  const unit = (match[2] || 'MB').toUpperCase();
+  if (unit === 'TB') return Math.round(val * 1024 * 1024);
+  if (unit === 'GB') return Math.round(val * 1024);
+  return Math.round(val);
+};
+
+const mbToSizeString = (mb) => {
+  const num = parseInt(String(mb), 10);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  if (num >= 1024 && num % 1024 === 0) {
+    return `${num / 1024}GB`;
+  }
+  if (num >= 1024) {
+    const gb = num / 1024;
+    return `${Number(gb.toFixed(2))}GB`;
+  }
+  return `${num}MB`;
+};
+
 const slugify = (value, fallback = '') => {
   const normalized = String(value || '')
     .trim()
@@ -274,12 +298,33 @@ DataPlan.addHook('beforeValidate', (plan) => {
     plan.ogdams_sku = String(plan.plan_id);
   }
 
-  if (!plan.data_size) {
-    plan.data_size = extractDataSize(plan.name, plan.size || null);
+  // Derive size, data_size, and size_mb mutually
+  let sizeStr = (plan.size || plan.data_size || '').toString().trim();
+  let sizeMbNum = Number.parseInt(String(plan.size_mb || '0'), 10);
+
+  if (!sizeStr && Number.isFinite(sizeMbNum) && sizeMbNum > 0) {
+    sizeStr = mbToSizeString(sizeMbNum);
   }
 
-  if (!plan.size && plan.data_size) {
-    plan.size = String(plan.data_size);
+  if (!sizeStr) {
+    sizeStr = extractDataSize(plan.name, null);
+  }
+
+  if (!sizeStr && (!Number.isFinite(sizeMbNum) || sizeMbNum <= 0)) {
+    sizeStr = '1GB';
+    sizeMbNum = 1024;
+  }
+
+  if (!Number.isFinite(sizeMbNum) || sizeMbNum <= 0) {
+    sizeMbNum = sizeStringToMb(sizeStr) || 1024;
+  }
+
+  plan.size = sizeStr || '1GB';
+  plan.data_size = plan.size;
+  plan.size_mb = sizeMbNum;
+
+  if (!plan.name || !String(plan.name).trim()) {
+    plan.name = `${plan.size} ${plan.category_name || 'Data'}`;
   }
 
   const numericOriginal = Number.parseFloat(String(plan.original_price));
@@ -301,8 +346,18 @@ DataPlan.addHook('beforeValidate', (plan) => {
     plan.wallet_price = numericApi;
   }
 
-  if (!Number.isFinite(numericAdmin) && Number.isFinite(Number.parseFloat(String(plan.your_price)))) {
-    plan.admin_price = plan.your_price;
+  if (!Number.isFinite(numericAdmin)) {
+    if (Number.isFinite(numericYour)) {
+      plan.admin_price = numericYour;
+    } else if (Number.isFinite(numericOriginal)) {
+      plan.admin_price = numericOriginal;
+    } else {
+      plan.admin_price = 0;
+    }
+  }
+
+  if (!Number.isFinite(numericYour)) {
+    plan.your_price = plan.admin_price;
   }
 
   if (!Number.isFinite(numericApi) && Number.isFinite(Number.parseFloat(String(plan.original_price)))) {
