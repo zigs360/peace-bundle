@@ -222,15 +222,23 @@ const registerUser = async (req, res) => {
 
         logger.info(`[Auth] New user registered: ${tokenPayloadEmail} (${user.id})`);
 
-        // Automatically provision virtual account in the background on registration
+        // Automatically provision dual virtual accounts (9PSB + PalmPay) in the background on registration
         setImmediate(async () => {
             try {
+                const dualVirtualAccountService = require('../services/dualVirtualAccountService');
+                const result = await dualVirtualAccountService.ensureDualVirtualAccounts(user.id, { timeoutMs: 15000 });
+                if (result.success) {
+                    logger.info(`[Auth] Dual virtual accounts (9PSB + PalmPay) provisioned on signup for user ${user.id}`, { overallStatus: result.overallStatus });
+                } else {
+                    logger.warn(`[Auth] Dual virtual account provisioning partial/failed for user ${user.id}`, { overallStatus: result.overallStatus });
+                }
+                // Also attempt the primary single account for backwards compatibility
                 const readiness = await VirtualAccountService.getProvisioningReadiness(user);
                 if (readiness.canAttempt) {
                     await VirtualAccountService.recordProvisioningAttempt(user.id);
                     await VirtualAccountService.assignVirtualAccount(user);
                     await VirtualAccountService.recordProvisioningSuccess(user.id);
-                    logger.info(`[Auth] Virtual account provisioned on signup for user ${user.id}`);
+                    logger.info(`[Auth] Primary virtual account provisioned on signup for user ${user.id}`);
                 }
             } catch (vaErr) {
                 logger.warn(`[Auth] Post-registration virtual account provisioning deferred: ${vaErr.message}`);

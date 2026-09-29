@@ -97,9 +97,22 @@ const sendEmail = async (to, subject, text, html, options = {}) => {
         if (!to) return { success: false, skipped: true, reason: 'missing_recipient' };
 
         const transporter = getTransporter();
+        
+        logger.info('SMTP config status', { 
+            configured: !!transporter, 
+            to: to 
+        });
+
         if (!transporter) {
             logger.info('[Mock Email] SMTP not configured', { to, subject });
             return { success: false, skipped: true, reason: 'smtp_not_configured' };
+        }
+
+        try {
+            await transporter.verify();
+            logger.info('SMTP connection verified successfully');
+        } catch (verifyError) {
+            logger.error('SMTP connection failed', { error: verifyError.message });
         }
 
         const { from } = resolveSmtpSettings();
@@ -116,7 +129,12 @@ const sendEmail = async (to, subject, text, html, options = {}) => {
         logger.info('Email sent', { messageId: info.messageId, to });
         return { success: true, messageId: info.messageId };
     } catch (error) {
-        logger.error('Error sending email', { error: error.message });
+        logger.error('Error sending email', { 
+            error: error.message,
+            stack: error.stack,
+            code: error.code,
+            command: error.command
+        });
         if (options.throwOnError) throw error;
         return { success: false, reason: error.message };
     }

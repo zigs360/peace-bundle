@@ -122,7 +122,10 @@ async function requestPasswordReset(email, req) {
 
   if (!user) {
     logger.info('[Auth] Password reset requested for non-existent email', requestMeta);
-    return makeGenericResetRequestResponse();
+    return {
+      success: false,
+      message: 'No account found with that email address. Please check your email and try again.',
+    };
   }
 
   const code = generateResetCode();

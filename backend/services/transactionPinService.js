@@ -11,7 +11,7 @@ const ASCENDING_PIN = '0123456789';
 const DESCENDING_PIN = '9876543210';
 const TEST_ROUNDS = 4;
 const PROD_ROUNDS = 10;
-const SESSION_TIMEOUT_MS = Number.parseInt(process.env.TRANSACTION_PIN_SESSION_TTL_MS || '300000', 10);
+const SESSION_TIMEOUT_MS = Number.parseInt(process.env.TRANSACTION_PIN_SESSION_TTL_MS || '5000', 10);
 const MAX_ATTEMPTS = Number.parseInt(process.env.TRANSACTION_PIN_MAX_ATTEMPTS || '5', 10);
 const LOCKOUT_MINUTES = Number.parseInt(process.env.TRANSACTION_PIN_LOCKOUT_MINUTES || '15', 10);
 const RECOVERY_OTP_TTL_MS = Number.parseInt(process.env.TRANSACTION_PIN_RECOVERY_OTP_TTL_MS || '600000', 10);
@@ -141,6 +141,7 @@ function issueTransactionSession(user, scope = 'financial') {
       id: user.id,
       purpose: 'transaction_pin',
       scope: normalizedScope,
+      singleUse: true,
     },
     process.env.JWT_SECRET,
     { expiresIn: expiresInSeconds }

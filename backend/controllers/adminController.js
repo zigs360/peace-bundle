@@ -2129,6 +2129,83 @@ const sendUserPasswordResetLink = async (req, res) => {
     }
 };
 
+// Migrate existing SafeHaven users to 9PSB + PalmPay dual accounts
+const migrateSafeHavenAccounts = async (req, res) => {
+    try {
+        const dualVirtualAccountService = require('../services/dualVirtualAccountService');
+
+        // Find all users with SafeHaven virtual accounts
+        const safeHavenUsers = await User.findAll({
+            where: {
+                [Op.or]: [
+                    { virtual_account_bank: { [Op.iLike]: '%safehaven%' } },
+                    { virtual_account_bank: { [Op.iLike]: '%safe haven%' } },
+                    sequelize.literal(`"metadata"->>'va_provider' = 'safehaven'`),
+                ]
+            }
+        });
+
+        logger.info(`[Admin] SafeHaven migration started: found ${safeHavenUsers.length} users to migrate`);
+
+        const results = {
+            total: safeHavenUsers.length,
+            success: 0,
+            failed: 0,
+            errors: []
+        };
+
+        for (const user of safeHavenUsers) {
+            try {
+                // Clear existing SafeHaven virtual account
+                await user.update({
+                    virtual_account_number: null,
+                    virtual_account_bank: null,
+                    virtual_account_name: null,
+                    metadata: {
+                        ...user.metadata,
+                        va_provider: null,
+                        va_status: 'pending',
+                        safehaven_migrated: true,
+                        safehaven_migrated_at: new Date().toISOString(),
+                        old_safehaven_account: {
+                            number: user.virtual_account_number,
+                            bank: user.virtual_account_bank,
+                            name: user.virtual_account_name,
+                        }
+                    }
+                });
+
+                // Provision new 9PSB + PalmPay dual accounts
+                const result = await dualVirtualAccountService.ensureDualVirtualAccounts(user.id, { timeoutMs: 15000 });
+
+                if (result.success) {
+                    results.success++;
+                    logger.info(`[Admin] SafeHaven migration success for user ${user.id} (${user.email})`);
+                } else {
+                    results.failed++;
+                    results.errors.push({ userId: user.id, email: user.email, error: 'Dual provisioning partial/failed', status: result.overallStatus });
+                    logger.warn(`[Admin] SafeHaven migration partial for user ${user.id}`, { overallStatus: result.overallStatus });
+                }
+            } catch (userErr) {
+                results.failed++;
+                results.errors.push({ userId: user.id, email: user.email, error: userErr.message });
+                logger.error(`[Admin] SafeHaven migration failed for user ${user.id}: ${userErr.message}`);
+            }
+        }
+
+        logger.info(`[Admin] SafeHaven migration completed: ${results.success} success, ${results.failed} failed out of ${results.total}`);
+
+        res.json({
+            success: true,
+            message: `Migration completed: ${results.success}/${results.total} users migrated successfully`,
+            results
+        });
+    } catch (error) {
+        logger.error('[Admin] SafeHaven migration error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Migration failed' });
+    }
+};
+
 module.exports = {
     getAdminStats,
     updateUser,
@@ -2173,6 +2250,7 @@ module.exports = {
     approvePendingFundingReview,
     rejectPendingFundingReview,
     sendUserPasswordResetLink,
-    getPublicSettings
+    getPublicSettings,
+    migrateSafeHavenAccounts
 };
 

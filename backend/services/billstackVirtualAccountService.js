@@ -165,7 +165,7 @@ class BillstackVirtualAccountService {
       .map((s) => this.normalizeBankCode(s))
       .map((s) => (s === 'SAFEHAVENMFB' ? 'SAFEHAVEN' : s))
       .filter(Boolean);
-    const defaultOrder = ['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB'];
+    const defaultOrder = ['9PSB', 'PALMPAY'];
     const order = list.length ? list : defaultOrder;
     const uniq = [];
     for (const item of order) {
@@ -173,9 +173,7 @@ class BillstackVirtualAccountService {
       if (!key) continue;
       if (!uniq.includes(key)) uniq.push(key);
     }
-    const forcedFirst = ['PALMPAY', 'PROVIDUS'];
-    const rest = uniq.filter((x) => !forcedFirst.includes(x));
-    return [...forcedFirst, ...rest.filter((x) => x !== 'PALMPAY' && x !== 'PROVIDUS')];
+    return uniq;
   }
 
   classifyRoutingFailure(error) {

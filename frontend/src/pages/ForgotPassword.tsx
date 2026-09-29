@@ -63,6 +63,10 @@ export default function ForgotPassword() {
     setLoading(true);
     try {
       const res = await api.post('/auth/password-reset/request', { email: email.trim() });
+      if (res.data?.success === false) {
+        setError(res.data?.message || 'Failed to request reset code. Please try again.');
+        return;
+      }
       setSuccess(res.data?.message || 'A 4-digit verification code has been sent to your email.');
       setStep('code');
       setCooldown(60);
