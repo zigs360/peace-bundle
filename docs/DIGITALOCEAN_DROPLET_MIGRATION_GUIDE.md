@@ -29,6 +29,15 @@ This guide walks you through migrating the **Peace Bundle backend and PostgreSQL
                                          └───────────────────┘ └───────────────┘
 ```
 
+### Database Isolation Guarantee (Coexisting with Other Droplet Databases)
+
+If your DigitalOcean droplet already hosts other applications, websites, or databases, Peace Bundle is engineered with **100% isolated multi-tenancy**:
+
+- **Zero Host Port Conflicts**: The PostgreSQL container (`peacebundle_db`) does **not** expose or bind port `5432` to the host Droplet. It communicates strictly through an internal Docker bridge. If your Droplet already has PostgreSQL, MySQL, or Redis running on port `5432` or any other port, there is **zero conflict**.
+- **Private Virtual Network (`peacebundle_net`)**: The database is completely invisible to any other container or host service outside the `peacebundle_net` network.
+- **Dedicated Storage Volume (`peacebundle_postgres_data`)**: Data files and tables are stored in a dedicated named volume, completely separated from any other application data.
+- **Customizable Database & User**: Configurable via `POSTGRES_DB` (e.g. `peacebundle_prod_db`) and `POSTGRES_USER` in your `.env` so its database identity is unique.
+
 ---
 
 ## Step 1: Create Your DigitalOcean Droplet
