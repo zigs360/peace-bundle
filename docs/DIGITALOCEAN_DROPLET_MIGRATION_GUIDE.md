@@ -134,31 +134,29 @@ Press `Ctrl + O` then `Enter` to save, and `Ctrl + X` to exit `nano`.
 
 ---
 
-## Step 5: (Optional) Migrate Existing Database from Render
+## Step 5: Migrate Existing Database from Render
 
-If you have existing user accounts, wallets, and transactions on Render that you want to move over:
+We have created an automated script (`scripts/migrate-render-db.sh`) that exports your database from Render, saves a permanent backup file, and imports all tables, sequences, and records directly into your DigitalOcean PostgreSQL database.
 
-### 1. Dump database from Render
-Run on your local computer or temporary machine having `pg_dump`:
+### 1. Get your External Database URL from Render:
+1. Log into your [Render Dashboard](https://dashboard.render.com/).
+2. Click on your **PostgreSQL database**.
+3. Under the **Connect** or **Info** section, copy the **External Database URL**.
+   *(It looks like: `postgresql://user:password@dpg-xxxxxx-a.oregon-postgres.render.com/dbname`)*
+
+### 2. Run the migration script on your Droplet:
 ```bash
-pg_dump "postgres://peacebundlle_user:PASSWORD@dpg-xxxxx.render.com/peacebundlle" > render_backup.sql
+./scripts/migrate-render-db.sh "YOUR_RENDER_EXTERNAL_DB_URL"
 ```
 
-### 2. Copy the dump to your Droplet
-```bash
-scp render_backup.sql root@YOUR_DROPLET_IP:/root/peace-bundle/
-```
+*(Or simply run `./scripts/migrate-render-db.sh` and it will securely prompt you to paste the URL).*
 
-### 3. Start the Database container on the Droplet
-```bash
-cd /root/peace-bundle
-docker compose up -d db
-```
-
-Wait 10 seconds for PostgreSQL to initialize, then restore:
-```bash
-docker compose exec -T db psql -U peacebundlle_user -d peacebundlle < render_backup.sql
-```
+**What the script does automatically:**
+1. Connects to your Render database via a temporary Docker PostgreSQL client (no host dependencies required).
+2. Performs a clean, ownership-independent export of all tables, relations, and data.
+3. Saves a permanent timestamped backup copy in `backups/render_migration_YYYYMMDD_HHMMSS.sql`.
+4. Imports the schema and records cleanly into your local PostgreSQL container (`peacebundle_db`).
+5. Prints a table of all migrated database tables and their row counts (Users, Wallets, Transactions, etc.) so you can immediately verify that all data migrated successfully.
 
 ---
 
