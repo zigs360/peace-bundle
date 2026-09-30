@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+uploads/*
+!uploads/.gitkeep
+secure_uploads/*
+!secure_uploads/.gitkeep
+.git
+.github
+tests
+coverage
+*.log
+.DS_Store

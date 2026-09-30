@@ -46,10 +46,15 @@ if (globalThis.__peacebundle_sequelize) {
     // Render external URLs (*.render.com) always require SSL
     const isRenderExternal = databaseUrl && databaseUrl.includes('render.com');
     const isRenderInternal = databaseUrl && databaseUrl.includes('dpg-');
+    const isDockerInternal = databaseUrl && (databaseUrl.includes('@db:') || databaseUrl.includes('@postgres:'));
+    const isLocalhost = databaseUrl && (databaseUrl.includes('localhost') || databaseUrl.includes('127.0.0.1'));
     const isProduction = process.env.NODE_ENV === 'production';
     
-    // Only use SSL for external Render URLs or non-local production connections that aren't internal
-    const useSSL = isRenderExternal || (isProduction && databaseUrl && !databaseUrl.includes('localhost') && !isRenderInternal);
+    // Explicit override via DB_SSL takes precedence if specified
+    const explicitSsl = process.env.DB_SSL !== undefined ? boolFromEnv(process.env.DB_SSL) : null;
+    const useSSL = explicitSsl !== null
+      ? explicitSsl
+      : (isRenderExternal || (isProduction && databaseUrl && !isLocalhost && !isRenderInternal && !isDockerInternal));
     
     const poolConfig = {
       max: parseIntegerEnv(process.env.DB_POOL_MAX, 5),

@@ -4,7 +4,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://peace-bundlle-api.onrender.com/api/$1"
+      "destination": "https://api.peacebundlle.com/api/$1"
     },
     {
       "source": "/(.*)",
