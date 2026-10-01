@@ -18,6 +18,9 @@ RUN npm run build
 # Stage 2: Serve built assets with Nginx
 FROM nginx:1.27-alpine AS production
 
+# Remove default nginx placeholder page completely
+RUN rm -rf /usr/share/nginx/html/*
+
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
