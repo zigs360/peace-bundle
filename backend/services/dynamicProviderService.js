@@ -320,11 +320,11 @@ class DynamicProviderService {
 
     // Non-SIM providers like Ogdams
     const caps = Array.isArray(provider.capabilities) ? provider.capabilities : [];
-    if (!caps.includes('sim_hosting') && provider.service_type !== 'all') {
+    if (provider.slug === 'ogdams' || (!caps.includes('sim_hosting') && provider.service_type !== 'all')) {
       return {
-        success: false,
+        success: true,
         provider: provider.name,
-        error: `${provider.name} is a VTU gateway provider and does not support SIM device hosting.`,
+        message: `${provider.name} is a VTU gateway provider and vends via API wallet rather than hosting physical SIM devices.`,
         devices: [],
       };
     }
@@ -366,6 +366,15 @@ class DynamicProviderService {
         devices: normalizedDevices,
       };
     } catch (err) {
+      if (err.response?.status === 404 || err.response?.status === 400) {
+        logger.info(`[DynamicProvider] ${provider.name} devices endpoint returned ${err.response?.status} - operates via direct VTU API.`);
+        return {
+          success: true,
+          provider: provider.name,
+          message: `${provider.name} operates via direct VTU API rather than device hosting. No physical SIMs required.`,
+          devices: [],
+        };
+      }
       logger.error(`[DynamicProvider] Error fetching devices from ${provider.name}: ${err.message}`);
       return {
         success: false,

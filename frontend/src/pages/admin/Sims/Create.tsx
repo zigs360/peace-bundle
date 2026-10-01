@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import SelectProvider from '../../../components/Forms/SelectProvider';
 import api from '../../../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -7,6 +7,8 @@ import { Loader2 } from 'lucide-react';
 export default function CreateSim() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [apiProviders, setApiProviders] = useState<any[]>([]);
+  const [selectedApiProvider, setSelectedApiProvider] = useState<string>('');
   const [formData, setFormData] = useState({
     provider: 'mtn',
     phone_number: '',
@@ -15,13 +17,34 @@ export default function CreateSim() {
     type: 'device_based'
   });
 
+  useEffect(() => {
+    api.get('/admin/providers')
+      .then(res => {
+        const data = res.data?.data || res.data || [];
+        if (Array.isArray(data)) {
+          setApiProviders(data);
+        }
+      })
+      .catch(err => console.error('Failed to fetch API providers', err));
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     
     try {
-      console.log('Sending SIM data:', formData);
-      await api.post('/admin/sims', formData);
+      const notesWithProvider = selectedApiProvider 
+        ? `[${selectedApiProvider.toUpperCase()}] ${formData.notes || ''}`.trim()
+        : formData.notes;
+
+      const payload = {
+        ...formData,
+        notes: notesWithProvider,
+        type: selectedApiProvider.toLowerCase().includes('quickly') ? 'sim_system' : formData.type,
+      };
+
+      console.log('Sending SIM data:', payload);
+      await api.post('/admin/sims', payload);
       navigate('/admin/sims');
     } catch (error: any) {
       console.error('Failed to add SIM', error);
@@ -76,6 +99,31 @@ export default function CreateSim() {
         </div>
 
         <div>
+          <label className="block text-sm font-medium text-gray-700">API Provider (Cloud / Gateway)</label>
+          <select
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm p-2 border"
+            value={selectedApiProvider}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSelectedApiProvider(val);
+              if (val.toLowerCase().includes('quickly')) {
+                setFormData({ ...formData, type: 'sim_system' });
+              }
+            }}
+          >
+            <option value="">Direct / Local Hardware (Auto)</option>
+            {apiProviders.map((p: any) => (
+              <option key={p.id || p.slug} value={p.slug}>
+                {p.name} ({p.slug}) {p.is_primary ? '★ Primary' : ''}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            Select QuicklySIM for cloud SIM farm routing, or SMEPlug for local device app routing.
+          </p>
+        </div>
+
+        <div>
           <label className="block text-sm font-medium text-gray-700">SIM Type</label>
           <select
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm p-2 border"
@@ -83,10 +131,10 @@ export default function CreateSim() {
             onChange={(e) => setFormData({ ...formData, type: e.target.value })}
           >
             <option value="device_based">Device Based (SMEPlug App)</option>
-            <option value="sim_system">System SIM (Hosted)</option>
+            <option value="sim_system">System SIM (Hosted / Cloud Farm)</option>
           </select>
           <p className="mt-1 text-xs text-gray-500">
-            Select 'Device Based' if using the SMEPlug mobile app on your phone.
+            Select 'System SIM' for QuicklySIM Cloud or 'Device Based' if using the mobile app on phone.
           </p>
         </div>
 

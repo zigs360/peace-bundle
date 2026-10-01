@@ -586,6 +586,33 @@ class BillstackVirtualAccountService {
     const bank = options.bank || process.env.BILLSTACK_BANK || this.getAllowedBanks()[0] || 'PALMPAY';
     return this.generateVirtualAccount(user, bank, { timeoutMs: options.timeoutMs, reference: options.reference });
   }
+
+  async getWalletBalance() {
+    if (!this.isConfigured()) {
+      return { ok: false, error: 'Billstack credentials not configured' };
+    }
+
+    const candidateEndpoints = ['/balance', '/wallet/balance', '/wallet', '/balance/details'];
+    for (const endpoint of candidateEndpoints) {
+      try {
+        const client = this.clientWithTimeout(6000);
+        const res = await client.get(endpoint);
+        if (res.data) {
+          const bal = res.data?.data?.balance ?? res.data?.balance ?? res.data?.data?.wallet_balance ?? res.data?.data?.available_balance ?? null;
+          return {
+            ok: true,
+            status: res.status,
+            balance: bal !== null && bal !== undefined ? parseFloat(String(bal)) : null,
+            currency: res.data?.data?.currency || res.data?.currency || 'NGN',
+            raw: res.data
+          };
+        }
+      } catch (err) {
+        // Continue to next endpoint candidate
+      }
+    }
+    return { ok: false, error: 'Unable to query wallet balance from Billstack API' };
+  }
 }
 
 module.exports = new BillstackVirtualAccountService();

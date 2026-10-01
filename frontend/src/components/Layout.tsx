@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
-  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle, PhoneCall, History, ShieldAlert, Shield, UserX, Server
+  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle, PhoneCall, History, ShieldAlert, Shield, UserX, Server, Wallet
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
@@ -241,6 +241,11 @@ export default function Layout() {
           <Link to="/admin/providers" className={getLinkClasses('/admin/providers')} title={isCollapsed ? 'API Providers' : ''}>
             <Server className={getIconClasses('/admin/providers')} />
             {!isCollapsed && <span>API Providers</span>}
+          </Link>
+
+          <Link to="/admin/billstack-monitor" className={getLinkClasses('/admin/billstack-monitor')} title={isCollapsed ? 'BillStack Monitor' : ''}>
+            <Wallet className={getIconClasses('/admin/billstack-monitor')} />
+            {!isCollapsed && <span>BillStack Monitor</span>}
           </Link>
 
           <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? t('admin.manageSims') : ''}>

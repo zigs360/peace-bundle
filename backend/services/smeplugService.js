@@ -38,6 +38,22 @@ class SmeplugService {
       if (apiKey) this.apiKey = stripNonPrintable(apiKey);
       if (publicKey) this.publicKey = stripNonPrintable(publicKey);
       if (baseUrl) this.baseUrl = String(baseUrl).trim();
+
+      try {
+        const { ApiProvider } = require('../models');
+        if (ApiProvider) {
+          const provider = await ApiProvider.findOne({ where: { slug: 'smeplug' } });
+          if (provider) {
+            if (!this.apiKey && provider.api_key) this.apiKey = stripNonPrintable(provider.api_key);
+            if (!this.secretKey && provider.secret_key) this.secretKey = stripNonPrintable(provider.secret_key);
+            if (!this.publicKey && provider.public_key) this.publicKey = stripNonPrintable(provider.public_key);
+            if (!this.privateKey && provider.secret_key) this.privateKey = stripNonPrintable(provider.secret_key);
+            if (provider.base_url) this.baseUrl = String(provider.base_url).trim();
+          }
+        }
+      } catch (err) {
+        void err;
+      }
     } catch (e) {
       void e;
     }

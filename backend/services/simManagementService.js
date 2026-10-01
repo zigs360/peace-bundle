@@ -1,4 +1,5 @@
 const { Sim, SystemSetting, User } = require('../models');
+const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const ussdParserService = require('./ussdParserService');
 const smeplugService = require('./smeplugService');
@@ -43,7 +44,14 @@ class SimManagementService {
       };
 
       // Find a default admin user to associate these SIMs with
-      const adminUser = await User.findOne({ where: { role: 'admin' } });
+      let adminUser = await User.findOne({
+        where: {
+          role: { [Op.in]: ['admin', 'super_admin'] }
+        }
+      });
+      if (!adminUser) {
+        adminUser = await User.findOne({ order: [['createdAt', 'ASC']] });
+      }
       if (!adminUser) {
         throw new Error('No admin user found to associate Smeplug SIMs with');
       }
@@ -194,7 +202,14 @@ class SimManagementService {
         errors: []
       };
 
-      const adminUser = await User.findOne({ where: { role: 'admin' } });
+      let adminUser = await User.findOne({
+        where: {
+          role: { [Op.in]: ['admin', 'super_admin'] }
+        }
+      });
+      if (!adminUser) {
+        adminUser = await User.findOne({ order: [['createdAt', 'ASC']] });
+      }
       if (!adminUser) {
         throw new Error('No admin user found to associate SIMs with');
       }

@@ -110,10 +110,49 @@ async function persistPasswordResetState(user, nextState) {
   await user.save();
 }
 
-async function requestPasswordReset(email, req) {
-  const normalizedEmail = normalizeEmail(email);
-  const user = normalizedEmail ? await User.findOne({ where: { email: normalizedEmail } }) : null;
-  const maskedEmail = maskEmail(normalizedEmail);
+async function findUserForReset(identifier) {
+  const cleanId = String(identifier || '').trim();
+  if (!cleanId) return null;
+  const normalizedEmail = normalizeEmail(cleanId);
+  const cleanPhone = cleanId.replace(/\D/g, '');
+
+  const { Op } = require('sequelize');
+  const Sequelize = require('sequelize');
+
+  // 1. If contains @, match email case-insensitively
+  if (cleanId.includes('@')) {
+    const user = await User.findOne({
+      where: Sequelize.where(Sequelize.fn('LOWER', Sequelize.col('email')), normalizedEmail)
+    });
+    if (user) return user;
+  }
+
+  // 2. If looks like a phone number
+  if (cleanPhone.length >= 8) {
+    const user = await User.findOne({
+      where: {
+        phone: { [Op.like]: `%${cleanPhone.slice(-10)}%` }
+      }
+    });
+    if (user) return user;
+  }
+
+  // 3. Fallback: match by email, phone, or username
+  return await User.findOne({
+    where: {
+      [Op.or]: [
+        Sequelize.where(Sequelize.fn('LOWER', Sequelize.col('email')), cleanId.toLowerCase()),
+        { phone: cleanId },
+        { name: cleanId }
+      ]
+    }
+  });
+}
+
+async function requestPasswordReset(identifier, req) {
+  const user = await findUserForReset(identifier);
+  const targetEmail = user?.email ? normalizeEmail(user.email) : normalizeEmail(identifier);
+  const maskedEmail = maskEmail(targetEmail);
   const requestMeta = {
     maskedEmail,
     ip: req?.ip || null,
@@ -121,10 +160,10 @@ async function requestPasswordReset(email, req) {
   };
 
   if (!user) {
-    logger.info('[Auth] Password reset requested for non-existent email', requestMeta);
+    logger.info('[Auth] Password reset requested for non-existent account', { identifier, ...requestMeta });
     return {
       success: false,
-      message: 'No account found with that email address. Please check your email and try again.',
+      message: 'No account found with that email address or phone number. Please check your details and try again.',
     };
   }
 
@@ -248,8 +287,8 @@ async function verifyResetCode(email, code, req) {
   const normalizedEmail = normalizeEmail(email);
   const normalizedCode = String(code || '').trim();
 
-  if (!normalizedEmail) {
-    const error = new Error('Email address is required.');
+  if (!email) {
+    const error = new Error('Email address or phone number is required.');
     error.status = 400;
     error.code = 'EMAIL_REQUIRED';
     throw error;
@@ -262,7 +301,7 @@ async function verifyResetCode(email, code, req) {
     throw error;
   }
 
-  const user = await User.findOne({ where: { email: normalizedEmail } });
+  const user = await findUserForReset(email);
   if (!user) {
     const error = new Error('Invalid or expired verification code.');
     error.status = 400;
@@ -330,7 +369,7 @@ async function resolveResetToken(token, email = null) {
   const tokenHash = hashResetToken(normalizedToken);
 
   if (email) {
-    const user = await User.findOne({ where: { email: normalizeEmail(email) } });
+    const user = await findUserForReset(email);
     if (user) {
       const { passwordReset } = getPasswordResetState(user);
       if ((passwordReset.code && String(passwordReset.code) === normalizedToken) ||

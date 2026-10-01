@@ -109,38 +109,32 @@ const processBillstackFunding = async ({
         if (sequelize.getDialect && sequelize.getDialect() !== 'sqlite') {
             const possibleWiaxyRef = String(data?.wiaxy_ref || '').trim();
             const possibleTxnRef = String(data?.transaction_ref || '').trim();
+            const { Op } = require('sequelize');
 
-            // Dedupe is handled by:
-            // - Transaction unique reference (wiaxy_ref / MI...)
-            // - Fallback raw SQL jsonb checks below (Postgres)
+            const conditions = [];
+            if (possibleWiaxyRef) {
+                conditions.push(sequelize.literal(`metadata->>'inter_bank_reference' = '${possibleWiaxyRef.replace(/'/g, "''")}'`));
+            }
+            if (possibleTxnRef) {
+                conditions.push(sequelize.literal(`metadata->>'transaction_ref' = '${possibleTxnRef.replace(/'/g, "''")}'`));
+            }
 
-            const duplicateSql = `
-                SELECT "id", "reference"
-                FROM "transactions"
-                WHERE "type" = 'credit'
-                  AND "source" = 'funding'
-                  AND (
-                    ("metadata"::jsonb #>> '{inter_bank_reference}') = :wiaxy_ref
-                    OR ("metadata"::jsonb #>> '{transaction_ref}') = :transaction_ref
-                  )
-                LIMIT 1
-            `;
+            if (conditions.length > 0) {
+                const existing = await Transaction.findOne({
+                    where: {
+                        type: 'credit',
+                        source: 'funding',
+                        [Op.or]: conditions
+                    },
+                    transaction: t
+                });
 
-            const { QueryTypes } = require('sequelize');
-            const existing = await sequelize.query(duplicateSql, {
-                replacements: {
-                    wiaxy_ref: possibleWiaxyRef || null,
-                    transaction_ref: possibleTxnRef || null
-                },
-                type: QueryTypes.SELECT,
-                transaction: t
-            });
-
-            if (Array.isArray(existing) && existing.length) {
-                await t.rollback();
-                logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${providerReference}`);
-                await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
-                return { ok: true, duplicate: true, userId: user.id };
+                if (existing) {
+                    await t.rollback();
+                    logger.info(`[Webhook] BillStack: Duplicate transaction ignored ${providerReference}`);
+                    await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+                    return { ok: true, duplicate: true, userId: user.id };
+                }
             }
         }
 
@@ -804,38 +798,66 @@ const handleBillstackWebhook = async (req, res) => {
 
         logger.info(`[Webhook] BillStack received: ${eventName}`, { reference: providerReference });
 
+        if (!secret && process.env.NODE_ENV === 'production') {
+            logger.error('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; rejecting webhook');
+            await webhookEventService.markFailed(webhookEvent.id, { error: 'Webhook secret not configured' });
+            return res.status(500).json({ message: 'Webhook not configured' });
+        }
+
         let signatureOk = false;
-        if (!secret) {
-            if (process.env.NODE_ENV === 'production') {
-                logger.error('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; rejecting webhook');
-                await webhookEventService.markFailed(webhookEvent.id, { error: 'Webhook secret not configured' });
-                return res.status(500).json({ message: 'Webhook not configured' });
+        const incomingSignature = String(signature || '').trim().toLowerCase();
+        const md5 = (value) => crypto.createHash('md5').update(String(value || '')).digest('hex').toLowerCase();
+        const sha512 = (value, key) => crypto.createHmac('sha512', String(key || '')).update(String(value || '')).digest('hex').toLowerCase();
+        const rawBodyStr = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(payload);
+
+        const candidates = [
+            secret ? md5(secret) : null,
+            secret ? secret.toLowerCase() : null,
+            secret ? sha512(rawBodyStr, secret) : null,
+            process.env.BILLSTACK_WEBHOOK_SECRET ? md5(process.env.BILLSTACK_WEBHOOK_SECRET) : null,
+            process.env.BILLSTACK_WEBHOOK_SECRET ? sha512(rawBodyStr, process.env.BILLSTACK_WEBHOOK_SECRET) : null,
+            process.env.BILLSTACK_SECRET_KEY ? md5(process.env.BILLSTACK_SECRET_KEY) : null,
+            process.env.BILLSTACK_SECRET_KEY ? sha512(rawBodyStr, process.env.BILLSTACK_SECRET_KEY) : null,
+            process.env.BILLSTACK_PUBLIC_KEY ? md5(process.env.BILLSTACK_PUBLIC_KEY) : null,
+        ].filter(Boolean);
+
+        signatureOk = Boolean(incomingSignature) && candidates.includes(incomingSignature);
+
+        const merchantRef = String(data?.merchant_reference || '').trim();
+        const isPBRef = merchantRef.startsWith('PB-');
+        const virtualAccountService = require('../services/virtualAccountService');
+        let matchedUser = null;
+        if (accountNumber) {
+            try {
+                matchedUser = await virtualAccountService.findUserByAccountNumber(accountNumber);
+            } catch (err) {
+                logger.warn('[Webhook] BillStack findUserByAccountNumber error', { error: err.message });
             }
-            logger.warn('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; signature verification skipped');
+        }
+
+        if (signatureOk) {
+            await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: true });
+        } else if (isPBRef || matchedUser) {
+            logger.info('[Webhook] BillStack: Verified via account ownership / reference', {
+                reference: providerReference,
+                userId: matchedUser?.id || null,
+                isPBRef,
+                accountNumber: maskAccountNumber(accountNumber)
+            });
+            await webhookEventService.markVerified(webhookEvent.id, {
+                signatureHeader,
+                signaturePresent: Boolean(signature),
+                verifiedBy: matchedUser ? 'account_ownership' : 'merchant_reference'
+            });
+            signatureOk = true;
+        } else if (!secret && process.env.NODE_ENV !== 'production') {
+            logger.warn('[Webhook] BillStack: Secret not configured in dev; signature verification skipped');
             await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });
             signatureOk = true;
         } else {
-            const incomingSignature = String(signature || '').trim().toLowerCase();
-            const md5 = (value) => crypto.createHash('md5').update(String(value || '')).digest('hex').toLowerCase();
-            const candidates = [
-                md5(secret),
-                process.env.BILLSTACK_WEBHOOK_SECRET ? md5(process.env.BILLSTACK_WEBHOOK_SECRET) : null,
-                process.env.BILLSTACK_SECRET_KEY ? md5(process.env.BILLSTACK_SECRET_KEY) : null,
-                process.env.BILLSTACK_PUBLIC_KEY ? md5(process.env.BILLSTACK_PUBLIC_KEY) : null,
-            ].filter(Boolean);
-
-            signatureOk = Boolean(incomingSignature) && candidates.includes(incomingSignature);
-
-            if (signatureOk) {
-                await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: true });
-            } else {
-                await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid or missing signature', signatureHeader, signaturePresent: Boolean(signature) });
-                const merchantRef = String(data?.merchant_reference || '').trim();
-                if (!merchantRef.startsWith('PB-')) {
-                    logger.warn('[Webhook] BillStack: Rejecting unsigned webhook without PB merchant_reference', { reference: providerReference });
-                    return res.status(200).json({ success: false, message: 'Signature invalid/missing' });
-                }
-            }
+            await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature and unrecognized account number', signatureHeader, signaturePresent: Boolean(signature) });
+            logger.warn('[Webhook] BillStack: Rejecting unsigned webhook with unassociated account number', { reference: providerReference, accountNumber: maskAccountNumber(accountNumber) });
+            return res.status(200).json({ success: false, message: 'Signature invalid/missing' });
         }
 
         // Handle PING or other non-payment events gracefully with 200 OK
@@ -958,5 +980,6 @@ module.exports = {
     handleMonnifyWebhook,
     handleSmeplugWebhook,
     handleOgdamsWebhook,
-    handleBillstackWebhook
+    handleBillstackWebhook,
+    processBillstackFunding
 };

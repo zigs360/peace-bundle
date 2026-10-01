@@ -31,10 +31,24 @@ const { avatarUpload, kycUpload } = require('../middleware/uploadMiddleware');
 const logger = require('../utils/logger');
 const validate = require('../middleware/validationMiddleware');
 
+const getClientIp = (req) => {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (cfIp) return String(cfIp).split(',')[0].trim();
+  const realIp = req.headers['x-real-ip'];
+  if (realIp) return String(realIp).split(',')[0].trim();
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return String(forwarded).split(',')[0].trim();
+  return req.ip || req.socket?.remoteAddress || '127.0.0.1';
+};
+
 // Auth Specific Rate Limiter
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // Limit each IP to 10 requests per windowMs
+    max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '50', 10), // Limit each individual client IP to 50 attempts
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
+    keyGenerator: (req) => getClientIp(req),
     message: {
         success: false,
         message: 'Too many login/register attempts, please try again after 15 minutes'
@@ -70,32 +84,38 @@ const loginValidation = [
 
 const passwordResetRequestLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
-    max: 3,
+    max: 10,
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
     keyGenerator: (req) => {
-      const normalizedEmail = String(req.body?.email || '').trim().toLowerCase();
-      return `password-reset:${normalizedEmail || 'unknown-email'}`;
+      const identifier = String(req.body?.emailOrPhone || req.body?.email || req.body?.phone || '').trim().toLowerCase();
+      return `password-reset:${identifier || getClientIp(req)}`;
     },
     message: {
       success: false,
-      message: 'Too many password reset requests for this email. Please try again in about 1 hour.',
+      message: 'Too many password reset requests for this account. Please try again in about 1 hour.',
     },
 });
 
 const passwordResetRequestValidation = [
-  body('email')
-    .trim()
-    .notEmpty()
-    .withMessage('Email is required')
-    .bail()
-    .isEmail()
-    .withMessage('Please include a valid email')
-    .normalizeEmail(),
+  body().custom((body) => {
+    const identifier = String(body.emailOrPhone || body.email || body.phone || '').trim();
+    if (!identifier) {
+      throw new Error('Please enter your registered email address or phone number');
+    }
+    return true;
+  }),
 ];
 
 const passwordResetVerifyValidation = [
-  body('email').trim().notEmpty().withMessage('Email is required').bail().isEmail().withMessage('Please include a valid email').normalizeEmail(),
+  body().custom((body) => {
+    const identifier = String(body.emailOrPhone || body.email || body.phone || '').trim();
+    if (!identifier) {
+      throw new Error('Email or phone number is required');
+    }
+    return true;
+  }),
   body('code').trim().notEmpty().withMessage('Verification code is required'),
 ];
 

@@ -45,7 +45,15 @@ export default function ForgotPassword() {
     }
   }, [cooldown]);
 
-  const emailLooksValid = useMemo(() => /\\S+@\\S+\\.\\S+/.test(email.trim()), [email]);
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const inputLooksValid = useMemo(() => {
+    const trimmed = email.trim();
+    if (!trimmed) return false;
+    if (trimmed.includes('@')) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+    }
+    return trimmed.replace(/\D/g, '').length >= 8 || trimmed.length >= 4;
+  }, [email]);
   const checks = useMemo(() => getPasswordRuleChecks(password), [password]);
   const passwordStrong = useMemo(() => isPasswordStrong(password), [password]);
 
@@ -55,19 +63,25 @@ export default function ForgotPassword() {
     setError('');
     setSuccess('');
 
-    if (!emailLooksValid) {
-      setError(t('auth.reset.invalidEmail', 'Please enter a valid email address.'));
+    if (!inputLooksValid) {
+      setError('Please enter a valid registered email address or phone number.');
       return;
     }
 
     setLoading(true);
     try {
-      const res = await api.post('/auth/password-reset/request', { email: email.trim() });
+      const res = await api.post('/auth/password-reset/request', {
+        email: email.trim(),
+        emailOrPhone: email.trim()
+      });
       if (res.data?.success === false) {
         setError(res.data?.message || 'Failed to request reset code. Please try again.');
         return;
       }
-      setSuccess(res.data?.message || 'A 4-digit verification code has been sent to your email.');
+      if (res.data?.maskedEmail) {
+        setMaskedEmail(res.data.maskedEmail);
+      }
+      setSuccess(res.data?.message || 'A 4-digit verification code has been sent to your registered email.');
       setStep('code');
       setCooldown(60);
     } catch (err: any) {
@@ -153,9 +167,9 @@ export default function ForgotPassword() {
   const getStepSubtitle = () => {
     switch (step) {
       case 'email':
-        return t('auth.reset.requestSubtitle', 'Enter your registered email to receive a 4-digit recovery code.');
+        return 'Enter your registered email address or phone number to receive a 4-digit recovery code.';
       case 'code':
-        return `We sent a 4-digit code to ${email}. Enter it below:`;
+        return `We sent a 4-digit code to ${maskedEmail || email}. Enter it below:`;
       case 'password':
         return 'Create a secure new password for your account.';
       case 'done':
@@ -197,12 +211,12 @@ export default function ForgotPassword() {
         </div>
       )}
 
-      {/* STEP 1: Enter Email */}
+      {/* STEP 1: Enter Email or Phone */}
       {step === 'email' && (
         <form className="space-y-6" onSubmit={handleRequestCode}>
           <div>
             <label htmlFor="reset-email" className="mb-2 block text-sm font-medium text-slate-700">
-              {t('auth.email', 'Email Address')}
+              Email Address or Phone Number
             </label>
             <div className="relative">
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
@@ -210,16 +224,16 @@ export default function ForgotPassword() {
               </div>
               <input
                 id="reset-email"
-                type="email"
+                type="text"
                 required
                 className="enterprise-input pl-10"
-                placeholder="name@example.com"
+                placeholder="name@example.com or 08012345678"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
-            {!emailLooksValid && email.length > 0 && (
-              <p className="mt-2 text-sm text-amber-700">{t('auth.reset.invalidEmail', 'Please enter a valid email')}</p>
+            {!inputLooksValid && email.length > 0 && (
+              <p className="mt-2 text-sm text-amber-700">Please enter a valid email address or phone number</p>
             )}
           </div>
 

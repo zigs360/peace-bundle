@@ -1027,8 +1027,7 @@ const fundUserWallet = async (req, res) => {
         }
 
         if (!user.wallet) {
-            await t.rollback();
-            return res.status(404).json({ message: 'User wallet not found' });
+            user.wallet = await walletService.ensureWallet(user, t);
         }
 
         const numericAmount = parseFloat(amount);
@@ -1055,6 +1054,11 @@ const fundUserWallet = async (req, res) => {
         const txn = result.txn;
 
         await t.commit();
+
+        if (globalThis.__peacebundle_dashboard_stats_cache) {
+            globalThis.__peacebundle_dashboard_stats_cache.delete(`stats:${user.id}`);
+            globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${user.id}`);
+        }
 
         try {
             const balance = parseFloat(String(txn.balance_after));

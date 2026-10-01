@@ -72,7 +72,7 @@ export default function UserDashboard() {
 
   useEffect(() => {
     if (!user?.id) return;
-    const intervalMs = isConnected ? 30000 : 5000;
+    const intervalMs = isConnected ? 30000 : 15000;
     const timer = setInterval(() => {
       void fetchStats(user.id);
     }, intervalMs);

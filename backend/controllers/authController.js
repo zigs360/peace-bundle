@@ -919,7 +919,8 @@ const logoutUser = async (req, res) => {
 // @access  Public
 const requestPasswordReset = async (req, res) => {
     try {
-        const response = await passwordResetService.requestPasswordReset(req.body.email, req);
+        const identifier = req.body.emailOrPhone || req.body.email || req.body.phone;
+        const response = await passwordResetService.requestPasswordReset(identifier, req);
         return res.status(200).json(response);
     } catch (error) {
         logger.error('[Auth] Password reset request error', { message: error.message, ip: req.ip || null });
@@ -950,10 +951,11 @@ const validatePasswordResetToken = async (req, res) => {
 // @route   POST /api/auth/password-reset/verify
 // @access  Public
 const verifyPasswordResetCode = async (req, res) => {
-    const { email, code } = req.body;
+    const identifier = req.body.emailOrPhone || req.body.email || req.body.phone;
+    const { code } = req.body;
 
     try {
-        const response = await passwordResetService.verifyResetCode(email, code, req);
+        const response = await passwordResetService.verifyResetCode(identifier, code, req);
         return res.status(200).json(response);
     } catch (error) {
         return res.status(error.status || 400).json({

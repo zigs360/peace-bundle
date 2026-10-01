@@ -48,9 +48,9 @@ try {
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-if (process.env.NODE_ENV === 'production') {
-  app.set('trust proxy', 1);
-}
+// Trust reverse proxies (host nginx, docker network, cloudflare)
+// 'loopback, linklocal, uniquelocal' ignores 127.0.0.1, 10.x, 172.16-31.x, 192.168.x
+app.set('trust proxy', process.env.TRUST_PROXY || 'loopback, linklocal, uniquelocal');
 
 // Security Middleware
 app.use(helmet());
@@ -254,13 +254,25 @@ app.get('/api/ready', async (req, res) => {
   });
 });
 
+// Client IP Extractor for multi-proxy reverse proxies (Host Nginx -> Docker Nginx -> Node)
+const getClientIp = (req) => {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (cfIp) return String(cfIp).split(',')[0].trim();
+  const realIp = req.headers['x-real-ip'];
+  if (realIp) return String(realIp).split(',')[0].trim();
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return String(forwarded).split(',')[0].trim();
+  return req.ip || req.socket?.remoteAddress || '127.0.0.1';
+};
+
 // Rate Limiting
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // Limit each IP to 300 requests per windowMs
+  max: parseInt(process.env.RATE_LIMIT_MAX || '1500', 10), // Limit each individual client IP to 1500 requests per 15m
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: process.env.NODE_ENV === 'production' },
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => getClientIp(req),
   skip: (req) => req.path.startsWith('/admin'),
   message: {
     success: false,
@@ -269,10 +281,11 @@ const apiLimiter = rateLimit({
 });
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 2000,
+  max: parseInt(process.env.ADMIN_RATE_LIMIT_MAX || '3000', 10),
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: process.env.NODE_ENV === 'production' },
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => getClientIp(req),
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again after 15 minutes',

@@ -63,6 +63,7 @@ const adminTransactionIntegrityController = require('../controllers/adminTransac
 const adminAirtimeWalletAuditController = require('../controllers/adminAirtimeWalletAuditController');
 const adminAirtimeFalseRefundAuditController = require('../controllers/adminAirtimeFalseRefundAuditController');
 const adminAccountDeletionController = require('../controllers/adminAccountDeletionController');
+const billstackMonitorController = require('../controllers/billstackMonitorController');
 const {
     listAdminOgdamsSims,
     createAdminOgdamsDataPurchase,
@@ -219,5 +220,11 @@ router.get('/ogdams/sims', protect, admin, listAdminOgdamsSims);
 router.get('/ogdams/probe', protect, admin, probeOgdamsAuth);
 router.post('/ogdams/data-purchase', protect, admin, ogdamsAdminPurchaseLimiter, createAdminOgdamsDataPurchase);
 router.get('/ogdams/data-purchase/:reference', protect, admin, getAdminOgdamsDataPurchase);
+
+// BillStack Monitoring & Reconciliation Routes
+router.get('/billstack/overview', protect, admin, billstackMonitorController.getOverview);
+router.get('/billstack/events', protect, admin, billstackMonitorController.getEvents);
+router.post('/billstack/reconcile-all', protect, admin, billstackMonitorController.reconcileAll);
+router.post('/billstack/events/:id/reprocess', protect, admin, billstackMonitorController.reprocessWebhookEvent);
 
 module.exports = router;
