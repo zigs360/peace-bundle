@@ -60,8 +60,10 @@ echo "[4/5] Configuring firewall rules (UFW)..."
 ufw allow OpenSSH
 ufw allow 80/tcp
 ufw allow 443/tcp
+ufw allow 3080/tcp
+ufw allow 3443/tcp
 ufw --force enable
-echo "Firewall active (SSH, HTTP, HTTPS enabled)."
+echo "Firewall active (SSH, 80, 443, 3080, 3443 enabled)."
 
 # 5. Summary and Next Steps
 echo "=========================================================="
