@@ -1,32 +1,37 @@
-# Hybrid Deployment Migration Guide: DigitalOcean (Backend & DB) + Vercel (Frontend)
+# Complete Platform Deployment Guide: DigitalOcean (Frontend, Backend & Database)
 
-This guide walks you through migrating the **Peace Bundle backend and PostgreSQL database** to a self-hosted **DigitalOcean Droplet**, while keeping your **Frontend on Vercel**.
+This guide walks you through hosting the entire **Peace Bundle** platform (Frontend SPA, Node.js API, WebSockets, PostgreSQL Database, and automated Let's Encrypt SSL) on a self-hosted **DigitalOcean Droplet**.
 
 ---
 
 ## Architecture Overview
 
 ```
-                          Users & Web Browsers
-                                   │
-                 ┌─────────────────┴─────────────────┐
-                 │                                   │
-                 ▼                                   ▼
-        Frontend (Vercel)                    Backend & Database (DigitalOcean)
-   https://peacebundlle.com                     https://api.peacebundlle.com
-   https://www.peacebundlle.com                              │
-                 │                                           ▼
-                 │ API calls / rewrites            ┌───────────────────┐
-                 └────────────────────────────────►│       Nginx       │ (Ports 80/443 + Let's Encrypt)
-                                                   └─────────┬─────────┘
-                                                             │
-                                                   ┌─────────┴─────────┐
-                                                   │                   │
-                                                   ▼                   ▼
-                                         ┌───────────────────┐ ┌───────────────┐
-                                         │ Express Backend   │ │ PostgreSQL 16 │
-                                         │ (Node.js + WSS)   │◄┼─► (Docker Vol)│
-                                         └───────────────────┘ └───────────────┘
+                                      Internet
+                                         │
+                                         ▼
+                     ┌───────────────────────────────────────┐
+                     │         DigitalOcean Droplet          │
+                     │  (Ubuntu 24.04 LTS with Docker Stack) │
+                     └───────────────────┬───────────────────┘
+                                         │
+                                         ▼
+                     ┌───────────────────────────────────────┐
+                     │          Nginx Reverse Proxy          │
+                     │      Ports 80 (HTTP) & 443 (HTTPS)    │
+                     │    Automated SSL Renewal (Certbot)    │
+                     └───────┬───────────────────────┬───────┘
+                             │                       │
+           ┌─────────────────┴─────────┐   ┌─────────┴─────────────────┐
+           │                           │   │                           │
+           ▼                           ▼   ▼                           ▼
+ ┌───────────────────┐       ┌───────────────────┐       ┌───────────────────┐
+ │   Frontend SPA    │       │    Express API    │       │   PostgreSQL 16   │
+ │   (Vite + React)  │       │  (Node.js + WSS)  │       │ (Isolated Volume) │
+ └───────────────────┘       └─────────┬─────────┘       └───────────────────┘
+                                       │                           ▲
+                                       └───────────────────────────┘
+                                           Database Connection
 ```
 
 ### Database Isolation Guarantee (Coexisting with Other Droplet Databases)
@@ -48,29 +53,28 @@ If your DigitalOcean droplet already hosts other applications, websites, or data
    - **Distribution**: **Ubuntu 24.04 LTS (x64)**.
    - **Plan**: **Basic**.
    - **CPU options**: **Regular** or **Premium Intel / AMD**.
-   - **Size**: At least **2 GB RAM / 1 vCPU / 50 GB NVMe** (approx. \$12–\$14/month).
-   - **Datacenter Region**: **London (LON1)** or **Frankfurt (FRA1)** (recommended for optimal latency between Nigeria, Europe, and external VTU gateways).
+   - **Size**: **1 GB / 2 GB RAM / 1 vCPU / 25–50 GB NVMe** (if using 1GB RAM, the setup script automatically adds 2GB swap space).
+   - **Datacenter Region**: **London (LON1)**, **Frankfurt (FRA1)**, or **Amsterdam (AMS3)**.
    - **Authentication**: Choose **SSH Key** (recommended) or set a strong root password.
-   - **Hostname**: `peace-bundle-api` (or your preferred name).
-4. Click **Create Droplet** and wait 30 seconds for it to provision.
-5. Note your new **Public IPv4 Address** (e.g. `159.65.x.x`).
+   - **Hostname**: `peace-bundle-prod` (or your preferred name).
+4. Click **Create Droplet** and note your **Public IPv4 Address** (e.g. `159.65.x.x`).
 
 ---
 
-## Step 2: Configure DNS for API Subdomain
+## Step 2: Configure Domain DNS (A Records)
 
 Log into your domain DNS provider (Namecheap, GoDaddy, Cloudflare, etc.):
 
-1. **Leave your existing root (`@`) and `www` records pointing to Vercel**:
-   - Do NOT change your root `@` or `www` records if your frontend is on Vercel.
-2. **Add an A record for your API subdomain**:
+Point your root domain, www, and optionally api to your Droplet IPv4:
 
 | Type | Name / Host | Value / Target | TTL |
 | :--- | :--- | :--- | :--- |
-| **A** | `api` | *Your Droplet IPv4 Address* | Automatic (or 300s) |
+| **A** | `@` (or `peacebundlle.com`) | *Your Droplet IPv4 Address* | Automatic (or 300s) |
+| **A** | `www` | *Your Droplet IPv4 Address* | Automatic (or 300s) |
+| **A** | `api` (optional) | *Your Droplet IPv4 Address* | Automatic (or 300s) |
 
 > [!NOTE]
-> If using Cloudflare DNS, set the proxy status for `api` to **DNS Only** (grey cloud) during initial SSL certificate setup.
+> If using Cloudflare DNS, set the proxy status to **DNS Only** (grey cloud) during initial SSL certificate setup. Once SSL is active, you can re-enable Cloudflare proxying if desired.
 
 ---
 
@@ -99,7 +103,7 @@ sudo ./scripts/setup-droplet.sh
 ```
 
 **What the setup script does automatically:**
-- Configures a **2 GB Swap file** to protect the Droplet from memory spikes.
+- Configures a **2 GB Swap file** (essential for building and running containers on 1GB / 2GB droplets).
 - Installs the latest stable **Docker Engine** & **Docker Compose**.
 - Configures and enables the **UFW Firewall** allowing SSH (22), HTTP (80), and HTTPS (443).
 
@@ -116,23 +120,27 @@ nano .env
 
 Review and populate the required settings:
 
-1. **API Domain & SSL**:
+1. **Domain & SSL**:
    ```env
+   DOMAIN_NAME=peacebundlle.com
    API_DOMAIN=api.peacebundlle.com
    SSL_EMAIL=admin@peacebundlle.com
    ```
-2. **Database Password**:
+2. **Frontend & App URLs**:
    ```env
-   POSTGRES_DB=peacebundlle
-   POSTGRES_USER=peacebundlle_user
+   FRONTEND_URL=https://peacebundlle.com
+   ```
+3. **Database Configuration**:
+   ```env
+   POSTGRES_DB=peacebundle_prod_db
+   POSTGRES_USER=peacebundle_admin
    POSTGRES_PASSWORD=CreateAStrongRandomPassword123!
    ```
-3. **Application Secrets & Allowed Frontend**:
+4. **Application Secrets**:
    ```env
    JWT_SECRET=YourGenerated64CharacterSecretKeyHere
-   FRONTEND_URL=https://www.peacebundlle.com
    ```
-4. **VTU & Payment Gateway Keys**:
+5. **Telecom & Payment Gateway Keys**:
    - `SMEPLUG_*`
    - `PAYVESSEL_*`
    - `BILLSTACK_*`
@@ -145,52 +153,45 @@ Press `Ctrl + O` then `Enter` to save, and `Ctrl + X` to exit `nano`.
 
 ## Step 5: Migrate Existing Database from Render
 
-We have created an automated script (`scripts/migrate-render-db.sh`) that exports your database from Render, saves a permanent backup file, and imports all tables, sequences, and records directly into your DigitalOcean PostgreSQL database.
+Run our automated migration script to dump all user accounts, transactions, and wallets from Render and import them directly into your isolated PostgreSQL database:
 
-### 1. Get your External Database URL from Render:
-1. Log into your [Render Dashboard](https://dashboard.render.com/).
-2. Click on your **PostgreSQL database**.
-3. Under the **Connect** or **Info** section, copy the **External Database URL**.
-   *(It looks like: `postgresql://user:password@dpg-xxxxxx-a.oregon-postgres.render.com/dbname`)*
-
-### 2. Run the migration script on your Droplet:
 ```bash
 ./scripts/migrate-render-db.sh "YOUR_RENDER_EXTERNAL_DB_URL"
 ```
 
-*(Or simply run `./scripts/migrate-render-db.sh` and it will securely prompt you to paste the URL).*
+*(You can copy your External Database URL from Render Dashboard ➔ PostgreSQL ➔ Connect ➔ External Database URL).*
 
 **What the script does automatically:**
-1. Connects to your Render database via a temporary Docker PostgreSQL client (no host dependencies required).
-2. Performs a clean, ownership-independent export of all tables, relations, and data.
-3. Saves a permanent timestamped backup copy in `backups/render_migration_YYYYMMDD_HHMMSS.sql`.
-4. Imports the schema and records cleanly into your local PostgreSQL container (`peacebundle_db`).
-5. Prints a table of all migrated database tables and their row counts (Users, Wallets, Transactions, etc.) so you can immediately verify that all data migrated successfully.
+1. Connects to your Render database via a temporary Docker PostgreSQL client.
+2. Dumps all tables, relations, and data cleanly into a permanent backup file (`backups/render_migration_YYYYMMDD_HHMMSS.sql`).
+3. Restores all records into your local PostgreSQL container (`peacebundle_db`).
+4. Prints a verification table showing every table name (`Users`, `Wallets`, `Transactions`, etc.) and the exact row count migrated.
 
 ---
 
 ## Step 6: Initialize Free SSL Certificates (Let's Encrypt)
 
-Ensure `api.peacebundlle.com` is pointing to the Droplet IP before running this step:
+Ensure your domain DNS A-records are pointing to the Droplet IP before running this step:
 
 ```bash
 ./scripts/init-ssl.sh
 ```
 
 This script will:
-1. Start Nginx with a temporary certificate.
-2. Request a trusted SSL certificate from Let's Encrypt for `api.peacebundlle.com`.
-3. Reload Nginx with full HTTPS support.
-4. Auto-renewal runs automatically in the background every 12 hours via the `certbot` container.
+1. Verify which domains resolve in DNS (`peacebundlle.com`, `www.peacebundlle.com`, and `api.peacebundlle.com`).
+2. Start Nginx with a temporary certificate.
+3. Request genuine Let's Encrypt certificates for all verified domains.
+4. Reload Nginx with full HTTPS support.
+5. Auto-renewal is pre-configured and runs automatically in the background every 12 hours via the `certbot` container.
 
 ---
 
-## Step 7: Launch the Application Stack
+## Step 7: Launch the Complete Application Stack
 
 Start all containers in detached mode:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Verify that all containers are healthy and running:
@@ -202,66 +203,52 @@ docker compose ps
 You should see:
 - `peacebundle_db` (healthy)
 - `peacebundle_backend` (healthy)
+- `peacebundle_frontend` (running)
 - `peacebundle_nginx` (running, ports 80 & 443)
 - `peacebundle_certbot` (running)
 
 ---
 
-## Step 8: Update Frontend on Vercel
+## Step 8: Verify Full Deployment
 
-In your Vercel project dashboard:
-1. Go to **Settings** ➔ **Environment Variables**.
-2. Add / Update:
-   - `VITE_API_URL`: `https://api.peacebundlle.com/api`
-   - `VITE_SOCKET_URL`: `https://api.peacebundlle.com`
-3. Trigger a redeploy of your Vercel project (or push the new code to GitHub which automatically redeploys via Vercel git integration).
-4. `vercel.json` in your repository will also route `/api/*` rewrites to `https://api.peacebundlle.com/api/*`.
-
----
-
-## Step 9: Verify Full Deployment
-
-1. **Backend Health**: Visit `https://api.peacebundlle.com/api/health` in your browser. Confirm:
-   ```json
-   {
-     "status": "up",
-     "database": { "status": "up" }
-   }
-   ```
-2. **Frontend**: Open `https://peacebundlle.com`. Log in and verify account data, balances, and real-time transaction updates.
-3. **WebSockets**: Check the browser console network tab (`WS` filter) to confirm connection to `wss://api.peacebundlle.com/socket.io/`.
+1. **Frontend**: Open `https://peacebundlle.com` in your browser. Confirm the UI loads with a valid SSL padlock.
+2. **API Health**: Visit `https://peacebundlle.com/api/health` to verify that the backend and database connection report `status: "up"`.
+3. **WebSockets**: Check browser console network tab (`WS` filter) for successful Socket.IO upgrade.
 
 ---
 
 ## Operational Commands & Maintenance
 
-### Viewing Live Backend Logs
+### Viewing Live Logs
 ```bash
-# View live backend logs
+# View backend logs (including API calls and background jobs)
 docker compose logs -f backend
 
-# View live Nginx access & error logs
+# View frontend web logs
+docker compose logs -f frontend
+
+# View Nginx access & error logs
 docker compose logs -f nginx
 ```
 
-### Deploying Code Updates
-Whenever you push code changes to GitHub:
+### Deploying Code Updates in the Future
+Whenever you push changes to GitHub, deploy them with:
 ```bash
 cd /root/peace-bundle
 git pull origin main
-docker compose build backend
-docker compose up -d backend
+docker compose build frontend backend
+docker compose up -d
 ```
 
 ### Backing Up the Database
-To create a backup of your PostgreSQL database:
+To create a backup of your self-hosted PostgreSQL database:
 ```bash
-docker compose exec -T db pg_dump -U peacebundlle_user peacebundlle > "backup_$(date +%Y%m%d_%H%M%S).sql"
+docker compose exec -T db pg_dump -U peacebundle_admin peacebundle_prod_db > "backup_$(date +%Y%m%d_%H%M%S).sql"
 ```
 
 To schedule automated daily backups:
 ```bash
 crontab -e
 # Add the following line to back up daily at 2:00 AM:
-0 2 * * * cd /root/peace-bundle && docker compose exec -T db pg_dump -U peacebundlle_user peacebundlle > /root/backups/db_$(date +\%F).sql 2>&1
+0 2 * * * cd /root/peace-bundle && docker compose exec -T db pg_dump -U peacebundle_admin peacebundle_prod_db > /root/backups/db_$(date +\%F).sql 2>&1
 ```

@@ -3,11 +3,16 @@ upstream backend_upstream {
     keepalive 32;
 }
 
-# Port 80: ACME challenge & HTTPS redirection for API domain
+upstream frontend_upstream {
+    server frontend:80;
+    keepalive 32;
+}
+
+# Port 80: ACME challenge & HTTPS redirection
 server {
     listen 80;
     listen [::]:80;
-    server_name ${API_DOMAIN} localhost;
+    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME} ${API_DOMAIN} localhost;
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -15,32 +20,29 @@ server {
 
     location / {
         # Redirect to HTTPS if SSL certificates exist
-        if (-f /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem) {
+        if (-f /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem) {
             return 301 https://$host$request_uri;
         }
 
-        # Fallback to direct proxy over HTTP during initial setup/testing
-        proxy_pass http://backend_upstream;
+        # Fallback to frontend over HTTP during initial setup/testing
+        proxy_pass http://frontend_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $http_connection;
-        client_max_body_size 25M;
     }
 }
 
-# Port 443: Secure HTTPS API Gateway with SSL Termination & WebSockets
+# Port 443: Secure Main Application (Frontend SPA + API + WebSockets)
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name ${API_DOMAIN};
+    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
 
-    ssl_certificate /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
@@ -60,6 +62,19 @@ server {
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
+    }
+
+    # API endpoints
+    location /api/ {
+        proxy_pass http://backend_upstream/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
     }
 
     # Realtime WebSocket Proxy (Socket.IO)
@@ -86,7 +101,50 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # API Routes & Root
+    # Frontend SPA (React / Vite)
+    location / {
+        proxy_pass http://frontend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Port 443: Secure API Subdomain (e.g. api.peacebundlle.com)
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${API_DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384";
+
+    client_max_body_size 25M;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location /socket.io/ {
+        proxy_pass http://backend_upstream/socket.io/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
     location / {
         proxy_pass http://backend_upstream;
         proxy_http_version 1.1;
