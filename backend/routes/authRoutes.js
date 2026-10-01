@@ -56,8 +56,16 @@ const registerValidation = [
 ];
 
 const loginValidation = [
-  body('emailOrPhone').trim().notEmpty().withMessage('Email or Phone is required'),
-  body('password').exists().withMessage('Password is required')
+  body('emailOrPhone')
+    .optional({ nullable: true })
+    .custom((value, { req }) => {
+      const val = value || req.body.email || req.body.phone;
+      if (!val || String(val).trim() === '') {
+        throw new Error('Email or Phone is required');
+      }
+      return true;
+    }),
+  body('password').notEmpty().withMessage('Password is required')
 ];
 
 const passwordResetRequestLimiter = rateLimit({

@@ -326,7 +326,9 @@ const trackReferralClick = async (req, res) => {
 // @route   POST /api/auth/login
 // @access  Public
 const loginUser = async (req, res) => {
-    const { emailOrPhone, password } = req.body;
+    const rawIdentifier = req.body.emailOrPhone || req.body.email || req.body.phone;
+    const emailOrPhone = typeof rawIdentifier === 'string' ? rawIdentifier.trim() : '';
+    const password = req.body.password;
 
     if (!emailOrPhone || !password) {
         return res.status(400).json({ 
