@@ -8,8 +8,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-peacebundlle}
       POSTGRES_USER: ${POSTGRES_USER:-peacebundlle_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password required}
+      PGDATA: /var/lib/postgresql/data
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-peacebundlle_user} -d $${POSTGRES_DB:-peacebundlle}"]
       interval: 10s
