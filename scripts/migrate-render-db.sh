@@ -80,13 +80,21 @@ MASKED_URL=$(echo "$RENDER_URL" | sed -E 's/(:\/\/[^:]+:)[^@]+(@)/\1****\2/')
 echo -e "${GREEN}✓ Source Database:${NC} $MASKED_URL"
 echo -e "${GREEN}✓ Destination Database:${NC} Local Docker container 'peacebundle_db' (DB: $POSTGRES_DB, User: $POSTGRES_USER)"
 
-# 1. Ensure local PostgreSQL container is running
+# 1. Ensure local PostgreSQL 18 container is running
 echo -e "\n${BLUE}Step 1: Checking local PostgreSQL Docker container...${NC}"
+CURRENT_IMG=$(docker inspect --format='{{.Config.Image}}' peacebundle_db 2>/dev/null || true)
+if [ -n "$CURRENT_IMG" ] && [ "$CURRENT_IMG" != "postgres:18-alpine" ]; then
+  echo "Recreating local database container to use postgres:18-alpine (matching Render version)..."
+  docker compose stop db >/dev/null 2>&1 || true
+  docker rm -f peacebundle_db >/dev/null 2>&1 || true
+  docker volume rm peacebundle_postgres_data >/dev/null 2>&1 || true
+fi
+
 if ! docker compose ps --services --filter "status=running" | grep -q "^db$"; then
-  echo "Starting local PostgreSQL container..."
+  echo "Starting local PostgreSQL 18 container..."
   docker compose up -d db
-  echo "Waiting for PostgreSQL to be ready..."
-  sleep 6
+  echo "Waiting for PostgreSQL to initialize..."
+  sleep 8
 fi
 
 # Verify db container health
@@ -94,7 +102,7 @@ docker compose exec -T db pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" || {
   echo -e "${RED}Error: Local PostgreSQL container is not accepting connections.${NC}"
   exit 1
 }
-echo -e "${GREEN}✓ Local PostgreSQL is ready.${NC}"
+echo -e "${GREEN}✓ Local PostgreSQL 18 is ready.${NC}"
 
 # 2. Create backups folder
 BACKUP_DIR="./backups"
@@ -102,13 +110,13 @@ mkdir -p "$BACKUP_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="${BACKUP_DIR}/render_migration_${TIMESTAMP}.sql"
 
-# 3. Dump database from Render using Docker (no host postgresql-client required)
-echo -e "\n${BLUE}Step 2: Exporting data from Render PostgreSQL...${NC}"
+# 3. Dump database from Render using Docker PostgreSQL 18 (matching Render version)
+echo -e "\n${BLUE}Step 2: Exporting data from Render PostgreSQL (Version 18)...${NC}"
 echo "Running pg_dump (schema, data, constraints, sequences)..."
 
 docker run --rm \
   --network host \
-  postgres:16-alpine \
+  postgres:18-alpine \
   pg_dump "$RENDER_URL" \
     --no-owner \
     --no-acl \

@@ -1,7 +1,7 @@
 services:
-  # 1. Self-hosted PostgreSQL 16 Database
+  # 1. Self-hosted PostgreSQL 18 Database
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: peacebundle_db
     restart: unless-stopped
     environment:
@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-peacebundlle_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password required}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-peacebundlle_user} -d $${POSTGRES_DB:-peacebundlle}"]
       interval: 10s
