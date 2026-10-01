@@ -307,5 +307,7 @@ const sendTransactionNotification = async (user, transaction) => {
 module.exports = {
     sendEmail,
     sendSMS,
-    sendTransactionNotification
+    sendTransactionNotification,
+    resolveSmtpSettings,
+    getTransporter
 };
