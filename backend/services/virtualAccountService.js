@@ -389,41 +389,75 @@ class VirtualAccountService {
     }
 
     async findUserByAccountNumber(accountNumber) {
-        const acc = String(accountNumber || '').trim();
-        if (!acc) return null;
+        const raw = String(accountNumber || '').trim();
+        if (!raw) return null;
+        const acc = raw.replace(/\D/g, ''); // Digits only
 
-        const direct = await User.findOne({ where: { virtual_account_number: acc } });
+        // 1. Direct match on virtual_account_number column
+        let direct = await User.findOne({ where: { virtual_account_number: raw } });
         if (direct) return direct;
+        if (acc && acc !== raw) {
+            direct = await User.findOne({ where: { virtual_account_number: acc } });
+            if (direct) return direct;
+        }
 
+        // 2. In-memory fallback (SQLite or fallback)
         if (sequelize.getDialect && sequelize.getDialect() === 'sqlite') {
             const users = await User.findAll({ where: { metadata: { [Op.ne]: null } } });
             for (const u of users) {
-                const billstackAcc = u?.metadata?.dual_virtual_accounts?.accounts?.billstack?.accountNumber;
-                const payvesselAcc = u?.metadata?.dual_virtual_accounts?.accounts?.payvessel?.accountNumber;
-                if (String(billstackAcc || '').trim() === acc || String(payvesselAcc || '').trim() === acc) {
+                const bAcc = u?.metadata?.dual_virtual_accounts?.accounts?.billstack?.accountNumber ||
+                             u?.metadata?.dual_virtual_accounts?.accounts?.billstack?.account_number ||
+                             u?.metadata?.virtual_account?.account_number ||
+                             u?.metadata?.billstack?.account_number;
+                const pAcc = u?.metadata?.dual_virtual_accounts?.accounts?.payvessel?.accountNumber ||
+                             u?.metadata?.dual_virtual_accounts?.accounts?.payvessel?.account_number ||
+                             u?.metadata?.payvessel?.account_number;
+                const bClean = String(bAcc || '').replace(/\D/g, '');
+                const pClean = String(pAcc || '').replace(/\D/g, '');
+                if (bClean === acc || pClean === acc || String(bAcc || '').trim() === raw || String(pAcc || '').trim() === raw) {
                     return u;
                 }
             }
             return null;
         }
 
+        // 3. PostgreSQL JSONB query matching camelCase and snake_case paths
         const sql = `
             SELECT *
             FROM "Users"
-            WHERE ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,billstack,accountNumber}') = :acc
-               OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,payvessel,accountNumber}') = :acc
+            WHERE ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,billstack,accountNumber}') = :raw
+               OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,billstack,account_number}') = :raw
+               OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,payvessel,accountNumber}') = :raw
+               OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,payvessel,account_number}') = :raw
+               OR ("metadata"::jsonb #>> '{virtual_account,account_number}') = :raw
+               OR ("metadata"::jsonb #>> '{billstack,account_number}') = :raw
+               OR ("metadata"::jsonb #>> '{payvessel,account_number}') = :raw
+               OR ("virtual_account_number" = :raw)
             LIMIT 1
         `;
 
         const userFromMeta = await sequelize.query(sql, {
-            replacements: { acc },
+            replacements: { raw },
             model: User,
             mapToModel: true,
             plain: true,
             type: QueryTypes.SELECT,
         });
 
-        return userFromMeta || null;
+        if (userFromMeta) return userFromMeta;
+
+        // If acc differs from raw (e.g. whitespace or formatting stripped), retry with digits
+        if (acc && acc !== raw) {
+            return await sequelize.query(sql, {
+                replacements: { raw: acc },
+                model: User,
+                mapToModel: true,
+                plain: true,
+                type: QueryTypes.SELECT,
+            });
+        }
+
+        return null;
     }
 
     async quarantineUnauthorizedVirtualAccount(user, options = {}) {

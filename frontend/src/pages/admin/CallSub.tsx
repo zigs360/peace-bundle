@@ -3,10 +3,13 @@ import { PhoneCall } from 'lucide-react';
 import api from '../../services/api';
 import Airtel from './callSub/Airtel';
 import Mtn from './callSub/Mtn';
+import NetworkVoicePlans from './callSub/NetworkVoicePlans';
 
 const providerComponents: Record<string, () => JSX.Element> = {
   airtel: Airtel,
   mtn: Mtn,
+  glo: () => <NetworkVoicePlans network="glo" label="Glo" />,
+  '9mobile': () => <NetworkVoicePlans network="9mobile" label="9mobile" />,
 };
 
 const DEFAULT_PROVIDERS = [

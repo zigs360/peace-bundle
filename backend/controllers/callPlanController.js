@@ -183,7 +183,7 @@ const createCallPlan = async (req, res) => {
       ...payload,
       name,
       provider: provider.toLowerCase(),
-      price: customerPrice,
+      price: payload.price || customerPrice,
       customerPrice,
       minutes: minutes || 0,
       validityDays,
@@ -829,10 +829,36 @@ const listManagedCallSubPlans = async (req, res) => {
     }
     const where = { provider: provider.key };
     if (portfolio) where.portfolio = portfolio;
-    const plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
+    let plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
       where,
       order: [['price', 'ASC'], ['createdAt', 'ASC']],
     }));
+
+    if (plans.length === 0 && (!portfolio || portfolio === 'standard')) {
+      const defaultBundles = provider.bundles || [];
+      for (const b of defaultBundles) {
+        try {
+          await CallPlan.create({
+            provider: provider.key,
+            name: b.name,
+            price: b.price,
+            customerPrice: Math.round(b.price * 1.05),
+            dealerCommission: Math.min(Math.round(b.price * 0.03), Math.round(b.price * 1.05 * 0.05)),
+            minutes: b.minutes,
+            validityDays: b.validityDays,
+            shortCode: b.code,
+            api_plan_id: b.code,
+            status: 'active',
+            portfolio: 'standard',
+            bundleClass: 'generic_voice',
+          });
+        } catch (_) {}
+      }
+      plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
+        where,
+        order: [['price', 'ASC'], ['createdAt', 'ASC']],
+      }));
+    }
     return res.json({
       success: true,
       degraded: !managedColumnsAvailable,

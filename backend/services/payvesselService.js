@@ -321,11 +321,19 @@ class PayVesselService {
      * @returns {boolean}
      */
     verifySignature(payload, signature) {
-        if (!signature) return false;
+        if (!signature || !this.secretKey) return false;
+        const incoming = String(signature).trim().toLowerCase();
         const body = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(payload));
-        const hash = crypto.createHmac('sha512', this.secretKey).update(body).digest('hex');
+        const rawSecret = String(this.secretKey).trim();
+        const cleanSecret = rawSecret.replace(/^Bearer\s+/i, '');
+
+        const candidateKeys = Array.from(new Set([rawSecret, cleanSecret])).filter(Boolean);
+        for (const key of candidateKeys) {
+            const hash = crypto.createHmac('sha512', key).update(body).digest('hex').toLowerCase();
+            if (hash === incoming) return true;
+        }
             
-        return hash === signature;
+        return false;
     }
 }
 

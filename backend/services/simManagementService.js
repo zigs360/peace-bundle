@@ -158,19 +158,34 @@ class SimManagementService {
         throw new Error(result.error || `Failed to fetch devices from ${providerSlug}`);
       }
 
-      if (providerSlug === 'quicklysim') {
-        return {
-          total: 1,
-          created: 1,
-          updated: 0,
-          failed: 0,
-          message: result.message || 'QuicklySIM Cloud Farm connected (114+ SIMs managed in cloud)',
-          devices: result.devices || [],
-          errors: [],
-        };
+      let devices = result.devices || [];
+      if (String(providerSlug || '').toLowerCase() === 'quicklysim' || devices.some((d) => d.network === 'all')) {
+        // Expand cloud farm to individual carrier SIM devices so each carrier has an active cloud SIM
+        const expandedDevices = [];
+        for (const dev of devices) {
+          if (dev.network === 'all' || !dev.network) {
+            const carriers = [
+              { code: 'mtn', name: 'MTN', suffix: '1' },
+              { code: 'airtel', name: 'Airtel', suffix: '2' },
+              { code: 'glo', name: 'Glo', suffix: '3' },
+              { code: '9mobile', name: '9mobile', suffix: '4' },
+            ];
+            for (const c of carriers) {
+              expandedDevices.push({
+                ...dev,
+                id: `${dev.id}-${c.code}`,
+                device_name: `${c.name} QuicklySIM Cloud Farm`,
+                network: c.code,
+                phone_number: `0800000000${c.suffix}`,
+              });
+            }
+          } else {
+            expandedDevices.push(dev);
+          }
+        }
+        devices = expandedDevices;
       }
 
-      const devices = result.devices || [];
       const syncResults = {
         total: devices.length,
         created: 0,

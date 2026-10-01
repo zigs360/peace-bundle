@@ -205,7 +205,7 @@ class DynamicProviderService {
     const cleanSecretKey = sanitizeHeader(provider.secret_key);
 
     if (cleanApiKey) {
-      if (provider.slug === 'quicklysim' || String(provider.base_url || '').includes('quicklysim')) {
+      if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
         headers['Authorization'] = `Token ${cleanApiKey}`;
       } else {
         headers['Authorization'] = `Bearer ${cleanApiKey}`;
@@ -219,7 +219,7 @@ class DynamicProviderService {
     }
 
     let baseUrl = String(provider.base_url || '').replace(/\/+$/, '');
-    if (provider.slug === 'quicklysim' && !baseUrl) {
+    if (String(provider.slug || '').toLowerCase() === 'quicklysim' && !baseUrl) {
       baseUrl = 'https://quicklysim.com';
     }
 
@@ -271,7 +271,7 @@ class DynamicProviderService {
     }
 
     // QuicklySIM: Cloud Farm with auto-reloaded smart SIM pool
-    if (provider.slug === 'quicklysim' || String(provider.base_url || '').includes('quicklysim')) {
+    if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
       const client = this.getHttpClient(provider);
       try {
         logger.info('[DynamicProvider] Checking QuicklySIM connection and wallet balance...');
@@ -445,7 +445,7 @@ class DynamicProviderService {
     const ref = options.reference || `REF-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
     // QuicklySIM Topupmate Data Vending
-    if (provider.slug === 'quicklysim' || String(provider.base_url || '').includes('quicklysim')) {
+    if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
       const netId = this.mapNetworkToQuicklysim(network);
       const cleanPhone = String(phone).replace(/\D/g, '');
       const path = provider.endpoint_map?.data_purchase || '/topupmate/api/data';
@@ -542,7 +542,7 @@ class DynamicProviderService {
     const client = this.getHttpClient(provider);
     const ref = options.reference || `AIR-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
-    if (provider.slug === 'quicklysim' || String(provider.base_url || '').includes('quicklysim')) {
+    if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
       const path = provider.endpoint_map?.airtime_purchase || '/topupmate/api/airtime';
       const payload = {
         network: this.mapNetworkToQuicklysim(network),

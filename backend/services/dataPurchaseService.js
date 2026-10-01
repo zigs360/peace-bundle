@@ -643,11 +643,14 @@ class DataPurchaseService {
         const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
 
         if (!sim && primaryProvider && primaryProvider.slug !== 'smeplug') {
+          const effectivePlanId = plan?.plan_id || smeplugPlanId || plan?.provider_plan_id || '1';
           response = await dynamicProviderService.purchaseData(
             transaction.provider,
             transaction.recipient_phone,
-            smeplugPlanId || '1',
-            transaction.amount
+            effectivePlanId,
+            transaction.amount,
+            primaryProvider.slug,
+            { reference: transaction.reference }
           );
           providerName = primaryProvider.slug;
         } else {

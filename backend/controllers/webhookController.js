@@ -76,6 +76,22 @@ const processBillstackFunding = async ({
             }
         }
         if (!user) {
+            const emailCandidate = String(data?.customer?.email || data?.payer?.email || payload?.email || data?.email || '').trim().toLowerCase();
+            if (emailCandidate) {
+                user = await User.findOne({
+                    where: sequelize.where(sequelize.fn('LOWER', sequelize.col('email')), emailCandidate)
+                });
+            }
+        }
+        if (!user) {
+            const rawPhone = String(data?.customer?.phone || data?.payer?.phone || payload?.phone || data?.phone || '').replace(/\D/g, '');
+            if (rawPhone.length >= 10) {
+                user = await User.findOne({
+                    where: { phone: { [require('sequelize').Op.like]: `%${rawPhone.slice(-10)}%` } }
+                });
+            }
+        }
+        if (!user) {
             await t.rollback();
             logger.error(`[Webhook] BillStack: User not found for account ${maskAccountNumber(accountNumber)}`);
             await webhookEventService.markFailed(webhookEventId, { error: 'User not found', userId: null });
@@ -362,10 +378,14 @@ const handlePayvesselWebhook = async (req, res) => {
         const isValidSignature = payvesselService.verifySignature(raw, signature);
         const isAllowedIp = skipIpCheck || clientIps.some(ip => allowedIps.includes(ip) || allowedIps.some(allowed => ip.includes(allowed)));
 
-        if (!isValidSignature || !isAllowedIp) {
-            logger.warn(`[Webhook] PayVessel: Permission denied (Invalid signature or IP: ${ipHeader})`);
-            await webhookEventService.markRejected(webhookEvent.id, { error: 'Permission denied', signaturePresent: Boolean(signature), ip: ipHeader });
+        if (!isValidSignature) {
+            logger.warn(`[Webhook] PayVessel: Permission denied (Invalid signature, IP: ${ipHeader})`);
+            await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signaturePresent: Boolean(signature), ip: ipHeader });
             return res.status(400).json({ message: 'Permission denied, invalid hash or ip address.' });
+        }
+
+        if (!isAllowedIp) {
+            logger.warn(`[Webhook] PayVessel: IP ${ipHeader} not in whitelist, but signature is valid. Continuing.`);
         }
         await webhookEventService.markVerified(webhookEvent.id, { signaturePresent: Boolean(signature) });
 
@@ -761,17 +781,17 @@ const handleBillstackWebhook = async (req, res) => {
 
         const data = payload?.data || payload;
         const eventName = String(payload?.event || payload?.event_type || data?.event || data?.event_type || '').toUpperCase();
-        const billstackReference = data?.reference || payload?.reference || null;
-        const wiaxyRef = data?.wiaxy_ref || data?.transaction_ref || data?.transactionRef || data?.transactionReference || payload?.wiaxy_ref || payload?.transaction_ref || null;
+        const billstackReference = data?.reference || payload?.reference || data?.id || payload?.id || null;
+        const wiaxyRef = data?.wiaxy_ref || data?.transaction_ref || data?.transactionRef || data?.transactionReference || data?.tx_ref || payload?.wiaxy_ref || payload?.transaction_ref || null;
         const providerReference = String(wiaxyRef || billstackReference || '').trim();
-        const amountRaw = data?.amount || data?.amount_paid || data?.total_amount || payload?.amount || payload?.amount_paid;
+        const amountRaw = data?.amount || data?.amount_paid || data?.total_amount || data?.settlement_amount || payload?.amount || payload?.amount_paid;
         const sanitizeAmount = (val) => {
             if (typeof val === 'number') return val;
             if (typeof val !== 'string') return NaN;
             return parseFloat(val.replace(/,/g, ''));
         };
         const amount = sanitizeAmount(amountRaw);
-        const accountNumber = data?.account?.account_number || data?.account_number || data?.accountNumber || data?.account?.accountNumber || payload?.account_number || payload?.account?.account_number || payload?.accountNumber;
+        const accountNumber = data?.account?.account_number || data?.account_number || data?.accountNumber || data?.account?.accountNumber || data?.virtual_account_number || payload?.virtual_account_number || payload?.account_number || payload?.account?.account_number || payload?.accountNumber;
 
         const webhookEvent = await webhookEventService.recordReceived({
             provider: 'billstack',

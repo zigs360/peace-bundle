@@ -321,6 +321,7 @@ const createDataPlan = async (req, res) => {
         smeplug_plan_id,
         plan_id,
         ogdams_sku,
+        source,
         available_sim,
         available_wallet,
         is_active,
@@ -334,7 +335,7 @@ const createDataPlan = async (req, res) => {
 
     if (!net || !finalName || finalSellingPrice === undefined) {
         return res.status(400).json({ 
-            success: false,
+            success: false, 
             message: 'Please provide all required fields: provider, name, price' 
         });
     }
@@ -342,6 +343,7 @@ const createDataPlan = async (req, res) => {
     try {
         const plan = await DataPlan.create({
             provider: net,
+            source: String(source || 'smeplug').toLowerCase(),
             category: category || 'sme',
             service_name: service_name || 'Data Plans',
             service_slug: service_slug || 'data-plans',
@@ -412,6 +414,7 @@ const updateDataPlan = async (req, res) => {
         smeplug_plan_id,
         plan_id,
         ogdams_sku,
+        source,
         available_sim,
         available_wallet,
         is_active,
@@ -430,6 +433,7 @@ const updateDataPlan = async (req, res) => {
 
         const net = provider || network;
         if (net) plan.provider = net.toLowerCase();
+        if (source) plan.source = String(source).toLowerCase();
         if (category) plan.category = category;
         if (service_name) plan.service_name = service_name;
         if (service_slug) plan.service_slug = service_slug;

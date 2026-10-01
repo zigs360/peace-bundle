@@ -251,6 +251,20 @@ class DualVirtualAccountService {
           last_completed_at: nowIso(),
         },
       };
+
+      // Mirror the active virtual account to direct User columns for instant lookup & backward compatibility
+      const primaryVa = (nextAccounts.billstack && nextAccounts.billstack.accountNumber)
+        ? nextAccounts.billstack
+        : (nextAccounts.payvessel && nextAccounts.payvessel.accountNumber)
+          ? nextAccounts.payvessel
+          : null;
+
+      if (primaryVa) {
+        user.virtual_account_number = primaryVa.accountNumber;
+        user.virtual_account_bank = primaryVa.bankName;
+        user.virtual_account_name = primaryVa.accountName;
+      }
+
       await user.save({ transaction: t });
     });
 
