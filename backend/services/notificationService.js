@@ -25,11 +25,25 @@ const isSmsProviderBalanceError = (error) => {
 };
 
 const resolveSmtpSettings = () => {
-    const host = isPlaceholder(process.env.SMTP_HOST) ? process.env.gmail_host : (process.env.SMTP_HOST || process.env.gmail_host);
+    let host = isPlaceholder(process.env.SMTP_HOST) ? process.env.gmail_host : (process.env.SMTP_HOST || process.env.gmail_host);
     const portRaw = isPlaceholder(process.env.SMTP_PORT) ? process.env.gmail_port : (process.env.SMTP_PORT || process.env.gmail_port);
     const user = isPlaceholder(process.env.SMTP_USER) ? process.env.gmail_user : (process.env.SMTP_USER || process.env.gmail_user);
-    const pass = isPlaceholder(process.env.SMTP_PASS) ? process.env.gmail_pass : (process.env.SMTP_PASS || process.env.gmail_pass);
-    const from = process.env.SMTP_FROM || process.env.smtp_from || `"Peace Bundlle" <noreply@peacebundlle.com>`;
+    const passRaw = isPlaceholder(process.env.SMTP_PASS) ? process.env.gmail_pass : (process.env.SMTP_PASS || process.env.gmail_pass);
+
+    if (!host && user && user.includes('@gmail.com')) {
+        host = 'smtp.gmail.com';
+    }
+
+    let pass = passRaw;
+    if (typeof pass === 'string') {
+        pass = pass.trim();
+        // Remove spaces commonly found in Google App Passwords (e.g. "tmrs xwqf awut tfsc" -> "tmrsxwqfawuttfsc")
+        if ((host && host.includes('gmail')) || (user && user.includes('@gmail.com'))) {
+            pass = pass.replace(/\s+/g, '');
+        }
+    }
+
+    const from = process.env.SMTP_FROM || process.env.smtp_from || (user ? `"Peace Bundlle" <${user}>` : `"Peace Bundlle" <noreply@peacebundlle.com>`);
 
     const port = Number.parseInt(String(portRaw || ''), 10);
     const encryptionRaw = process.env.SMTP_ENCRYPTION || process.env.encryption || '';
