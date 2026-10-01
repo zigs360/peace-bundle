@@ -16,8 +16,23 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
-# Load environment variables
-export $(grep -v '^#' .env | xargs)
+# Load environment variables safely
+load_env_file() {
+  if [ -f .env ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      clean_line=$(echo "$line" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+      [[ "$clean_line" =~ ^#.* ]] && continue
+      [ -z "$clean_line" ] && continue
+      if [[ "$clean_line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+        key="${clean_line%%=*}"
+        val="${clean_line#*=}"
+        val=$(echo "$val" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        export "$key=$val"
+      fi
+    done < .env
+  fi
+}
+load_env_file
 
 PRIMARY_DOMAIN="${DOMAIN_NAME:-peacebundlle.com}"
 
