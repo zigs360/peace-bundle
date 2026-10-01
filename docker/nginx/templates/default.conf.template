@@ -10,9 +10,9 @@ upstream frontend_upstream {
 
 # Port 80: Primary HTTP Gateway (Used when behind Host Nginx proxy on port 3080, or direct HTTP)
 server {
-    listen 80;
-    listen [::]:80;
-    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME} ${API_DOMAIN} localhost "";
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _ ${DOMAIN_NAME} www.${DOMAIN_NAME} localhost;
 
     client_max_body_size 25M;
 
