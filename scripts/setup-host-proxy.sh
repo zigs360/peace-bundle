@@ -87,8 +87,9 @@ server {
 }
 EOF
 
-# Enable site
+# Enable site and remove default placeholder page if present
 mkdir -p /etc/nginx/sites-enabled
+rm -f /etc/nginx/sites-enabled/default
 ln -sf "$CONFIG_FILE" "$ENABLED_FILE"
 
 # 4. Test host Nginx configuration
