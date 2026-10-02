@@ -90,6 +90,32 @@ class DynamicProviderService {
             existing.secret_key = p.secret_key;
             changed = true;
           }
+          if (p.slug === 'quicklysim') {
+            const currentAirtime = existing.endpoint_map?.airtime_purchase;
+            const currentData = existing.endpoint_map?.data_purchase;
+            if (
+              existing.base_url !== 'https://quicklysim.com' ||
+              !currentAirtime ||
+              currentAirtime === '/airtime' ||
+              currentAirtime === '/api/airtime' ||
+              currentAirtime === 'api/airtime' ||
+              !currentData ||
+              currentData === '/data' ||
+              currentData === '/api/data'
+            ) {
+              existing.base_url = 'https://quicklysim.com';
+              existing.endpoint_map = {
+                ...(existing.endpoint_map || {}),
+                devices: '/topupmate/api/user',
+                device_balance: '/topupmate/api/user',
+                ussd: '/devices/:id/ussd',
+                data_purchase: '/topupmate/api/data',
+                airtime_purchase: '/topupmate/api/airtime',
+                balance: '/topupmate/api/user',
+              };
+              changed = true;
+            }
+          }
           if (changed) {
             await existing.save();
           }
@@ -267,8 +293,10 @@ class DynamicProviderService {
     }
 
     let baseUrl = String(provider.base_url || '').replace(/\/+$/, '');
-    if (String(provider.slug || '').toLowerCase() === 'quicklysim' && !baseUrl) {
-      baseUrl = 'https://quicklysim.com';
+    if (String(provider.slug || '').toLowerCase() === 'quicklysim') {
+      if (!baseUrl || baseUrl.endsWith('/api')) {
+        baseUrl = 'https://quicklysim.com';
+      }
     }
 
     return axios.create({
@@ -505,7 +533,10 @@ class DynamicProviderService {
     if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
       const netId = this.mapNetworkToQuicklysim(network);
       const cleanPhone = String(phone).replace(/\D/g, '');
-      const path = provider.endpoint_map?.data_purchase || '/topupmate/api/data';
+      let path = provider.endpoint_map?.data_purchase;
+      if (!path || path === '/data' || path === '/api/data' || path === 'api/data') {
+        path = '/topupmate/api/data';
+      }
 
       const payload = {
         network: String(netId),
@@ -522,7 +553,20 @@ class DynamicProviderService {
 
       logger.info(`[DynamicProvider] Purchasing data via QuicklySIM Topupmate at ${path}`, payload);
       try {
-        const response = await client.post(path, payload);
+        let response;
+        try {
+          response = await client.post(path, payload);
+        } catch (postErr) {
+          const errStatus = postErr.response?.status;
+          const errMsg = String(postErr.response?.data?.message || postErr.message || '');
+          if ((errStatus === 404 || errMsg.toLowerCase().includes('could not be found')) && path !== '/api/data') {
+            const fallbackPath = path === '/topupmate/api/data' ? '/api/data' : '/topupmate/api/data';
+            logger.warn(`[DynamicProvider] QuicklySIM data endpoint ${path} returned 404, retrying at ${fallbackPath}`);
+            response = await client.post(fallbackPath, payload);
+          } else {
+            throw postErr;
+          }
+        }
         const resData = response.data;
         const isOk =
           resData?.status === 'success' ||
@@ -605,7 +649,10 @@ class DynamicProviderService {
     const ref = options.reference || `AIR-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
     if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
-      const path = provider.endpoint_map?.airtime_purchase || '/topupmate/api/airtime';
+      let path = provider.endpoint_map?.airtime_purchase;
+      if (!path || path === '/airtime' || path === '/api/airtime' || path === 'api/airtime') {
+        path = '/topupmate/api/airtime';
+      }
       const cleanPhone = String(phone).replace(/\D/g, '');
       const netId = this.mapNetworkToQuicklysim(network);
       const payload = {
@@ -622,7 +669,20 @@ class DynamicProviderService {
 
       logger.info(`[DynamicProvider] Purchasing airtime via QuicklySIM at ${path}`, payload);
       try {
-        const response = await client.post(path, payload);
+        let response;
+        try {
+          response = await client.post(path, payload);
+        } catch (postErr) {
+          const errStatus = postErr.response?.status;
+          const errMsg = String(postErr.response?.data?.message || postErr.message || '');
+          if ((errStatus === 404 || errMsg.toLowerCase().includes('could not be found')) && path !== '/api/topup') {
+            const fallbackPath = path === '/topupmate/api/airtime' ? '/api/topup' : '/topupmate/api/airtime';
+            logger.warn(`[DynamicProvider] QuicklySIM airtime endpoint ${path} returned 404, retrying at fallback ${fallbackPath}`);
+            response = await client.post(fallbackPath, payload);
+          } else {
+            throw postErr;
+          }
+        }
         const resData = response.data;
         const isOk =
           resData?.status === 'success' ||

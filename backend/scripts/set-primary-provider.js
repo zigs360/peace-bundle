@@ -33,6 +33,21 @@ async function main() {
     process.exit(1);
   }
 
+  if (found.slug.toLowerCase() === 'quicklysim') {
+    found.base_url = 'https://quicklysim.com';
+    found.endpoint_map = {
+      ...(found.endpoint_map || {}),
+      devices: '/topupmate/api/user',
+      device_balance: '/topupmate/api/user',
+      ussd: '/devices/:id/ussd',
+      data_purchase: '/topupmate/api/data',
+      airtime_purchase: '/topupmate/api/airtime',
+      balance: '/topupmate/api/user',
+    };
+    await found.save();
+    console.log('✅ Synchronized verified Topupmate API endpoints for QuicklySIM.');
+  }
+
   await dynamicProviderService.setPrimaryProvider(found.id);
   console.log(`\n✅ Success! "${found.name}" (${found.slug}) is now the ACTIVE PRIMARY provider!`);
   console.log('All data and airtime purchases will now be routed directly through this provider.');
