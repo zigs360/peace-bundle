@@ -33,6 +33,12 @@ async function main() {
     process.exit(1);
   }
 
+  const newKey = process.argv[3];
+  if (newKey) {
+    found.api_key = newKey.trim();
+    console.log(`🔑 Updated API Key for ${found.name}.`);
+  }
+
   if (found.slug.toLowerCase() === 'quicklysim') {
     found.base_url = 'https://quicklysim.com';
     found.endpoint_map = {
@@ -46,11 +52,26 @@ async function main() {
     };
     await found.save();
     console.log('✅ Synchronized verified Topupmate API endpoints for QuicklySIM.');
+  } else {
+    await found.save();
   }
 
   await dynamicProviderService.setPrimaryProvider(found.id);
   console.log(`\n✅ Success! "${found.name}" (${found.slug}) is now the ACTIVE PRIMARY provider!`);
   console.log('All data and airtime purchases will now be routed directly through this provider.');
+
+  // Live connectivity & balance check
+  console.log('\n--- Live Provider Connectivity Test ---');
+  try {
+    const devicesRes = await dynamicProviderService.getLinkedDevices(found.slug);
+    console.log(`Status: ${devicesRes.success ? 'CONNECTED' : 'FAILED'}`);
+    console.log(`Message: ${devicesRes.message || 'Ready'}`);
+    if (devicesRes.devices?.length) {
+      console.log(`Wallet Balance: ₦${devicesRes.devices[0].balance}`);
+    }
+  } catch (testErr) {
+    console.warn(`Connection warning: ${testErr.message}`);
+  }
   console.log('================================================================\n');
   process.exit(0);
 }

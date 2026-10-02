@@ -579,10 +579,12 @@ class DynamicProviderService {
           (resData?.message && String(resData.message).toLowerCase().includes('successful'));
 
         if (!isOk) {
+          const errMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || 'QuicklySIM data purchase failed';
+          logger.warn(`[DynamicProvider] QuicklySIM data purchase failed: ${errMsg}`, { status: response?.status, data: resData });
           return {
             success: false,
             provider: provider.name,
-            error: resData?.message || resData?.error || 'QuicklySIM data purchase failed',
+            error: errMsg,
             data: resData,
           };
         }
@@ -594,13 +596,14 @@ class DynamicProviderService {
           reference: resData?.ref || resData?.reference || resData?.data?.reference || ref,
         };
       } catch (err) {
-        const errMsg = err.response?.data?.message || err.response?.data?.error || err.message;
-        logger.error(`[DynamicProvider] QuicklySIM data purchase error: ${errMsg}`);
+        const errData = err.response?.data;
+        const errMsg = errData?.message || errData?.msg || errData?.error || errData?.desc || err.message;
+        logger.error(`[DynamicProvider] QuicklySIM data purchase exception: ${errMsg}`, { status: err.response?.status, data: errData });
         return {
           success: false,
           provider: provider.name,
           error: errMsg,
-          data: err.response?.data,
+          data: errData,
         };
       }
     }
@@ -711,10 +714,12 @@ class DynamicProviderService {
           (resData?.message && String(resData.message).toLowerCase().includes('successful'));
 
         if (!isOk) {
+          const errMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || 'QuicklySIM airtime purchase failed';
+          logger.warn(`[DynamicProvider] QuicklySIM airtime purchase failed: ${errMsg}`, { status: response?.status, data: resData });
           return {
             success: false,
             provider: provider.name,
-            error: resData?.message || 'QuicklySIM airtime purchase failed',
+            error: errMsg,
             data: resData,
           };
         }
@@ -726,11 +731,14 @@ class DynamicProviderService {
           reference: resData?.ref || ref,
         };
       } catch (err) {
+        const errData = err.response?.data;
+        const errMsg = errData?.message || errData?.msg || errData?.error || errData?.desc || err.message;
+        logger.error(`[DynamicProvider] QuicklySIM airtime purchase exception: ${errMsg}`, { status: err.response?.status, data: errData });
         return {
           success: false,
           provider: provider.name,
-          error: err.response?.data?.message || err.message,
-          data: err.response?.data,
+          error: errMsg,
+          data: errData,
         };
       }
     }
