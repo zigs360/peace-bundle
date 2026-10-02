@@ -461,7 +461,9 @@ class DynamicProviderService {
 
       const payload = {
         network: String(netId),
+        phone: cleanPhone,
         mobile_number: cleanPhone,
+        phone_number: cleanPhone,
         plan: String(planId),
         ref,
         ported_number: true,
@@ -553,11 +555,15 @@ class DynamicProviderService {
 
     if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
       const path = provider.endpoint_map?.airtime_purchase || '/topupmate/api/airtime';
+      const cleanPhone = String(phone).replace(/\D/g, '');
       const payload = {
         network: this.mapNetworkToQuicklysim(network),
-        mobile_number: String(phone).replace(/\D/g, ''),
+        phone: cleanPhone,
+        mobile_number: cleanPhone,
+        phone_number: cleanPhone,
         amount: String(amount),
         airtime_type: 'VTU',
+        ref,
       };
 
       logger.info(`[DynamicProvider] Purchasing airtime via QuicklySIM at ${path}`, payload);
