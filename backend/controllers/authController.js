@@ -109,15 +109,17 @@ const attachRecoveredWallet = async (user) => {
 };
 
 // Generate JWT Access Token (short-lived)
+const getJwtSecret = () => process.env.JWT_SECRET || (process.env.NODE_ENV === 'test' ? 'test_jwt_secret_key_12345' : '');
+
 const generateToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_SECRET, {
+    return jwt.sign({ id }, getJwtSecret(), {
         expiresIn: '15m',
     });
 };
 
 // Generate JWT Refresh Token (long-lived)
 const generateRefreshToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_SECRET, {
+    return jwt.sign({ id }, getJwtSecret(), {
         expiresIn: '30d',
     });
 };
@@ -223,28 +225,30 @@ const registerUser = async (req, res) => {
         logger.info(`[Auth] New user registered: ${tokenPayloadEmail} (${user.id})`);
 
         // Automatically provision dual virtual accounts (9PSB + PalmPay) in the background on registration
-        setImmediate(async () => {
-            try {
-                const dualVirtualAccountService = require('../services/dualVirtualAccountService');
-                const result = await dualVirtualAccountService.ensureDualVirtualAccounts(user.id, { timeoutMs: 15000 });
-                if (result.success) {
-                    logger.info(`[Auth] Dual virtual accounts (9PSB + PalmPay) provisioned on signup for user ${user.id}`, { overallStatus: result.overallStatus });
-                } else {
-                    logger.warn(`[Auth] Dual virtual account provisioning partial/failed for user ${user.id}`, { overallStatus: result.overallStatus });
+        if (process.env.NODE_ENV !== 'test') {
+            setImmediate(async () => {
+                try {
+                    const dualVirtualAccountService = require('../services/dualVirtualAccountService');
+                    const result = await dualVirtualAccountService.ensureDualVirtualAccounts(user.id, { timeoutMs: 15000 });
+                    if (result.success) {
+                        logger.info(`[Auth] Dual virtual accounts (9PSB + PalmPay) provisioned on signup for user ${user.id}`, { overallStatus: result.overallStatus });
+                    } else {
+                        logger.warn(`[Auth] Dual virtual account provisioning partial/failed for user ${user.id}`, { overallStatus: result.overallStatus });
+                    }
+                    // Also attempt the primary single account for backwards compatibility
+                    const readiness = await VirtualAccountService.getProvisioningReadiness(user);
+                    if (readiness.canAttempt) {
+                        await VirtualAccountService.recordProvisioningAttempt(user.id);
+                        await VirtualAccountService.assignVirtualAccount(user);
+                        await VirtualAccountService.recordProvisioningSuccess(user.id);
+                        logger.info(`[Auth] Primary virtual account provisioned on signup for user ${user.id}`);
+                    }
+                } catch (vaErr) {
+                    logger.warn(`[Auth] Post-registration virtual account provisioning deferred: ${vaErr.message}`);
+                    await VirtualAccountService.recordProvisioningFailure(user.id, vaErr.message).catch(() => {});
                 }
-                // Also attempt the primary single account for backwards compatibility
-                const readiness = await VirtualAccountService.getProvisioningReadiness(user);
-                if (readiness.canAttempt) {
-                    await VirtualAccountService.recordProvisioningAttempt(user.id);
-                    await VirtualAccountService.assignVirtualAccount(user);
-                    await VirtualAccountService.recordProvisioningSuccess(user.id);
-                    logger.info(`[Auth] Primary virtual account provisioned on signup for user ${user.id}`);
-                }
-            } catch (vaErr) {
-                logger.warn(`[Auth] Post-registration virtual account provisioning deferred: ${vaErr.message}`);
-                await VirtualAccountService.recordProvisioningFailure(user.id, vaErr.message).catch(() => {});
-            }
-        });
+            });
+        }
 
         const emailValidationPassed = welcomeEmailService.isValidEmail(tokenPayloadEmail);
 
@@ -970,10 +974,11 @@ const verifyPasswordResetCode = async (req, res) => {
 // @route   POST /api/auth/password-reset/complete
 // @access  Public
 const completePasswordReset = async (req, res) => {
-    const { token, newPassword, confirmPassword, email } = req.body;
+    const { token, newPassword, confirmPassword } = req.body;
+    const identifier = req.body.emailOrPhone || req.body.email || req.body.phone;
 
     try {
-        const response = await passwordResetService.completePasswordReset(token, newPassword, confirmPassword, req, email);
+        const response = await passwordResetService.completePasswordReset(token, newPassword, confirmPassword, req, identifier);
         return res.status(200).json(response);
     } catch (error) {
         return res.status(error.status || 400).json({

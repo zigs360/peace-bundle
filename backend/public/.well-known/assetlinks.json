@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.peacebundle.app",
+      "sha256_cert_fingerprints": [
+        "8B:01:BB:3D:99:09:F3:06:95:B5:82:97:FB:6E:9E:B6:41:1B:AA:45:13:B7:5F:A8:83:A1:EC:8C:04:B2:B6:01",
+        "C5:F8:5F:88:E8:16:1A:69:0C:1D:B5:8A:90:4E:AB:6E:37:05:40:71:75:29:DB:EC:82:A0:23:59:C9:F0:14:D2"
+      ]
+    }
+  }
+]

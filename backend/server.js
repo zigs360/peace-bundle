@@ -310,6 +310,12 @@ app.get('/', (req, res) => {
   res.send('Peace Bundlle API is running');
 });
 
+// Digital Asset Links for Android App Links
+app.get(['/.well-known/assetlinks.json', '/api/.well-known/assetlinks.json'], (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.sendFile(path.join(__dirname, 'public/.well-known/assetlinks.json'));
+});
+
 // Initialize Event Listeners
 EventServiceProvider.boot();
 

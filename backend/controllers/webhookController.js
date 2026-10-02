@@ -754,11 +754,38 @@ const handleOgdamsWebhook = async (req, res) => {
 const handleBillstackWebhook = async (req, res) => {
     try {
         const payload = req.body;
-        const rawWebhookSecret = String(process.env.BILLSTACK_WEBHOOK_SECRET || '').trim();
-        const rawSecretKey = String(process.env.BILLSTACK_SECRET_KEY || '').trim();
-        const secret = (rawWebhookSecret && !rawWebhookSecret.startsWith('http')) 
+        const rawWebhookSecret = String(
+            process.env.BILLSTACK_WEBHOOK_SECRET ||
+            process.env.BILL_STACK_WEBHOOK_SECRET ||
+            process.env.Bill_Stack_WEBHOOK_SECRET ||
+            process.env.BillSTACK_WEBHOOK_SECRET ||
+            ''
+        ).trim();
+        const rawSecretKey = String(
+            process.env.BILLSTACK_SECRET_KEY ||
+            process.env.BILL_STACK_SECRET_KEY ||
+            process.env.Bill_Stack_SECRET_KEY ||
+            process.env.BillSTACK_SECRET_KEY ||
+            ''
+        ).trim();
+        let secret = (rawWebhookSecret && !rawWebhookSecret.startsWith('http')) 
             ? rawWebhookSecret 
             : (rawSecretKey || rawWebhookSecret);
+
+        if (!secret) {
+            try {
+                const SystemSetting = require('../models/SystemSetting');
+                const dbWebhookSecret = await SystemSetting.get('billstack_webhook_secret');
+                const dbSecretKey = await SystemSetting.get('billstack_secret_key');
+                if (dbWebhookSecret && !dbWebhookSecret.startsWith('http')) {
+                    secret = dbWebhookSecret;
+                } else if (dbSecretKey) {
+                    secret = dbSecretKey;
+                }
+            } catch (err) {
+                logger.warn('[Webhook] Failed to load BillStack secret from SystemSetting', { error: err.message });
+            }
+        }
         
         const signature =
             req.headers['x-billstack-signature'] ||
@@ -802,10 +829,28 @@ const handleBillstackWebhook = async (req, res) => {
 
         logger.info(`[Webhook] BillStack received: ${eventName}`, { reference: providerReference });
 
-        if (!secret && process.env.NODE_ENV === 'production') {
-            logger.error('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set; rejecting webhook');
-            await webhookEventService.markFailed(webhookEvent.id, { error: 'Webhook secret not configured' });
-            return res.status(500).json({ message: 'Webhook not configured' });
+        // Resolve matched user by account number or customer email
+        const merchantRef = String(data?.merchant_reference || '').trim();
+        const isPBRef = merchantRef.startsWith('PB-');
+        const virtualAccountService = require('../services/virtualAccountService');
+        let matchedUser = null;
+        if (accountNumber) {
+            try {
+                matchedUser = await virtualAccountService.findUserByAccountNumber(accountNumber);
+            } catch (err) {
+                logger.warn('[Webhook] BillStack findUserByAccountNumber error', { error: err.message });
+            }
+        }
+        if (!matchedUser) {
+            const customerEmail = String(data?.customer?.email || payload?.customer?.email || '').trim().toLowerCase();
+            if (customerEmail) {
+                try {
+                    const User = require('../models/User');
+                    matchedUser = await User.findOne({ where: { email: customerEmail } });
+                } catch (err) {
+                    logger.warn('[Webhook] BillStack findUserByEmail error', { error: err.message });
+                }
+            }
         }
 
         let signatureOk = false;
@@ -820,24 +865,16 @@ const handleBillstackWebhook = async (req, res) => {
             secret ? sha512(rawBodyStr, secret) : null,
             process.env.BILLSTACK_WEBHOOK_SECRET ? md5(process.env.BILLSTACK_WEBHOOK_SECRET) : null,
             process.env.BILLSTACK_WEBHOOK_SECRET ? sha512(rawBodyStr, process.env.BILLSTACK_WEBHOOK_SECRET) : null,
+            process.env.BILL_STACK_WEBHOOK_SECRET ? md5(process.env.BILL_STACK_WEBHOOK_SECRET) : null,
+            process.env.BILL_STACK_WEBHOOK_SECRET ? sha512(rawBodyStr, process.env.BILL_STACK_WEBHOOK_SECRET) : null,
             process.env.BILLSTACK_SECRET_KEY ? md5(process.env.BILLSTACK_SECRET_KEY) : null,
             process.env.BILLSTACK_SECRET_KEY ? sha512(rawBodyStr, process.env.BILLSTACK_SECRET_KEY) : null,
+            process.env.BILL_STACK_SECRET_KEY ? md5(process.env.BILL_STACK_SECRET_KEY) : null,
+            process.env.BILL_STACK_SECRET_KEY ? sha512(rawBodyStr, process.env.BILL_STACK_SECRET_KEY) : null,
             process.env.BILLSTACK_PUBLIC_KEY ? md5(process.env.BILLSTACK_PUBLIC_KEY) : null,
         ].filter(Boolean);
 
         signatureOk = Boolean(incomingSignature) && candidates.includes(incomingSignature);
-
-        const merchantRef = String(data?.merchant_reference || '').trim();
-        const isPBRef = merchantRef.startsWith('PB-');
-        const virtualAccountService = require('../services/virtualAccountService');
-        let matchedUser = null;
-        if (accountNumber) {
-            try {
-                matchedUser = await virtualAccountService.findUserByAccountNumber(accountNumber);
-            } catch (err) {
-                logger.warn('[Webhook] BillStack findUserByAccountNumber error', { error: err.message });
-            }
-        }
 
         if (signatureOk) {
             await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: true });
@@ -854,6 +891,10 @@ const handleBillstackWebhook = async (req, res) => {
                 verifiedBy: matchedUser ? 'account_ownership' : 'merchant_reference'
             });
             signatureOk = true;
+        } else if (!secret && process.env.NODE_ENV === 'production') {
+            logger.error('[Webhook] BillStack: BILLSTACK_WEBHOOK_SECRET not set and account unassociated; rejecting webhook');
+            await webhookEventService.markFailed(webhookEvent.id, { error: 'Webhook secret not configured' });
+            return res.status(500).json({ message: 'Webhook not configured' });
         } else if (!secret && process.env.NODE_ENV !== 'production') {
             logger.warn('[Webhook] BillStack: Secret not configured in dev; signature verification skipped');
             await webhookEventService.markVerified(webhookEvent.id, { signatureHeader, signaturePresent: Boolean(signature) });

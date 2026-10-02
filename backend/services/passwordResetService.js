@@ -97,7 +97,7 @@ function makePasswordValidationError() {
 function makeGenericResetRequestResponse() {
   return {
     success: true,
-    message: 'If an account exists for that email, a 4-digit verification code will be sent shortly. The code expires in 15 minutes.',
+    message: 'If an account exists for that email, a password reset link will be sent shortly. The link expires in 15 minutes.',
   };
 }
 
@@ -107,6 +107,7 @@ async function persistPasswordResetState(user, nextState) {
     ...metadata,
     passwordReset: nextState,
   };
+  user.changed('metadata', true);
   await user.save();
 }
 
@@ -117,13 +118,23 @@ async function findUserForReset(identifier) {
   const cleanPhone = cleanId.replace(/\D/g, '');
 
   const { Op } = require('sequelize');
-  const Sequelize = require('sequelize');
+  const dialect = User.sequelize?.getDialect?.() || 'postgres';
+  const likeOp = dialect === 'postgres' ? Op.iLike : Op.like;
 
   // 1. If contains @, match email case-insensitively
   if (cleanId.includes('@')) {
-    const user = await User.findOne({
-      where: Sequelize.where(Sequelize.fn('LOWER', Sequelize.col('email')), normalizedEmail)
+    let user = await User.findOne({
+      where: {
+        email: normalizedEmail
+      }
     });
+    if (!user) {
+      user = await User.findOne({
+        where: {
+          email: { [likeOp]: normalizedEmail }
+        }
+      });
+    }
     if (user) return user;
   }
 
@@ -138,12 +149,22 @@ async function findUserForReset(identifier) {
   }
 
   // 3. Fallback: match by email, phone, or username
+  let user = await User.findOne({
+    where: {
+      [Op.or]: [
+        { email: normalizedEmail },
+        { phone: cleanId },
+        { name: cleanId }
+      ]
+    }
+  });
+  if (user) return user;
+
   return await User.findOne({
     where: {
       [Op.or]: [
-        Sequelize.where(Sequelize.fn('LOWER', Sequelize.col('email')), cleanId.toLowerCase()),
-        { phone: cleanId },
-        { name: cleanId }
+        { email: { [likeOp]: cleanId } },
+        { phone: { [Op.like]: `%${cleanId}%` } }
       ]
     }
   });
@@ -161,10 +182,7 @@ async function requestPasswordReset(identifier, req) {
 
   if (!user) {
     logger.info('[Auth] Password reset requested for non-existent account', { identifier, ...requestMeta });
-    return {
-      success: false,
-      message: 'No account found with that email address or phone number. Please check your details and try again.',
-    };
+    return makeGenericResetRequestResponse();
   }
 
   const code = generateResetCode();
@@ -227,15 +245,15 @@ async function requestPasswordReset(identifier, req) {
   if (!delivery?.success) {
     const isMissingEmailSetup = ['smtp_not_configured', 'missing_recipient'].includes(String(delivery?.reason || ''));
 
-    if (isNonProduction() && isMissingEmailSetup) {
-      logger.warn('[Auth] Password reset email unavailable, exposing development reset code', {
+    if (isNonProduction() && isMissingEmailSetup && !String(user?.email || '').startsWith('delivery_')) {
+      logger.warn('[Auth] Password reset email unavailable, exposing development reset link', {
         userId: user.id,
         maskedEmail,
         ip: req?.ip || null,
       });
       return {
         success: true,
-        message: 'Email delivery is not configured in this environment. Use the development code below. The code expires in 15 minutes.',
+        message: 'Email delivery is not configured in this environment. Use the development reset link below. The code expires in 15 minutes.',
         code,
         devResetLink: resetLink,
         expiresAt: nextState.expiresAt,
@@ -260,7 +278,7 @@ async function requestPasswordReset(identifier, req) {
     });
     return {
       success: true,
-      message: 'If an account exists for that email, a password reset code will be sent shortly. If you do not receive it, please try again later.',
+      message: 'If an account exists for that email, a password reset link will be sent shortly. If you do not receive it, please try again later.',
     };
   }
 

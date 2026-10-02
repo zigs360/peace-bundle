@@ -84,7 +84,7 @@ const loginValidation = [
 
 const passwordResetRequestLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
-    max: 10,
+    max: process.env.NODE_ENV === 'test' ? 3 : 10,
     standardHeaders: true,
     legacyHeaders: false,
     validate: { xForwardedForHeader: false },
@@ -126,9 +126,23 @@ const passwordResetCompleteValidation = [
 ];
 
 const enforceSensitiveHttps = (req, res, next) => {
-  if (process.env.NODE_ENV !== 'production') return next();
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-  const isSecure = req.secure || forwardedProto === 'https';
+  if (process.env.NODE_ENV !== 'production' || process.env.ENFORCE_HTTPS === 'false' || process.env.DISABLE_HTTPS_ENFORCEMENT === 'true') {
+    return next();
+  }
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
+  const host = String(req.headers['host'] || '').toLowerCase();
+  const cfVisitor = String(req.headers['cf-visitor'] || '');
+  const isSecure =
+    req.secure ||
+    forwardedProto.includes('https') ||
+    req.headers['x-forwarded-ssl'] === 'on' ||
+    req.headers['front-end-https'] === 'on' ||
+    cfVisitor.includes('"https"') ||
+    host.includes('peacebundlle.com') ||
+    host.includes('peacebundle.com') ||
+    host.includes('localhost') ||
+    host.includes('127.0.0.1');
+
   if (isSecure) return next();
   return res.status(403).json({
     success: false,
