@@ -464,7 +464,10 @@ class DynamicProviderService {
         phone: cleanPhone,
         mobile_number: cleanPhone,
         phone_number: cleanPhone,
+        data_plan: String(planId),
         plan: String(planId),
+        plan_id: String(planId),
+        data_plan_id: String(planId),
         ref,
         ported_number: true,
       };
