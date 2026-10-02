@@ -754,7 +754,11 @@ const handleOgdamsWebhook = async (req, res) => {
 const handleBillstackWebhook = async (req, res) => {
     try {
         const payload = req.body;
-        const secret = process.env.BILLSTACK_WEBHOOK_SECRET || process.env.BILLSTACK_SECRET_KEY;
+        const rawWebhookSecret = String(process.env.BILLSTACK_WEBHOOK_SECRET || '').trim();
+        const rawSecretKey = String(process.env.BILLSTACK_SECRET_KEY || '').trim();
+        const secret = (rawWebhookSecret && !rawWebhookSecret.startsWith('http')) 
+            ? rawWebhookSecret 
+            : (rawSecretKey || rawWebhookSecret);
         
         const signature =
             req.headers['x-billstack-signature'] ||
