@@ -13,8 +13,8 @@ class DynamicProviderService {
    */
   async ensureDefaultProviders() {
     try {
-      const envPrimary = (process.env.PRIMARY_API_PROVIDER || process.env.PRIMARY_PROVIDER || process.env.AIRTIME_PRIMARY_ROUTE || '').trim().toLowerCase();
-      const isQuicklysimPrimary = envPrimary === 'quicklysim' || Boolean(process.env.QUICKLYSIM_API_KEY) || !process.env.SMEPLUG_API_KEY;
+      const explicitEnv = (process.env.PRIMARY_API_PROVIDER || '').trim().toLowerCase();
+      const isQuicklysimPrimary = explicitEnv ? explicitEnv === 'quicklysim' : true;
 
       const defaults = [
         {
@@ -178,28 +178,32 @@ class DynamicProviderService {
    */
   async getPrimaryProvider(serviceType = null) {
     await this.ensureDefaultProviders();
-    const envPrimary = (process.env.PRIMARY_API_PROVIDER || process.env.PRIMARY_PROVIDER || process.env.AIRTIME_PRIMARY_ROUTE || '').trim().toLowerCase();
 
+    // 1. First check for active primary provider in the database
     let primary = await ApiProvider.findOne({ where: { is_primary: true, is_active: true } });
 
-    // If an environment variable explicitly defines primary provider, enforce it
-    if (envPrimary && envPrimary !== 'sim') {
-      const envTarget = await ApiProvider.findOne({ where: { slug: envPrimary, is_active: true } });
-      if (envTarget && (!primary || primary.slug !== envPrimary)) {
+    // 2. Only if PRIMARY_API_PROVIDER is explicitly defined in environment and differs, enforce it
+    const explicitEnv = (process.env.PRIMARY_API_PROVIDER || '').trim().toLowerCase();
+    if (explicitEnv && explicitEnv !== 'sim') {
+      const envTarget = await ApiProvider.findOne({ where: { slug: explicitEnv, is_active: true } });
+      if (envTarget && (!primary || primary.slug !== explicitEnv)) {
         await this.setPrimaryProvider(envTarget.id);
         primary = envTarget;
       }
     }
 
     if (!primary) {
-      // If none marked as primary, pick highest priority active provider
-      primary = await ApiProvider.findOne({
-        where: { is_active: true },
-        order: [
-          ['priority', 'ASC'],
-          ['createdAt', 'ASC'],
-        ],
-      });
+      // Default to quicklysim first if active, otherwise highest priority
+      primary = await ApiProvider.findOne({ where: { slug: 'quicklysim', is_active: true } });
+      if (!primary) {
+        primary = await ApiProvider.findOne({
+          where: { is_active: true },
+          order: [
+            ['priority', 'ASC'],
+            ['createdAt', 'ASC'],
+          ],
+        });
+      }
       if (primary) {
         await this.setPrimaryProvider(primary.id);
       }
@@ -601,6 +605,22 @@ class DynamicProviderService {
       }
     }
 
+    // SMEPlug Data Vending
+    if (String(provider.slug || '').toLowerCase() === 'smeplug' || String(provider.base_url || '').toLowerCase().includes('smeplug')) {
+      const smeplugService = require('./smeplugService');
+      const cleanPhone = String(phone).replace(/\D/g, '');
+      logger.info(`[DynamicProvider] Routing Data purchase to Smeplug service: ${network} plan ${planId} to ${cleanPhone}`);
+      const res = await smeplugService.purchaseData(network, planId, cleanPhone);
+      const isOk = Boolean(res?.data?.status || res?.status === 'success' || res?.status === 200 || res?.success);
+      return {
+        success: isOk,
+        provider: 'smeplug',
+        data: res?.data || res,
+        reference: res?.data?.reference || res?.data?.transaction_id || ref,
+        error: isOk ? null : (res?.error || res?.data?.msg || res?.message || 'Smeplug data purchase failed'),
+      };
+    }
+
     // Generic Provider Data Purchase
     const path = provider.endpoint_map?.data_purchase || '/data';
     const payload = {
@@ -713,6 +733,22 @@ class DynamicProviderService {
           data: err.response?.data,
         };
       }
+    }
+
+    // SMEPlug Airtime Vending
+    if (String(provider.slug || '').toLowerCase() === 'smeplug' || String(provider.base_url || '').toLowerCase().includes('smeplug')) {
+      const smeplugService = require('./smeplugService');
+      const cleanPhone = String(phone).replace(/\D/g, '');
+      logger.info(`[DynamicProvider] Routing Airtime purchase to Smeplug service: ${network} ${amount} to ${cleanPhone}`);
+      const res = await smeplugService.purchaseVTU(network, cleanPhone, amount);
+      const isOk = Boolean(res?.data?.status || res?.status === 'success' || res?.status === 200 || res?.success);
+      return {
+        success: isOk,
+        provider: 'smeplug',
+        data: res?.data || res,
+        reference: res?.data?.reference || res?.data?.transaction_id || ref,
+        error: isOk ? null : (res?.error || res?.data?.msg || res?.message || 'Smeplug airtime purchase failed'),
+      };
     }
 
     const path = provider.endpoint_map?.airtime_purchase || '/airtime';

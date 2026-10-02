@@ -519,7 +519,7 @@ class TransactionIntegrityService {
       };
     }
 
-    const envPrimary = String(process.env.PRIMARY_API_PROVIDER || process.env.PRIMARY_PROVIDER || process.env.AIRTIME_PRIMARY_ROUTE || '').toLowerCase();
+    const envPrimary = String(process.env.PRIMARY_API_PROVIDER || '').toLowerCase();
     if (preferredSim && envPrimary === 'sim') {
       return {
         paymentChannel: 'connected_sim',
