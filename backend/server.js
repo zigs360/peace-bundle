@@ -377,6 +377,10 @@ if (require.main === module) {
       startWalletReconciliationJob();
       startTransactionIntegrityJob();
       startDatabaseHealthMonitorJob();
+      try {
+        const dynamicProviderService = require('./services/dynamicProviderService');
+        dynamicProviderService.getPrimaryProvider().catch(() => {});
+      } catch (_) {}
     });
   })();
 }

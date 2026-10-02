@@ -431,6 +431,48 @@ class DataPurchaseService {
         sim = await Sim.findByPk(route.simId, { transaction: t });
       }
 
+      const dynamicProviderService = require('./dynamicProviderService');
+      const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
+
+      const isDynamicRoute = route.fulfillmentRoute && !['sim_pool', 'ogdams_sim', 'ogdams_api', 'smeplug_api'].includes(route.fulfillmentRoute);
+      const isDynamicPrimary = primaryProvider && primaryProvider.slug && primaryProvider.slug !== 'smeplug' && primaryProvider.slug !== 'ogdams';
+
+      if (isDynamicRoute || isDynamicPrimary) {
+        const targetSlug = isDynamicRoute ? (route.source || route.fulfillmentRoute.replace('_api', '')) : primaryProvider.slug;
+        const effectivePlanId = plan?.plan_id || smeplugPlanId || plan?.provider_plan_id || '1';
+        logger.info(`[DataPurchase] Dispensing via designated primary provider: ${targetSlug}`, {
+          transactionId: transaction.id,
+          effectivePlanId,
+        });
+
+        const response = await dynamicProviderService.purchaseData(
+          transaction.provider,
+          transaction.recipient_phone,
+          effectivePlanId,
+          transaction.amount,
+          targetSlug,
+          { reference: transaction.reference }
+        );
+
+        if (response.success) {
+          await transactionIntegrityService.markProviderSuccess(
+            transaction,
+            {
+              provider: targetSlug,
+              providerReference: response.data?.reference || response.data?.ident || response.reference || transaction.reference,
+              response: { provider: targetSlug, data: response.data },
+            },
+            t,
+          );
+          return;
+        }
+
+        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Provider data purchase failed', t, {
+          flagAsAnomaly: true,
+        });
+        return;
+      }
+
       if (route.fulfillmentRoute === 'sim_pool' || route.fulfillmentRoute === 'ogdams_sim') {
         if (!simPoolEnabled && !sim) {
           await transactionIntegrityService.failAndRefund(transaction, 'SIM pool route selected but SIM pool is disabled', t, {
@@ -1015,6 +1057,63 @@ class DataPurchaseService {
         auditEvent: 'airtime_delivery_failed',
       });
     };
+
+    const dynamicProviderService = require('./dynamicProviderService');
+    const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_airtime');
+
+    const isDynamicAirtimeRoute = lockedRoute.fulfillmentRoute && !['sim_pool', 'ogdams_api', 'smeplug_api'].includes(lockedRoute.fulfillmentRoute);
+    const isDynamicAirtimePrimary = primaryProvider && primaryProvider.slug && primaryProvider.slug !== 'smeplug' && primaryProvider.slug !== 'ogdams';
+
+    if (isDynamicAirtimeRoute || isDynamicAirtimePrimary) {
+      const activeSlug = isDynamicAirtimeRoute ? (lockedRoute.source || lockedRoute.fulfillmentRoute.replace('_api', '')) : primaryProvider.slug;
+      logger.info(`[Airtime] Dispensing via designated primary provider: ${activeSlug}`, {
+        transactionReference: transaction.reference,
+        amount: vendAmount,
+        network: cleanNetwork,
+      });
+
+      try {
+        const response = await dynamicProviderService.purchaseAirtime(
+          cleanNetwork,
+          vendAmount,
+          cleanPhone,
+          {
+            reference: transaction.reference,
+            providerSlug: activeSlug,
+          }
+        );
+
+        if (response && response.success) {
+          await persistSuccess({
+            provider: activeSlug,
+            reference: response.reference || transaction.reference,
+            response: response.data,
+          });
+          return { provider: activeSlug, response: response.data };
+        }
+
+        const errMsg = response?.error || 'Airtime purchase failed';
+        logger.warn(`[Airtime] Primary provider ${activeSlug} failed: ${errMsg}`);
+        await recordAttempt({
+          provider: activeSlug,
+          ok: false,
+          error: errMsg,
+          latency_ms: Date.now() - startedAt,
+        });
+        await persistFailure(errMsg);
+        return { provider: activeSlug, ok: false, error: errMsg };
+      } catch (err) {
+        logger.error(`[Airtime] Primary provider ${activeSlug} exception: ${err.message}`);
+        await recordAttempt({
+          provider: activeSlug,
+          ok: false,
+          error: err.message,
+          latency_ms: Date.now() - startedAt,
+        });
+        await persistFailure(err.message);
+        return { provider: activeSlug, ok: false, error: err.message };
+      }
+    }
 
     if (lockedRoute.fulfillmentRoute === 'ogdams_api' && !options.skipOgdams) {
       const maskPhone = (value) => {

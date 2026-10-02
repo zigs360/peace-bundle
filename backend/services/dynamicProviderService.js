@@ -135,7 +135,11 @@ class DynamicProviderService {
    */
   async getPrimaryProvider() {
     await this.ensureDefaultProviders();
-    return await ApiProvider.findOne({ where: { is_primary: true, is_active: true } });
+    const primary = await ApiProvider.findOne({ where: { is_primary: true, is_active: true } });
+    if (primary) {
+      globalThis.__peacebundle_primary_provider = primary;
+    }
+    return primary;
   }
 
   /**
@@ -155,6 +159,7 @@ class DynamicProviderService {
     target.is_active = true;
     await target.save();
 
+    globalThis.__peacebundle_primary_provider = target;
     logger.info(`[DynamicProvider] Provider ${target.name} set as PRIMARY`);
     return target;
   }
