@@ -935,6 +935,8 @@ class DataPurchaseService {
     const ogdamsPhone =
       cleanPhone && cleanPhone.startsWith('0') && cleanPhone.length === 11 ? `234${cleanPhone.slice(1)}` : cleanPhone;
     const vendAmount = Math.round(Number(amount));
+    const dynamicProviderService = require('./dynamicProviderService');
+    const primaryProvider = await dynamicProviderService.getPrimaryProvider('airtime');
     const lockedRoute = transaction.fulfillment_route
       ? {
           fulfillmentRoute: transaction.fulfillment_route,
@@ -945,6 +947,7 @@ class DataPurchaseService {
       : transactionIntegrityService.selectAirtimeRoute({
           network: cleanNetwork,
           preferredSim: await simManagementService.getOptimalSim(cleanNetwork, vendAmount),
+          primaryProvider,
         });
 
     const baseMeta = transaction.metadata && typeof transaction.metadata === 'object' ? transaction.metadata : {};
@@ -1058,14 +1061,15 @@ class DataPurchaseService {
       });
     };
 
-    const dynamicProviderService = require('./dynamicProviderService');
-    const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_airtime');
+    // primaryProvider already resolved above
 
     const isDynamicAirtimeRoute = lockedRoute.fulfillmentRoute && !['sim_pool', 'ogdams_api', 'smeplug_api'].includes(lockedRoute.fulfillmentRoute);
     const isDynamicAirtimePrimary = primaryProvider && primaryProvider.slug && primaryProvider.slug !== 'smeplug' && primaryProvider.slug !== 'ogdams';
 
     if (isDynamicAirtimeRoute || isDynamicAirtimePrimary) {
-      const activeSlug = isDynamicAirtimeRoute ? (lockedRoute.source || lockedRoute.fulfillmentRoute.replace('_api', '')) : primaryProvider.slug;
+      const activeSlug = primaryProvider?.slug && primaryProvider.slug !== 'smeplug' && primaryProvider.slug !== 'ogdams'
+        ? primaryProvider.slug
+        : (isDynamicAirtimeRoute ? (lockedRoute.source || lockedRoute.fulfillmentRoute.replace('_api', '')) : 'quicklysim');
       logger.info(`[Airtime] Dispensing via designated primary provider: ${activeSlug}`, {
         transactionReference: transaction.reference,
         amount: vendAmount,

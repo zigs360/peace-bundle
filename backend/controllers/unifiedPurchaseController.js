@@ -240,7 +240,9 @@ const purchaseUnified = async (req, res) => {
         );
 
         const optimalSim = plan.available_sim === false ? null : await simManagementService.getOptimalSimForData(plan);
-        const route = transactionIntegrityService.selectDataRoute({ plan, preferredSim: optimalSim });
+        const dynamicProviderService = require('../services/dynamicProviderService');
+        const primaryProvider = await dynamicProviderService.getPrimaryProvider('data');
+        const route = transactionIntegrityService.selectDataRoute({ plan, preferredSim: optimalSim, primaryProvider });
         await transactionIntegrityService.lockRoute(newTransaction, route, t);
         newTransaction.status = 'processing';
         newTransaction.recipient_phone = cleanPhone;

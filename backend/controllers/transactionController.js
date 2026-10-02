@@ -427,7 +427,9 @@ const buyData = async (req, res) => {
 
         // 2. Process Purchase (Local SIM or API)
         const preferredSim = plan.available_sim === false ? null : await simManagementService.getOptimalSimForData(plan);
-        const route = transactionIntegrityService.selectDataRoute({ plan, preferredSim });
+        const dynamicProviderService = require('../services/dynamicProviderService');
+        const primaryProvider = await dynamicProviderService.getPrimaryProvider('data');
+        const route = transactionIntegrityService.selectDataRoute({ plan, preferredSim, primaryProvider });
         await transactionIntegrityService.lockRoute(newTransaction, route, t);
 
         newTransaction.status = 'processing';

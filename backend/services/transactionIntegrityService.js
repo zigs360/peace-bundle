@@ -492,8 +492,8 @@ class TransactionIntegrityService {
     });
   }
 
-  selectAirtimeRoute({ network, preferredSim = null }) {
-    const primary = globalThis.__peacebundle_primary_provider;
+  selectAirtimeRoute({ network, preferredSim = null, primaryProvider = null }) {
+    const primary = primaryProvider || globalThis.__peacebundle_primary_provider;
     if (primary && primary.slug && primary.is_active) {
       if (primary.slug === 'smeplug') {
         return {
@@ -519,8 +519,8 @@ class TransactionIntegrityService {
       };
     }
 
-    const strategy = String(process.env.AIRTIME_PRIMARY_ROUTE || 'smeplug').toLowerCase();
-    if (preferredSim && strategy === 'sim') {
+    const envPrimary = String(process.env.PRIMARY_API_PROVIDER || process.env.PRIMARY_PROVIDER || process.env.AIRTIME_PRIMARY_ROUTE || '').toLowerCase();
+    if (preferredSim && envPrimary === 'sim') {
       return {
         paymentChannel: 'connected_sim',
         fulfillmentRoute: 'sim_pool',
@@ -528,15 +528,27 @@ class TransactionIntegrityService {
         simId: preferredSim.id,
       };
     }
+
+    if (envPrimary === 'smeplug') {
+      return {
+        paymentChannel: 'smeplug_wallet',
+        fulfillmentRoute: 'smeplug_api',
+        provider: String(network || '').toLowerCase(),
+        source: 'smeplug',
+      };
+    }
+
+    // Default to quicklysim when configured or general fallback
     return {
-      paymentChannel: 'smeplug_wallet',
-      fulfillmentRoute: 'smeplug_api',
+      paymentChannel: 'quicklysim_wallet',
+      fulfillmentRoute: 'quicklysim_api',
       provider: String(network || '').toLowerCase(),
+      source: 'quicklysim',
     };
   }
 
-  selectDataRoute({ plan, preferredSim = null }) {
-    const primary = globalThis.__peacebundle_primary_provider;
+  selectDataRoute({ plan, preferredSim = null, primaryProvider = null }) {
+    const primary = primaryProvider || globalThis.__peacebundle_primary_provider;
     const provider = String(plan?.provider || '').toLowerCase();
     if (primary && primary.slug && primary.is_active) {
       if (primary.slug === 'smeplug') {

@@ -151,7 +151,13 @@ class AirtimePurchaseWorkflowService {
           );
 
           const preferredSim = await simManagementService.getOptimalSim(normalizedNetwork, numericFaceValue);
-          const route = transactionIntegrityService.selectAirtimeRoute({ network: normalizedNetwork, preferredSim });
+          const dynamicProviderService = require('./dynamicProviderService');
+          const primaryProvider = await dynamicProviderService.getPrimaryProvider('airtime');
+          const route = transactionIntegrityService.selectAirtimeRoute({
+            network: normalizedNetwork,
+            preferredSim,
+            primaryProvider,
+          });
           await transactionIntegrityService.lockRoute(newTransaction, route, t);
           if (route.simId) {
             newTransaction.simId = route.simId;

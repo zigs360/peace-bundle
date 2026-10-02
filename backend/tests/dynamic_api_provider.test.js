@@ -173,7 +173,7 @@ describe('Dynamic API Provider Orchestration', () => {
     expect(createdPlan.source).toBe('quicklysim');
 
     // 3. Test selectDataRoute routes to quicklysim_api
-    const route = transactionIntegrityService.selectDataRoute({ plan: createdPlan });
+    const route = transactionIntegrityService.selectDataRoute({ plan: createdPlan, primaryProvider: { slug: 'quicklysim', is_active: true } });
     expect(route.fulfillmentRoute).toBe('quicklysim_api');
     expect(route.paymentChannel).toBe('quicklysim_wallet');
 
@@ -194,5 +194,21 @@ describe('Dynamic API Provider Orchestration', () => {
     expect(client.defaults.headers['Authorization']).toBe('Bearer my_secret_key_123');
     expect(client.defaults.headers['x-api-key']).toBe('my_secret_key_123');
     expect(client.defaults.headers['x-secret-key']).toBe('secret_key_456');
+  });
+
+  it('selects quicklysim_api for airtime when quicklysim is primary', async () => {
+    const transactionIntegrityService = require('../services/transactionIntegrityService');
+    const quicklysim = await ApiProvider.findOne({ where: { slug: 'quicklysim' } });
+    if (quicklysim) {
+      await dynamicProviderService.setPrimaryProvider(quicklysim.id);
+      const primary = await dynamicProviderService.getPrimaryProvider();
+      const route = transactionIntegrityService.selectAirtimeRoute({
+        network: 'airtel',
+        primaryProvider: primary,
+      });
+      expect(route.fulfillmentRoute).toBe('quicklysim_api');
+      expect(route.paymentChannel).toBe('quicklysim_wallet');
+      expect(route.source).toBe('quicklysim');
+    }
   });
 });

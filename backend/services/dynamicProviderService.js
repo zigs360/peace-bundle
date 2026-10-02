@@ -13,6 +13,9 @@ class DynamicProviderService {
    */
   async ensureDefaultProviders() {
     try {
+      const envPrimary = (process.env.PRIMARY_API_PROVIDER || process.env.PRIMARY_PROVIDER || process.env.AIRTIME_PRIMARY_ROUTE || '').trim().toLowerCase();
+      const isQuicklysimPrimary = envPrimary === 'quicklysim' || Boolean(process.env.QUICKLYSIM_API_KEY) || !process.env.SMEPLUG_API_KEY;
+
       const defaults = [
         {
           name: 'QuicklySIM',
@@ -31,8 +34,8 @@ class DynamicProviderService {
             balance: '/topupmate/api/user',
           },
           is_active: true,
-          is_primary: false,
-          priority: 2,
+          is_primary: isQuicklysimPrimary,
+          priority: isQuicklysimPrimary ? 1 : 2,
         },
         {
           name: 'Smeplug',
@@ -50,8 +53,8 @@ class DynamicProviderService {
             balance: '/wallet/balance',
           },
           is_active: true,
-          is_primary: true,
-          priority: 1,
+          is_primary: !isQuicklysimPrimary,
+          priority: isQuicklysimPrimary ? 2 : 1,
         },
         {
           name: 'Ogdams',
@@ -76,6 +79,20 @@ class DynamicProviderService {
         if (!existing) {
           await ApiProvider.create(p);
           logger.info(`[DynamicProvider] Initialized default provider: ${p.name} (${p.slug})`);
+        } else {
+          // Sync keys from environment if provided and missing in DB
+          let changed = false;
+          if (p.api_key && (!existing.api_key || existing.api_key.includes('your_'))) {
+            existing.api_key = p.api_key;
+            changed = true;
+          }
+          if (p.secret_key && (!existing.secret_key || existing.secret_key.includes('your_'))) {
+            existing.secret_key = p.secret_key;
+            changed = true;
+          }
+          if (changed) {
+            await existing.save();
+          }
         }
       }
     } catch (err) {
@@ -133,9 +150,35 @@ class DynamicProviderService {
   /**
    * Get current primary active provider
    */
-  async getPrimaryProvider() {
+  async getPrimaryProvider(serviceType = null) {
     await this.ensureDefaultProviders();
-    const primary = await ApiProvider.findOne({ where: { is_primary: true, is_active: true } });
+    const envPrimary = (process.env.PRIMARY_API_PROVIDER || process.env.PRIMARY_PROVIDER || process.env.AIRTIME_PRIMARY_ROUTE || '').trim().toLowerCase();
+
+    let primary = await ApiProvider.findOne({ where: { is_primary: true, is_active: true } });
+
+    // If an environment variable explicitly defines primary provider, enforce it
+    if (envPrimary && envPrimary !== 'sim') {
+      const envTarget = await ApiProvider.findOne({ where: { slug: envPrimary, is_active: true } });
+      if (envTarget && (!primary || primary.slug !== envPrimary)) {
+        await this.setPrimaryProvider(envTarget.id);
+        primary = envTarget;
+      }
+    }
+
+    if (!primary) {
+      // If none marked as primary, pick highest priority active provider
+      primary = await ApiProvider.findOne({
+        where: { is_active: true },
+        order: [
+          ['priority', 'ASC'],
+          ['createdAt', 'ASC'],
+        ],
+      });
+      if (primary) {
+        await this.setPrimaryProvider(primary.id);
+      }
+    }
+
     if (primary) {
       globalThis.__peacebundle_primary_provider = primary;
     }
@@ -564,13 +607,16 @@ class DynamicProviderService {
     if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
       const path = provider.endpoint_map?.airtime_purchase || '/topupmate/api/airtime';
       const cleanPhone = String(phone).replace(/\D/g, '');
+      const netId = this.mapNetworkToQuicklysim(network);
       const payload = {
-        network: this.mapNetworkToQuicklysim(network),
+        network: String(netId),
+        network_id: parseInt(netId, 10),
         phone: cleanPhone,
         mobile_number: cleanPhone,
         phone_number: cleanPhone,
         amount: String(amount),
         airtime_type: 'VTU',
+        ported_number: true,
         ref,
       };
 
