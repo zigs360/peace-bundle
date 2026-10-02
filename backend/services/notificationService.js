@@ -63,7 +63,7 @@ const resolveSmtpSettings = () => {
 
     return {
         host,
-        port: Number.isFinite(port) ? port : 587,
+        port: Number.isFinite(port) ? port : (secure ? 465 : 587),
         user,
         pass,
         from,
@@ -74,35 +74,54 @@ const resolveSmtpSettings = () => {
 
 let cachedTransporter = null;
 let cachedTransportKey = null;
+let activeWorkingPort = null;
 
-const getTransporter = () => {
-    const settings = resolveSmtpSettings();
-    const key = JSON.stringify({
+const createTransporterInstance = (settings, customPort = null, customSecure = null) => {
+    const port = customPort !== null ? customPort : settings.port;
+    const secure = customSecure !== null ? customSecure : (port === 465 ? true : settings.secure);
+    const requireTLS = port === 587 ? true : settings.requireTLS;
+
+    return nodemailer.createTransport({
         host: settings.host,
-        port: settings.port,
-        user: settings.user,
-        secure: settings.secure,
-        requireTLS: settings.requireTLS,
-    });
-
-    if (cachedTransporter && cachedTransportKey === key) return cachedTransporter;
-
-    if (!settings.host || !settings.user || !settings.pass) return null;
-    if (isPlaceholder(settings.user) || isPlaceholder(settings.pass)) return null;
-
-    cachedTransporter = nodemailer.createTransport({
-        host: settings.host,
-        port: settings.port,
-        secure: settings.secure,
+        port,
+        secure,
         auth: { user: settings.user, pass: settings.pass },
-        requireTLS: settings.requireTLS,
+        requireTLS,
         connectionTimeout: 10_000,
         greetingTimeout: 10_000,
         socketTimeout: 20_000,
     });
+};
+
+const getTransporter = (preferredPort = null) => {
+    const settings = resolveSmtpSettings();
+    if (!settings.host || !settings.user || !settings.pass) return null;
+    if (isPlaceholder(settings.user) || isPlaceholder(settings.pass)) return null;
+
+    const portToUse = preferredPort || activeWorkingPort || settings.port;
+    const secureToUse = portToUse === 465 ? true : (portToUse === 587 ? false : settings.secure);
+
+    const key = JSON.stringify({
+        host: settings.host,
+        port: portToUse,
+        user: settings.user,
+        secure: secureToUse,
+    });
+
+    if (cachedTransporter && cachedTransportKey === key) return cachedTransporter;
+
+    cachedTransporter = createTransporterInstance(settings, portToUse, secureToUse);
     cachedTransportKey = key;
 
     return cachedTransporter;
+};
+
+const isConnectionNetworkError = (error) => {
+    const code = String(error?.code || '').toUpperCase();
+    const msg = String(error?.message || '').toLowerCase();
+    return [
+        'ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET', 'ESOCKETTIMEDOUT', 'EHOSTUNREACH'
+    ].includes(code) || msg.includes('timeout') || msg.includes('greeting never received') || msg.includes('connection closed');
 };
 
 const sendEmail = async (to, subject, text, html, options = {}) => {
@@ -110,44 +129,63 @@ const sendEmail = async (to, subject, text, html, options = {}) => {
         if (process.env.NODE_ENV === 'test') return { success: true, skipped: true, reason: 'test_mode' };
         if (!to) return { success: false, skipped: true, reason: 'missing_recipient' };
 
+        const settings = resolveSmtpSettings();
         const transporter = getTransporter();
-        
-        logger.info('SMTP config status', { 
-            configured: !!transporter, 
-            to: to 
-        });
 
         if (!transporter) {
             logger.info('[Mock Email] SMTP not configured', { to, subject });
             return { success: false, skipped: true, reason: 'smtp_not_configured' };
         }
 
-        try {
-            await transporter.verify();
-            logger.info('SMTP connection verified successfully');
-        } catch (verifyError) {
-            logger.error('SMTP connection failed', { error: verifyError.message });
-        }
-
-        const { from } = resolveSmtpSettings();
-        const info = await transporter.sendMail({
+        const { from } = settings;
+        const mailOptions = {
             from,
-            to, // list of receivers
-            subject, // Subject line
-            text, // plain text body
-            html: html || undefined, // html body
+            to,
+            subject,
+            text,
+            html: html || undefined,
             replyTo: options.replyTo || undefined,
             headers: options.headers || undefined,
-        });
+        };
 
-        logger.info('Email sent', { messageId: info.messageId, to });
+        let info;
+        try {
+            info = await transporter.sendMail(mailOptions);
+        } catch (sendErr) {
+            // Check if this is a connection/network timeout on Gmail and attempt automatic port fallback
+            const isGmail = (settings.host && settings.host.includes('gmail')) || (settings.user && settings.user.includes('@gmail.com'));
+            const currentPort = activeWorkingPort || settings.port;
+            const alternatePort = currentPort === 465 ? 587 : 465;
+
+            if (isGmail && isConnectionNetworkError(sendErr) && currentPort !== alternatePort) {
+                logger.warn(`[SMTP] Delivery attempt failed on port ${currentPort} (${sendErr.message}). Retrying via fallback port ${alternatePort}...`);
+                const fallbackTransporter = createTransporterInstance(settings, alternatePort, alternatePort === 465);
+                info = await fallbackTransporter.sendMail(mailOptions);
+                // Remember the working port to avoid future timeouts
+                activeWorkingPort = alternatePort;
+                cachedTransporter = fallbackTransporter;
+                cachedTransportKey = JSON.stringify({
+                    host: settings.host,
+                    port: alternatePort,
+                    user: settings.user,
+                    secure: alternatePort === 465,
+                });
+                logger.info(`[SMTP] Fallback to port ${alternatePort} succeeded! Set active SMTP port to ${alternatePort}.`);
+            } else {
+                throw sendErr;
+            }
+        }
+
+        logger.info('Email sent successfully', { messageId: info.messageId, to, subject });
         return { success: true, messageId: info.messageId };
     } catch (error) {
         logger.error('Error sending email', { 
             error: error.message,
             stack: error.stack,
             code: error.code,
-            command: error.command
+            command: error.command,
+            response: error.response,
+            responseCode: error.responseCode
         });
         if (options.throwOnError) throw error;
         return { success: false, reason: error.message };
