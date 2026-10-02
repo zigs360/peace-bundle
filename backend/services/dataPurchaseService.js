@@ -357,9 +357,12 @@ class DataPurchaseService {
         simId: sim ? sim.id : null
       }, { transaction: t });
 
+      const dynamicProviderService = require('./dynamicProviderService');
+      const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
       const lockedRoute = transactionIntegrityService.selectDataRoute({
         plan,
         preferredSim: sim,
+        primaryProvider,
       });
       await transactionIntegrityService.lockRoute(transaction, lockedRoute, t);
 
@@ -411,6 +414,9 @@ class DataPurchaseService {
         String(simPoolEnabledRaw || (process.env.NODE_ENV === 'test' ? 'false' : 'true')).toLowerCase() === 'true';
       const allowWalletFallback =
         String(process.env.SIM_POOL_ALLOW_WALLET_FALLBACK || 'false').toLowerCase() === 'true';
+      const dynamicProviderService = require('./dynamicProviderService');
+      const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
+
       const route = transaction.fulfillment_route
         ? {
             fulfillmentRoute: transaction.fulfillment_route,
@@ -421,6 +427,7 @@ class DataPurchaseService {
         : transactionIntegrityService.selectDataRoute({
             plan,
             preferredSim: sim,
+            primaryProvider,
           });
 
       if (!transaction.fulfillment_route) {
@@ -431,14 +438,8 @@ class DataPurchaseService {
         sim = await Sim.findByPk(route.simId, { transaction: t });
       }
 
-      const dynamicProviderService = require('./dynamicProviderService');
-      const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
-
-      const isDynamicRoute = route.fulfillmentRoute && !['sim_pool', 'ogdams_sim', 'ogdams_api', 'smeplug_api'].includes(route.fulfillmentRoute);
-      const isDynamicPrimary = primaryProvider && primaryProvider.slug && primaryProvider.slug !== 'smeplug' && primaryProvider.slug !== 'ogdams';
-
-      if (isDynamicRoute || isDynamicPrimary) {
-        const targetSlug = isDynamicRoute ? (route.source || route.fulfillmentRoute.replace('_api', '')) : primaryProvider.slug;
+      if (primaryProvider && primaryProvider.is_active) {
+        const targetSlug = primaryProvider.slug;
         const effectivePlanId = plan?.plan_id || smeplugPlanId || plan?.provider_plan_id || '1';
         logger.info(`[DataPurchase] Dispensing via designated primary provider: ${targetSlug}`, {
           transactionId: transaction.id,

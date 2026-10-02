@@ -196,19 +196,47 @@ describe('Dynamic API Provider Orchestration', () => {
     expect(client.defaults.headers['x-secret-key']).toBe('secret_key_456');
   });
 
-  it('selects quicklysim_api for airtime when quicklysim is primary', async () => {
+  it('guarantees that both Airtel and MTN airtime and data route to primary provider even if SIM exists', async () => {
     const transactionIntegrityService = require('../services/transactionIntegrityService');
     const quicklysim = await ApiProvider.findOne({ where: { slug: 'quicklysim' } });
     if (quicklysim) {
       await dynamicProviderService.setPrimaryProvider(quicklysim.id);
       const primary = await dynamicProviderService.getPrimaryProvider();
-      const route = transactionIntegrityService.selectAirtimeRoute({
+
+      // Airtel airtime without SIM
+      const airtelRoute = transactionIntegrityService.selectAirtimeRoute({
         network: 'airtel',
         primaryProvider: primary,
       });
-      expect(route.fulfillmentRoute).toBe('quicklysim_api');
-      expect(route.paymentChannel).toBe('quicklysim_wallet');
-      expect(route.source).toBe('quicklysim');
+      expect(airtelRoute.fulfillmentRoute).toBe('quicklysim_api');
+      expect(airtelRoute.paymentChannel).toBe('quicklysim_wallet');
+      expect(airtelRoute.source).toBe('quicklysim');
+
+      // MTN airtime even with a preferred connected SIM
+      const mockMtnSim = { id: 999, phoneNumber: '08030000000', network: 'mtn' };
+      const mtnRoute = transactionIntegrityService.selectAirtimeRoute({
+        network: 'mtn',
+        preferredSim: mockMtnSim,
+        primaryProvider: primary,
+      });
+      expect(mtnRoute.fulfillmentRoute).toBe('quicklysim_api');
+      expect(mtnRoute.paymentChannel).toBe('quicklysim_wallet');
+      expect(mtnRoute.source).toBe('quicklysim');
+
+      // MTN Data
+      const mtnDataRoute = transactionIntegrityService.selectDataRoute({
+        plan: { provider: 'mtn' },
+        preferredSim: mockMtnSim,
+        primaryProvider: primary,
+      });
+      expect(mtnDataRoute.fulfillmentRoute).toBe('quicklysim_api');
+
+      // Airtel Data
+      const airtelDataRoute = transactionIntegrityService.selectDataRoute({
+        plan: { provider: 'airtel' },
+        primaryProvider: primary,
+      });
+      expect(airtelDataRoute.fulfillmentRoute).toBe('quicklysim_api');
     }
   });
 });
