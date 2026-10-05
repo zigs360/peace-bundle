@@ -246,27 +246,54 @@ class BillstackVirtualAccountService {
     return Boolean(this.baseUrl && this.secretKey);
   }
 
+  stripNonPrintable(value) {
+    const s = String(value || '').trim();
+    if (!s) return '';
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+      const code = s.charCodeAt(i);
+      if (code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f)) {
+        out += s[i];
+      }
+    }
+    return out;
+  }
+
+  getEndpointUrl(path) {
+    const rawPath = String(path || '').trim();
+    if (/^https?:\/\//i.test(rawPath)) return rawPath;
+
+    const base = String(this.baseUrl || 'https://api.billstack.co/v2/thirdparty').trim().replace(/\/+$/, '');
+    let origin = 'https://api.billstack.co';
+    try {
+      origin = new URL(base).origin;
+    } catch (_) {}
+
+    const cleanPath = rawPath.replace(/^\/+/, '');
+    if (base.includes('/v2/thirdparty')) {
+      return `${base}/${cleanPath}`;
+    }
+    if (base.includes('/v2')) {
+      return `${base}/thirdparty/${cleanPath}`;
+    }
+    return `${origin}/v2/thirdparty/${cleanPath}`;
+  }
+
   client() {
-    return axios.create({
-      baseURL: this.baseUrl,
-      timeout: this.timeoutMs,
-      headers: {
-        Authorization: `Bearer ${this.secretKey}`,
-        'x-api-key': this.secretKey,
-        'x-public-key': this.publicKey,
-        'Content-Type': 'application/json',
-      },
-    });
+    return this.clientWithTimeout(this.timeoutMs);
   }
 
   clientWithTimeout(timeoutMs) {
+    const cleanSecret = this.stripNonPrintable(this.secretKey);
+    const authHeader = cleanSecret.startsWith('Bearer ') ? cleanSecret : `Bearer ${cleanSecret}`;
+    const rawSecret = cleanSecret.replace(/^Bearer\s+/i, '');
     return axios.create({
       baseURL: this.baseUrl,
       timeout: Number.isFinite(timeoutMs) ? timeoutMs : this.timeoutMs,
       headers: {
-        Authorization: `Bearer ${this.secretKey}`,
-        'x-api-key': this.secretKey,
-        'x-public-key': this.publicKey,
+        Authorization: authHeader,
+        'x-api-key': rawSecret,
+        'x-public-key': this.stripNonPrintable(this.publicKey),
         'Content-Type': 'application/json',
       },
     });
@@ -349,34 +376,39 @@ class BillstackVirtualAccountService {
 
     const reference = options.reference ? String(options.reference) : `PB-${user.id}`;
     const payload = {
-      email: user.email,
       reference,
+      email: String(user.email || '').trim().toLowerCase(),
+      phone: this.normalizePhone(user.phone),
       firstName,
       lastName,
-      phone: this.normalizePhone(user.phone),
       bank: normalizedBank,
     };
+
+    const bvn = String(user.bvn || options.bvn || '').trim();
+    const nin = String(user.nin || options.nin || '').trim();
+    if (bvn) {
+      payload.idType = 'bvn';
+      payload.idNumber = bvn;
+      payload.bvn = bvn;
+    } else if (nin) {
+      payload.idType = 'nin';
+      payload.idNumber = nin;
+      payload.nin = nin;
+    }
 
     const configuredPath = (process.env.BILLSTACK_GENERATE_VA_PATH || process.env.BILLSTACK_VA_PATH || '').trim();
     const candidateEndpoints = [];
     if (configuredPath) {
+      candidateEndpoints.push(this.getEndpointUrl(configuredPath));
       candidateEndpoints.push(configuredPath);
     }
 
-    const normalizedBase = String(this.baseUrl || '').replace(/\/+$/, '');
-    const hasThirdparty = normalizedBase.includes('/thirdparty');
-
-    if (hasThirdparty) {
-      candidateEndpoints.push('/generateVirtualAccount/');
-      candidateEndpoints.push('/generateVirtualAccount');
-      candidateEndpoints.push('generateVirtualAccount/');
-      candidateEndpoints.push('generateVirtualAccount');
-    } else {
-      candidateEndpoints.push('/thirdparty/generateVirtualAccount/');
-      candidateEndpoints.push('/thirdparty/generateVirtualAccount');
-      candidateEndpoints.push('/generateVirtualAccount/');
-      candidateEndpoints.push('/generateVirtualAccount');
-    }
+    candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount/'));
+    candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount'));
+    candidateEndpoints.push('/generateVirtualAccount/');
+    candidateEndpoints.push('/generateVirtualAccount');
+    candidateEndpoints.push('/thirdparty/generateVirtualAccount/');
+    candidateEndpoints.push('/thirdparty/generateVirtualAccount');
 
     const endpointsToTry = [...new Set(candidateEndpoints)];
     let lastError = null;
@@ -466,7 +498,7 @@ class BillstackVirtualAccountService {
 
       if (billstackBanks.includes(key)) {
         const circuitKey = `BILLSTACK:${key}`;
-        const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB' || (key === 'PALMPAY' && process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true');
+        const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB' || (key === 'PALMPAY' && (process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true' || (Boolean(process.env.PAYVESSEL_API_KEY) && !isTest)));
         if (canUseBillstack) {
           if (this.isCircuitOpen(circuitKey)) {
             attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'skipped', reason: 'circuit_open' });
@@ -549,7 +581,10 @@ class BillstackVirtualAccountService {
 
       if (key === '9PSB') {
         const circuitKey = 'PAYVESSEL:9PSB';
-        if (!canUsePayvessel) continue;
+        if (!canUsePayvessel) {
+          logger.warn('[VA Router] PayVessel secondary fallback skipped (unconfigured or unhealthy)', { bank: key, payvesselHttpOk });
+          continue;
+        }
         if (this.isCircuitOpen(circuitKey)) {
           attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: '9PSB', tier: 'secondary', status: 'skipped', reason: 'circuit_open' });
           continue;
@@ -587,9 +622,12 @@ class BillstackVirtualAccountService {
         }
       }
 
-      if (key === 'PALMPAY' && process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true') {
+      if (key === 'PALMPAY' && (process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true' || (Boolean(process.env.PAYVESSEL_API_KEY) && !isTest))) {
         const circuitKey = 'PAYVESSEL:PALMPAY';
-        if (!canUsePayvessel) continue;
+        if (!canUsePayvessel) {
+          logger.warn('[VA Router] PayVessel secondary fallback skipped for PALMPAY (unconfigured or unhealthy)', { bank: key, payvesselHttpOk });
+          continue;
+        }
         if (this.isCircuitOpen(circuitKey)) {
           attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: 'PALMPAY', tier: 'secondary', status: 'skipped', reason: 'circuit_open' });
           continue;
