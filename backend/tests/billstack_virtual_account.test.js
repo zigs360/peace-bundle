@@ -62,6 +62,49 @@ describe('BillStack virtual account provider', () => {
     expect(post.mock.calls.map((call) => call[1].bank)).toEqual(['9PSB', 'BANKLY']);
   });
 
+  it('falls back to candidate endpoints if the primary endpoint returns 404', async () => {
+    jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
+    const notFoundError = new Error('Request failed with status code 404');
+    notFoundError.response = { status: 404, data: { message: 'Not found' } };
+
+    const post = jest.fn()
+      .mockRejectedValueOnce(notFoundError)
+      .mockResolvedValueOnce({
+        data: {
+          status: true,
+          data: {
+            reference: 'R-CANDIDATE-OK',
+            account: [{ account_number: '1234567890', account_name: 'Fallback User', bank_name: 'PALMPAY' }],
+          },
+        },
+      });
+
+    jest.spyOn(billstackVirtualAccountService, 'clientWithTimeout').mockReturnValue({ post });
+
+    const user = {
+      id: 'candidate-user-1',
+      name: 'Fallback User',
+      email: 'fallback@test.com',
+      phone: '08012345678',
+    };
+
+    const res = await billstackVirtualAccountService.generateVirtualAccount(user, 'PALMPAY');
+    expect(res).toMatchObject({
+      accountNumber: '1234567890',
+      bankName: 'PALMPAY',
+      trackingReference: 'R-CANDIDATE-OK',
+    });
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('classifies 404 and route errors as downtime with fallbackEligible true', () => {
+    const error404 = { response: { status: 404 }, message: 'Request failed with status code 404' };
+    const classification = billstackVirtualAccountService.classifyRoutingFailure(error404);
+    expect(classification.category).toBe('downtime');
+    expect(classification.fallbackEligible).toBe(true);
+    expect(classification.status).toBe(404);
+  });
+
   it('assigns billstack virtual account and stores metadata reference', async () => {
     jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
     jest.spyOn(billstackVirtualAccountService, 'generateVirtualAccount').mockResolvedValue({
@@ -93,6 +136,8 @@ describe('BillStack virtual account provider', () => {
   });
 
   it('logs and throws the full attempted bank chain when all four banks fail', async () => {
+    const origPriority = process.env.VA_ROUTER_PRIORITY;
+    process.env.VA_ROUTER_PRIORITY = 'PALMPAY,PROVIDUS,SAFEHAVEN,9PSB';
     jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
     jest.spyOn(safeHavenVirtualAccountService, 'isConfigured').mockReturnValue(true);
     const billstackSpy = jest.spyOn(billstackVirtualAccountService, 'generateVirtualAccount').mockImplementation(async (_user, bank) => {
@@ -134,5 +179,6 @@ describe('BillStack virtual account provider', () => {
         message: expect.stringContaining('(attempted banks: PALMPAY, PROVIDUS, SAFEHAVEN, 9PSB)'),
       }),
     );
+    process.env.VA_ROUTER_PRIORITY = origPriority;
   });
 });

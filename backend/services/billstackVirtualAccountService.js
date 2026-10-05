@@ -184,14 +184,23 @@ class BillstackVirtualAccountService {
     let category = 'unknown';
     if (code === 'BILLSTACK_BANK_INVALID' || lower.includes('bank cannot be identified')) category = 'invalid_request';
     else if (lower.includes('reject') || lower.includes('declin') || lower.includes('cannot reserve')) category = 'allocation_failed';
-    else if (status >= 500 || lower.includes('service unavailable') || lower.includes('temporarily') || lower.includes('timeout') || lower.includes('network')) category = 'downtime';
+    else if (
+      status >= 500 ||
+      status === 404 ||
+      lower.includes('service unavailable') ||
+      lower.includes('temporarily') ||
+      lower.includes('timeout') ||
+      lower.includes('network') ||
+      lower.includes('not found') ||
+      lower.includes('could not be found')
+    ) category = 'downtime';
     else if (lower.includes('not configured')) category = 'not_configured';
     return {
       code,
       status: status || null,
       message,
       category,
-      fallbackEligible: ['allocation_failed', 'downtime'].includes(category),
+      fallbackEligible: ['allocation_failed', 'downtime', 'unknown'].includes(category),
       confirmedFailure: category !== 'unknown' || Boolean(message),
     };
   }
@@ -348,38 +357,79 @@ class BillstackVirtualAccountService {
       bank: normalizedBank,
     };
 
-    try {
-      const res = await this.clientWithTimeout(options.timeoutMs).post('/generateVirtualAccount/', payload);
-      const body = res.data || {};
-      if (!body.status) {
-        throw new Error(body.message || 'Cannot reserve account at the moment.');
-      }
-
-      const account = Array.isArray(body.data?.account) ? body.data.account[0] : null;
-      if (!account?.account_number) {
-        throw new Error('BillStack did not return an account number');
-      }
-
-      return {
-        accountNumber: account.account_number,
-        bankName: account.bank_name || payload.bank,
-        accountName: account.account_name || `${firstName} ${lastName}`.trim(),
-        trackingReference: body.data?.reference || payload.reference,
-        raw: body,
-      };
-    } catch (e) {
-      const status = e.response?.status;
-      const providerBody = e.response?.data;
-      const message = providerBody?.message || e.message || 'BillStack generateVirtualAccount failed';
-      const safeRequest = this.sanitizePayloadForLogs(payload);
-      logger.error('[BillStack] generateVirtualAccount failed', { userId: user.id, status, message, request: safeRequest });
-      const err = new Error(message);
-      err.status = status || null;
-      err.code = e?.code || err.code;
-      err.provider = 'billstack';
-      err.bank = normalizedBank;
-      throw err;
+    const configuredPath = (process.env.BILLSTACK_GENERATE_VA_PATH || process.env.BILLSTACK_VA_PATH || '').trim();
+    const candidateEndpoints = [];
+    if (configuredPath) {
+      candidateEndpoints.push(configuredPath);
     }
+
+    const normalizedBase = String(this.baseUrl || '').replace(/\/+$/, '');
+    const hasThirdparty = normalizedBase.includes('/thirdparty');
+
+    if (hasThirdparty) {
+      candidateEndpoints.push('/generateVirtualAccount/');
+      candidateEndpoints.push('/generateVirtualAccount');
+      candidateEndpoints.push('generateVirtualAccount/');
+      candidateEndpoints.push('generateVirtualAccount');
+    } else {
+      candidateEndpoints.push('/thirdparty/generateVirtualAccount/');
+      candidateEndpoints.push('/thirdparty/generateVirtualAccount');
+      candidateEndpoints.push('/generateVirtualAccount/');
+      candidateEndpoints.push('/generateVirtualAccount');
+    }
+
+    const endpointsToTry = [...new Set(candidateEndpoints)];
+    let lastError = null;
+    let successfulResponse = null;
+
+    for (let i = 0; i < endpointsToTry.length; i++) {
+      const endpoint = endpointsToTry[i];
+      try {
+        const res = await this.clientWithTimeout(options.timeoutMs).post(endpoint, payload);
+        const body = res.data || {};
+        if (!body.status) {
+          throw new Error(body.message || 'Cannot reserve account at the moment.');
+        }
+
+        const account = Array.isArray(body.data?.account) ? body.data.account[0] : null;
+        if (!account?.account_number) {
+          throw new Error('BillStack did not return an account number');
+        }
+
+        successfulResponse = {
+          accountNumber: account.account_number,
+          bankName: account.bank_name || payload.bank,
+          accountName: account.account_name || `${firstName} ${lastName}`.trim(),
+          trackingReference: body.data?.reference || payload.reference,
+          raw: body,
+        };
+        break;
+      } catch (e) {
+        lastError = e;
+        const status = e.response?.status;
+        if (status === 404 && i < endpointsToTry.length - 1) {
+          logger.warn(`[BillStack] Candidate endpoint ${endpoint} returned 404, attempting alternative candidate...`);
+          continue;
+        }
+        break;
+      }
+    }
+
+    if (successfulResponse) {
+      return successfulResponse;
+    }
+
+    const status = lastError?.response?.status;
+    const providerBody = lastError?.response?.data;
+    const message = providerBody?.message || lastError?.message || 'BillStack generateVirtualAccount failed';
+    const safeRequest = this.sanitizePayloadForLogs(payload);
+    logger.error('[BillStack] generateVirtualAccount failed', { userId: user.id, status, message, request: safeRequest });
+    const err = new Error(message);
+    err.status = status || null;
+    err.code = lastError?.code || err.code;
+    err.provider = 'billstack';
+    err.bank = normalizedBank;
+    throw err;
   }
 
   async generateVirtualAccountRouted(user, options = {}) {
@@ -416,7 +466,7 @@ class BillstackVirtualAccountService {
 
       if (billstackBanks.includes(key)) {
         const circuitKey = `BILLSTACK:${key}`;
-        const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB';
+        const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB' || (key === 'PALMPAY' && process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true');
         if (canUseBillstack) {
           if (this.isCircuitOpen(circuitKey)) {
             attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'skipped', reason: 'circuit_open' });
@@ -451,7 +501,7 @@ class BillstackVirtualAccountService {
               primaryFailures.push({ ...failure, bank: key, provider: 'billstack', at: new Date().toISOString() });
               logger.warn('[VA Router] Primary allocation failed', { userId: user?.id, provider: 'billstack', bank: key, failureCategory: failure.category, status: failure.status, message: failure.message });
               if (!supportsDirectProviderFallback) {
-                if (!failure.fallbackEligible && failure.confirmedFailure) break;
+                if (!failure.fallbackEligible && failure.confirmedFailure && failure.category === 'invalid_request') break;
                 continue;
               }
             }
@@ -533,6 +583,40 @@ class BillstackVirtualAccountService {
           (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router 9PSB failed',data:{userId:user?.id||null,message:failure.message,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
           // #endregion
           logger.warn('[VA Router] Secondary allocation failed', { userId: user?.id, provider: 'payvessel', bank: '9PSB', failureCategory: failure.category, status: failure.status, message: failure.message });
+          continue;
+        }
+      }
+
+      if (key === 'PALMPAY' && process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true') {
+        const circuitKey = 'PAYVESSEL:PALMPAY';
+        if (!canUsePayvessel) continue;
+        if (this.isCircuitOpen(circuitKey)) {
+          attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: 'PALMPAY', tier: 'secondary', status: 'skipped', reason: 'circuit_open' });
+          continue;
+        }
+        try {
+          const result = await payvesselService.createVirtualAccount(user, 0, {
+            timeoutMs,
+            maxRetries: 0,
+            preferredBankName: 'PALMPAY',
+            bankNames: ['PALMPAY'],
+          });
+          this.markCircuitSuccess(circuitKey);
+          const validated = this.validateProvisioningResult(result, { provider: 'payvessel', bank: 'PALMPAY' });
+          attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: 'PALMPAY', tier: 'secondary', status: 'success' });
+          logger.warn('[VA Router] Fallback occurred (secondary PayVessel PalmPay)', { userId: user?.id, selected: { provider: 'payvessel', bank: 'PALMPAY' }, attempts });
+          return {
+            provider: 'payvessel',
+            bank: 'PALMPAY',
+            ...validated,
+            routing: { attempts, primaryFailures, health },
+          };
+        } catch (e) {
+          lastError = e;
+          const failure = this.classifyRoutingFailure(e);
+          this.markCircuitFailure(circuitKey);
+          attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: 'PALMPAY', tier: 'secondary', status: 'failed', failure });
+          logger.warn('[VA Router] Secondary allocation failed', { userId: user?.id, provider: 'payvessel', bank: 'PALMPAY', failureCategory: failure.category, status: failure.status, message: failure.message });
           continue;
         }
       }
