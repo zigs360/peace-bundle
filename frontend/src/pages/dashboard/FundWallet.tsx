@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
-import { Wallet, CreditCard, Building2, Copy, RefreshCw, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Wallet, Building2, Copy, RefreshCw, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
 import { FadeIn, StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 import { AnimatePresence, motion } from 'framer-motion';
 import { User } from '../../types';
@@ -9,12 +9,10 @@ import { useVirtualAccount } from '../../hooks/useVirtualAccount';
 import VirtualAccountWidget from '../../components/VirtualAccountWidget';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTranslation } from 'react-i18next';
-import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
 export default function FundWallet() {
   const { t } = useTranslation();
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState<'card' | 'transfer' | 'virtual'>('card');
+  const [method, setMethod] = useState<'virtual' | 'transfer'>('virtual');
   const [loading, setLoading] = useState(false);
   const [fetchingUser, setFetchingUser] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -23,7 +21,6 @@ export default function FundWallet() {
   const { walletVersion } = useNotifications();
   const [pendingReference, setPendingReference] = useState<string | null>(null);
   const [lastKnownBalance, setLastKnownBalance] = useState<number | null>(null);
-  const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
 
   useEffect(() => {
     fetchUserProfile();
@@ -112,41 +109,6 @@ export default function FundWallet() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const handleFund = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!amount || parseFloat(amount) < 100) {
-        toast.error(t('fundWalletPage.minimumAmount'));
-        return;
-    }
-
-    await ensureTransactionPin(async () => {
-      setLoading(true);
-      try {
-        const reference = `MNFY-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-
-        await api.post('/transactions/fund', {
-          userId: user?.id,
-          amount: parseFloat(amount),
-          method,
-          reference
-        });
-
-        toast.success(t('fundWalletPage.initiatedSuccess'));
-        if (user?.id) {
-          await refreshBalance(user.id);
-        }
-        setPendingReference(reference);
-        setAmount('');
-      } catch (err: any) {
-        toast.error(err.response?.data?.message || t('fundWalletPage.fundingFailed'));
-      } finally {
-        setLoading(false);
-      }
-    }, {
-      amountLabel: `wallet funding of NGN ${Number(amount || 0).toLocaleString()}`,
-      actionLabel: 'Authorize wallet funding'
-    });
-  };
 
   if (fetchingUser) {
     return (
@@ -159,7 +121,6 @@ export default function FundWallet() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 md:py-10">
-      {prompt}
       <FadeIn className="flex items-center mb-10">
         <div className="p-4 bg-primary-100 rounded-2xl mr-5 shadow-sm">
           <Wallet className="w-10 h-10 text-primary-600" />
@@ -170,7 +131,7 @@ export default function FundWallet() {
         </div>
       </FadeIn>
 
-      <StaggerContainer className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+      <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
         {/* Dedicated Virtual Account */}
         <StaggerItem>
             <div
@@ -193,31 +154,6 @@ export default function FundWallet() {
                 </div>
                 <p className="text-sm text-gray-600 flex-grow leading-relaxed">{t('fundWalletPage.virtualAccountDescription')}</p>
                 {method === 'virtual' && <CheckCircle2 className="w-5 h-5 text-primary-600 absolute top-4 right-4" />}
-            </div>
-        </StaggerItem>
-
-        {/* Card Payment */}
-        <StaggerItem>
-            <div
-                className={`p-6 rounded-3xl border-2 h-full flex flex-col cursor-pointer transition-all duration-300 relative overflow-hidden ${
-                    method === 'card' 
-                    ? 'border-primary-600 bg-white shadow-xl shadow-primary-100 ring-1 ring-primary-600' 
-                    : 'border-transparent bg-white shadow-md hover:border-primary-200'
-                }`}
-                onClick={() => setMethod('card')}
-            >
-                {method === 'card' && <div className="absolute top-0 left-0 w-full h-1.5 bg-primary-600" />}
-                <div className="flex items-center mb-4">
-                    <div className={`p-3 rounded-xl ${method === 'card' ? 'bg-primary-600 text-white' : 'bg-primary-50 text-primary-600'}`}>
-                        <CreditCard className="w-6 h-6" />
-                    </div>
-                    <div className="ml-3">
-                        <h3 className="font-bold text-gray-900">{t('fundWalletPage.payOnline')}</h3>
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-primary-600">{t('fundWalletPage.instant')}</span>
-                    </div>
-                </div>
-                <p className="text-sm text-gray-600 flex-grow leading-relaxed">{t('fundWalletPage.payOnlineDescription')}</p>
-                {method === 'card' && <CheckCircle2 className="w-5 h-5 text-primary-600 absolute top-4 right-4" />}
             </div>
         </StaggerItem>
 
@@ -288,7 +224,7 @@ export default function FundWallet() {
               </div>
             )}
           </motion.div>
-        ) : method === 'transfer' ? (
+        ) : (
           <motion.div 
             key="transfer"
             initial={{ opacity: 0, y: 20 }}
@@ -334,71 +270,6 @@ export default function FundWallet() {
                     <ExternalLink className="w-5 h-5 ml-3" />
                   </a>
               </div>
-          </motion.div>
-        ) : (
-          <motion.div 
-            key="card"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-            className="bg-white p-8 rounded-[2rem] shadow-2xl border border-gray-100 overflow-hidden relative"
-          >
-            <h3 className="text-2xl font-black text-gray-900 mb-2">{t('fundWalletPage.securePaymentTitle')}</h3>
-            <p className="text-gray-500 mb-10">{t('fundWalletPage.securePaymentSubtitle')}</p>
-
-            <form onSubmit={handleFund}>
-                <div className="mb-10">
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">{t('fundWalletPage.amountToFund')}</label>
-                    <div className="relative">
-                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-3xl font-black text-gray-400">₦</span>
-                        <input
-                            type="number"
-                            value={amount}
-                            onChange={(e) => setAmount(e.target.value)}
-                            className="w-full pl-16 pr-8 py-6 rounded-3xl bg-gray-50 border-2 border-gray-100 focus:border-primary-500 focus:bg-white focus:outline-none transition-all text-3xl font-black text-gray-900 shadow-inner"
-                            placeholder={t('fundWalletPage.amountPlaceholder')}
-                            required
-                            min="100"
-                        />
-                    </div>
-                    {amount && parseFloat(amount) > 0 && (
-                        <div className="mt-5 p-4 bg-primary-50 rounded-2xl border border-primary-100 flex justify-between items-center">
-                            <span className="text-sm font-bold text-primary-600">{t('fundWalletPage.processingFee')}</span>
-                            <span className="text-lg font-black text-primary-700">₦0.00</span>
-                        </div>
-                    )}
-                </div>
-
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className={`w-full py-6 px-8 bg-primary-600 text-white text-xl font-black rounded-3xl hover:bg-primary-700 hover:shadow-2xl hover:shadow-primary-200 transition-all duration-300 flex items-center justify-center group ${
-                        loading ? 'opacity-70 cursor-not-allowed' : 'active:scale-[0.98]'
-                    }`}
-                >
-                    {loading ? (
-                        <>
-                            <RefreshCw className="w-7 h-7 mr-3 animate-spin" />
-                            {t('fundWalletPage.payOnline')}
-                        </>
-                    ) : (
-                        <>
-                            {t('fundWalletPage.securePaymentTitle')}
-                            <CheckCircle2 className="w-6 h-6 ml-3 opacity-50 group-hover:opacity-100 transition-opacity" />
-                        </>
-                    )}
-                </button>
-                
-                <div className="mt-8 flex items-center justify-center gap-6 opacity-40 grayscale hover:grayscale-0 transition-all duration-500">
-                    <img src="https://monnify.com/assets/images/monnify-logo.png" alt="Monnify" className="h-6" />
-                    <div className="w-px h-5 bg-gray-300" />
-                    <div className="flex flex-col items-center">
-                        <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest">Secured by</span>
-                        <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">PCI DSS</span>
-                    </div>
-                </div>
-            </form>
           </motion.div>
         )}
       </AnimatePresence>

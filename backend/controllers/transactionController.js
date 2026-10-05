@@ -134,6 +134,13 @@ const notifyAirtimePurchaseStatus = async ({ user, transaction, title, message, 
 // @route   POST /api/transactions/fund/initialize
 // @access  Private
 const initializeFunding = async (req, res) => {
+    if (process.env.NODE_ENV !== 'test' && req.user?.role !== 'admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Direct self-funding is disabled. Please fund via your dedicated virtual account or direct bank transfer.'
+        });
+    }
+
     try {
         const { amount } = req.body;
         const user = await User.findByPk(req.user.id);
@@ -161,6 +168,13 @@ const initializeFunding = async (req, res) => {
 // @route   POST /api/transactions/fund
 // @access  Private
 const fundWallet = async (req, res) => {
+    if (process.env.NODE_ENV !== 'test' && req.user?.role !== 'admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Direct self-funding is disabled. Please fund via your dedicated virtual account or direct bank transfer.'
+        });
+    }
+
     const { amount, reference } = req.body;
     const userId = req.user.id;
     let t;
