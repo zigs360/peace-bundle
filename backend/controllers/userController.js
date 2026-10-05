@@ -185,7 +185,9 @@ const getVirtualAccountSummary = async (req, res) => {
             userAgent: req.headers['user-agent']
         });
 
-        if (!user.virtual_account_number) {
+        const hasActiveAccount = user.virtual_account_number && virtualAccountService.hasActiveSupportedVirtualAccount(user);
+
+        if (!hasActiveAccount) {
             const meta = user.metadata || {};
             const lastAttemptAt = meta.va_last_attempt_at ? new Date(meta.va_last_attempt_at) : null;
             if (meta.va_status === 'processing' && lastAttemptAt && Number.isFinite(lastAttemptAt.getTime())) {
@@ -226,7 +228,8 @@ const getVirtualAccountSummary = async (req, res) => {
                         accountNumberMasked: masked,
                         last4: String(user.virtual_account_number).slice(-4),
                         bankName: user.virtual_account_bank,
-                        accountName: user.virtual_account_name
+                        accountName: user.virtual_account_name,
+                        needsMigrationWarning: Boolean(user.metadata?.needs_provider_migration_warning),
                     });
                     setImmediate(() => {
                         virtualAccountService.notifyUserOfNewAccount(user).catch((err) => {
@@ -273,7 +276,8 @@ const getVirtualAccountSummary = async (req, res) => {
             accountNumberMasked: masked,
             last4: String(user.virtual_account_number).slice(-4),
             bankName: user.virtual_account_bank,
-            accountName: user.virtual_account_name
+            accountName: user.virtual_account_name,
+            needsMigrationWarning: Boolean(user.metadata?.needs_provider_migration_warning),
         });
     } catch (error) {
         logger.error(`[VirtualAccount] Failed to fetch summary for user ${userId}: ${error.message}`);
@@ -705,6 +709,54 @@ const updateFcmToken = async (req, res) => {
     }
 };
 
+const getWalletSummary = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        let user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // Lazy re-provisioning if user lacks active supported account
+        const hasActiveAccount = user.virtual_account_number && virtualAccountService.hasActiveSupportedVirtualAccount(user);
+        if (!hasActiveAccount) {
+            const readiness = await virtualAccountService.getProvisioningReadiness(user);
+            if (readiness.canAttempt) {
+                try {
+                    await virtualAccountService.recordProvisioningAttempt(user.id);
+                    const account = await virtualAccountService.assignVirtualAccount(user);
+                    if (account) {
+                        await virtualAccountService.recordProvisioningSuccess(user.id);
+                        await user.reload();
+                    }
+                } catch (e) {
+                    logger.warn(`[Wallet] Lazy provisioning in getWalletSummary failed for user ${user.id}: ${e.message}`);
+                }
+            }
+        }
+
+        const walletBalance = Number(user.wallet_balance || 0);
+        const hasValidVa = virtualAccountService.isDisplayableVirtualAccount(user);
+
+        return res.json({
+            success: true,
+            walletBalance,
+            balance: walletBalance,
+            needs_provider_migration_warning: Boolean(user.metadata?.needs_provider_migration_warning),
+            hasVirtualAccount: hasValidVa,
+            virtualAccount: hasValidVa ? {
+                accountNumberMasked: maskAccountNumber(user.virtual_account_number),
+                last4: String(user.virtual_account_number).slice(-4),
+                bankName: user.virtual_account_bank,
+                accountName: user.virtual_account_name,
+            } : null,
+        });
+    } catch (error) {
+        logger.error(`[Wallet] Failed to fetch wallet summary for user ${userId}: ${error.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to load wallet summary' });
+    }
+};
+
 module.exports = {
     getBeneficiaries,
     addBeneficiary,
@@ -718,5 +770,7 @@ module.exports = {
     auditVirtualAccountAccess,
     fetchDualVirtualAccounts,
     getDualVirtualAccountsSnapshot,
-    updateFcmToken
+    updateFcmToken,
+    getWalletSummary
 };
+

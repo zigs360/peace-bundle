@@ -6,7 +6,8 @@ const {
     handleSmeplugWebhook,
     handleOgdamsWebhook,
     handlePayvesselWebhook,
-    handleBillstackWebhook
+    handleBillstackWebhook,
+    handleSafehavenWebhook
 } = require('../controllers/webhookController');
 
 router.post('/paystack', handlePaystackWebhook);
@@ -15,6 +16,7 @@ router.post('/smeplug', handleSmeplugWebhook);
 router.post('/ogdams', handleOgdamsWebhook);
 router.post('/payvessel', handlePayvesselWebhook);
 router.post('/billstack', handleBillstackWebhook);
+router.post('/safehaven', handleSafehavenWebhook);
 // Direct alias routes for 9PSB and PalmPay virtual accounts
 router.post('/9psb', (req, res, next) => {
     // If request has payvessel headers or structure, route to payvessel; otherwise billstack
@@ -36,6 +38,7 @@ router.get('/smeplug', (req, res) => res.status(200).json({ ok: true }));
 router.get('/ogdams', (req, res) => res.status(200).json({ ok: true }));
 router.get('/payvessel', (req, res) => res.status(200).json({ ok: true }));
 router.get('/billstack', (req, res) => res.status(200).json({ ok: true }));
+router.get('/safehaven', (req, res) => res.status(200).json({ ok: true }));
 router.get('/9psb', (req, res) => res.status(200).json({ ok: true }));
 router.get('/palmpay', (req, res) => res.status(200).json({ ok: true }));
 
@@ -45,5 +48,6 @@ router.head('/smeplug', (req, res) => res.sendStatus(200));
 router.head('/ogdams', (req, res) => res.sendStatus(200));
 router.head('/payvessel', (req, res) => res.sendStatus(200));
 router.head('/billstack', (req, res) => res.sendStatus(200));
+router.head('/safehaven', (req, res) => res.sendStatus(200));
 
 module.exports = router;

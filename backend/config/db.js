@@ -318,6 +318,20 @@ const ensureAccountDeletionMigrationApplied = async () => {
   }
 };
 
+const ensureSafeHavenDeprecationMigrationApplied = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20261005_deprecate_safehaven_virtual_accounts.sql');
+  try {
+    const result = await applySqlMigrationFile({ id: '20261005_deprecate_safehaven_virtual_accounts', filePath: migrationFilePath });
+    if (result.applied) {
+      console.log(`[DB] Applied SQL migration: ${result.id}`);
+    }
+  } catch (error) {
+    console.error(`[DB] Failed to apply SafeHaven deprecation migration: ${error.message}`);
+  }
+};
+
 // Import models (Top Level)
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
@@ -563,6 +577,7 @@ const connectDB = async () => {
       await ensureCallSubscriptionModuleMigrationApplied();
       await ensureReferralSystemMigrationApplied();
       await ensureAccountDeletionMigrationApplied();
+      await ensureSafeHavenDeprecationMigrationApplied();
       await ensureTransactionsDashboardIndexes();
       await ensureUsersOperationalIndexes();
       await ensureAdminWalletDeductionIndexes();

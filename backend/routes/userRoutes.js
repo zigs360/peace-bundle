@@ -13,7 +13,8 @@ const {
     auditVirtualAccountAccess,
     fetchDualVirtualAccounts,
     getDualVirtualAccountsSnapshot,
-    updateFcmToken
+    updateFcmToken,
+    getWalletSummary
 } = require('../controllers/userController');
 const {
     getAccountDeletionStatus,
@@ -43,6 +44,7 @@ router.get('/data/bulk', protect, bulkDataController.index);
 router.post('/data/bulk/upload', protect, upload.single('file'), bulkDataController.upload);
 
 router.get('/affiliate-stats', protect, getAffiliateStats);
+router.get('/wallet', protect, getWalletSummary);
 router.post('/virtual-account/request', protect, requestVirtualAccount);
 router.get('/virtual-account', protect, getVirtualAccountSummary);
 router.post('/virtual-account/reveal', protect, revealVirtualAccountNumber);

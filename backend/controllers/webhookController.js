@@ -1019,6 +1019,204 @@ const handleBillstackWebhook = async (req, res) => {
     }
 };
 
+const handleSafehavenWebhook = async (req, res) => {
+    const walletService = require('../services/walletService');
+    const virtualAccountService = require('../services/virtualAccountService');
+    const { Transaction, User, Notification } = require('../models');
+
+    try {
+        const payload = req.body;
+        const signature = req.headers['x-safehaven-signature'] ||
+                          req.headers['x-signature'] ||
+                          req.headers['safehaven-signature'] ||
+                          req.headers['authorization'];
+
+        const secret = String(
+            process.env.SAFEHAVEN_WEBHOOK_SECRET ||
+            process.env.SAFEHAVEN_CLIENT_ID ||
+            ''
+        ).trim();
+
+        // Signature verification (HMAC SHA512 or token/bearer match)
+        let signatureOk = false;
+        const incomingSignature = String(signature || '').trim();
+        const rawBodyStr = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(payload);
+
+        if (secret) {
+            const hmacSha512 = crypto.createHmac('sha512', secret).update(rawBodyStr).digest('hex');
+            const hmacSha256 = crypto.createHmac('sha256', secret).update(rawBodyStr).digest('hex');
+            if (
+                incomingSignature.toLowerCase() === hmacSha512.toLowerCase() ||
+                incomingSignature.toLowerCase() === hmacSha256.toLowerCase() ||
+                incomingSignature === secret ||
+                incomingSignature === `Bearer ${secret}`
+            ) {
+                signatureOk = true;
+            }
+        } else if (process.env.NODE_ENV !== 'production') {
+            signatureOk = true;
+        }
+
+        const data = payload?.data || payload;
+        const reference = String(
+            data?.sessionId ||
+            data?.reference ||
+            data?.transactionReference ||
+            data?.paymentReference ||
+            payload?.reference ||
+            payload?.sessionId ||
+            ''
+        ).trim();
+
+        const sanitizeAmount = (val) => {
+            if (typeof val === 'number') return val;
+            if (typeof val !== 'string') return NaN;
+            return parseFloat(val.replace(/,/g, ''));
+        };
+        const rawAmount = data?.amount || data?.creditAmount || payload?.amount;
+        const amount = sanitizeAmount(rawAmount);
+
+        const accountNumber = String(
+            data?.accountNumber ||
+            data?.creditAccountNumber ||
+            data?.subAccountNumber ||
+            payload?.accountNumber ||
+            payload?.creditAccountNumber ||
+            ''
+        ).trim();
+
+        const webhookEvent = await webhookEventService.recordReceived({
+            provider: 'safehaven',
+            reference: reference || null,
+            amount: Number.isFinite(amount) ? amount : null,
+            payload,
+            req
+        });
+
+        if (!signatureOk && process.env.NODE_ENV === 'production') {
+            logger.warn('[Webhook] SafeHaven: Invalid signature rejected', { reference, signaturePresent: Boolean(signature) });
+            await webhookEventService.markRejected(webhookEvent.id, { error: 'Invalid signature', signaturePresent: Boolean(signature) });
+            return res.status(401).json({ success: false, message: 'Invalid signature' });
+        }
+
+        await webhookEventService.markVerified(webhookEvent.id, { signaturePresent: Boolean(signature) });
+
+        if (!reference || !accountNumber || Number.isNaN(amount) || amount <= 0) {
+            logger.warn('[Webhook] SafeHaven: Missing or invalid parameters in payload', { reference, accountNumber, amount });
+            await webhookEventService.markRejected(webhookEvent.id, { error: 'Missing required fields' });
+            return res.status(400).json({ success: false, message: 'Missing required payload fields' });
+        }
+
+        const t = await sequelize.transaction();
+        try {
+            // Find user by account number (checks legacy/archived safehaven account too)
+            const user = await virtualAccountService.findUserByAccountNumber(accountNumber);
+            if (!user) {
+                await t.rollback();
+                logger.error(`[Webhook] SafeHaven: User not found for account ${maskAccountNumber(accountNumber)}`);
+                await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found' });
+                return res.status(404).json({ success: false, message: 'User not found' });
+            }
+
+            // Check duplicate reference
+            const existingTxn = await Transaction.findOne({
+                where: { reference },
+                transaction: t
+            });
+            if (existingTxn) {
+                await t.rollback();
+                logger.info(`[Webhook] SafeHaven: Duplicate transaction ignored ${reference}`);
+                await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
+                return res.status(200).json({ success: true, message: 'Transaction already processed' });
+            }
+
+            // Credit user wallet atomically with legacy_provider_deposit flag
+            const creditResult = await walletService.creditFundingWithFraudChecks(
+                user,
+                amount,
+                `SafeHaven Legacy Funding: ${reference}`,
+                {
+                    reference,
+                    gateway: 'safehaven',
+                    legacy_provider_deposit: true,
+                    deprecated_provider: 'safehaven',
+                    accountNumber,
+                },
+                t
+            );
+
+            // Flag user profile for migration warning
+            const currentMeta = user.metadata && typeof user.metadata === 'object' ? user.metadata : {};
+            user.metadata = {
+                ...currentMeta,
+                needs_provider_migration_warning: true,
+                last_legacy_deposit_at: new Date().toISOString(),
+                last_legacy_deposit_reference: reference,
+            };
+            await user.save({ transaction: t });
+
+            await t.commit();
+            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
+
+            // Send standard funding notification
+            const creditedTxn = creditResult.transaction || null;
+            notifyFundingSuccess(user, {
+                reference,
+                amount,
+                grossAmount: amount,
+                feeAmount: 0,
+                netAmount: amount,
+                gateway: 'safehaven (legacy)',
+                balance: creditedTxn?.balance_after ?? null
+            });
+
+            // Dispatch urgent migration warning notifications
+            const warningMessage = `IMPORTANT: SafeHaven virtual accounts are discontinued. Please do not send funds to account ${maskAccountNumber(accountNumber)}. Log in to Peace Bundlle to view your new 9PSB / PalmPay account number.`;
+            setImmediate(async () => {
+                try {
+                    // In-app alert notification
+                    if (Notification) {
+                        await Notification.create({
+                            userId: user.id,
+                            title: 'URGENT: Update Your Funding Account',
+                            message: warningMessage,
+                            type: 'warning',
+                            priority: 'high',
+                            is_read: false,
+                        });
+                    }
+                    // Real-time socket emit
+                    notificationRealtimeService.sendToUser(user.id, {
+                        title: 'URGENT: Update Your Funding Account',
+                        message: warningMessage,
+                        type: 'warning',
+                        priority: 'high',
+                        link: '/dashboard',
+                    });
+                    // SMS notification if phone is present
+                    if (user.phone) {
+                        const { sendSMS } = require('../services/notificationService');
+                        await sendSMS(user.phone, `URGENT Peace Bundlle: SafeHaven virtual accounts are discontinued. Check your dashboard for your new 9PSB/PalmPay account.`);
+                    }
+                } catch (notifyErr) {
+                    logger.error(`[Webhook] SafeHaven migration warning dispatch failed for ${user.id}: ${notifyErr.message}`);
+                }
+            });
+
+            logger.info(`[Webhook] SafeHaven: Credited legacy deposit ₦${amount} for user ${user.id} (${user.email}), ref ${reference}`);
+            return res.status(200).json({ success: true, message: 'Deposit credited successfully' });
+        } catch (procErr) {
+            if (t && !t.finished) await t.rollback();
+            logger.error(`[Webhook] SafeHaven processing error: ${procErr.message}`);
+            await webhookEventService.markFailed(webhookEvent.id, { error: procErr.message });
+            return res.status(500).json({ success: false, message: 'Internal processing error' });
+        }
+    } catch (err) {
+        logger.error(`[Webhook] SafeHaven fatal error: ${err.message}`);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
 module.exports = {
     handlePaystackWebhook,
     handlePayvesselWebhook,
@@ -1026,5 +1224,7 @@ module.exports = {
     handleSmeplugWebhook,
     handleOgdamsWebhook,
     handleBillstackWebhook,
+    handleSafehavenWebhook,
     processBillstackFunding
 };
+

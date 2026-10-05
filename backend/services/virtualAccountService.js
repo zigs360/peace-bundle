@@ -230,9 +230,8 @@ class VirtualAccountService {
             .split(',')
             .map((item) => String(item || '').trim().toLowerCase())
             .filter(Boolean);
-        const preferred = String(requestedProvider || '').trim().toLowerCase();
-        const base = configured.length ? configured : (preferred === 'payvessel' ? ['9psb', 'safehaven'] : ['safehaven', '9psb']);
-        return [...new Set(base.filter((item) => ['safehaven', '9psb'].includes(item)))];
+        const base = configured.length ? configured : ['9psb'];
+        return [...new Set(base.filter((item) => ['9psb', 'palmpay'].includes(item)))];
     }
 
     normalizeVirtualAccountResult(accountDetails, context = {}) {
@@ -259,7 +258,7 @@ class VirtualAccountService {
     }
 
     getApprovedProviders() {
-        return ['payvessel', 'billstack', 'safehaven'];
+        return ['payvessel', 'billstack'];
     }
 
     getUserProvider(user) {
@@ -269,6 +268,20 @@ class VirtualAccountService {
 
     isApprovedProvider(provider) {
         return this.getApprovedProviders().includes(String(provider || '').trim().toLowerCase());
+    }
+
+    hasActiveSupportedVirtualAccount(user) {
+        if (!user || !user.virtual_account_number) return false;
+        const meta = user.metadata && typeof user.metadata === 'object' ? user.metadata : {};
+        if (meta.va_status === 'deprecated' || meta.safehaven_deprecated === true) return false;
+        const provider = String(meta.va_provider || '').trim().toLowerCase();
+        if (provider === 'safehaven') return false;
+        const bank = String(user.virtual_account_bank || '').trim().toUpperCase();
+        if (bank.includes('SAFEHAVEN') || bank.includes('SAFE HAVEN')) return false;
+        const supportedBanks = ['9PSB', 'PALMPAY', 'PROVIDUS', 'BANKLY'];
+        const matchesSupportedBank = supportedBanks.some((b) => bank.includes(b));
+        const isApproved = this.isApprovedProvider(provider);
+        return Boolean(matchesSupportedBank || isApproved);
     }
 
     async isPayvesselKycSatisfied(user) {
@@ -286,9 +299,7 @@ class VirtualAccountService {
     }
 
     isDisplayableVirtualAccount(user) {
-        if (!user?.virtual_account_number) return false;
-        const provider = this.getUserProvider(user);
-        return this.isApprovedProvider(provider);
+        return this.hasActiveSupportedVirtualAccount(user);
     }
 
     getPhoneEligibility(user) {
@@ -313,7 +324,7 @@ class VirtualAccountService {
             };
         }
 
-        if (user.virtual_account_number && this.isDisplayableVirtualAccount(user)) {
+        if (this.hasActiveSupportedVirtualAccount(user)) {
             try {
                 const meta = user.metadata && typeof user.metadata === 'object' ? user.metadata : {};
                 if (meta.va_status !== 'assigned') {
@@ -355,29 +366,20 @@ class VirtualAccountService {
 
         const hasPayvessel = this.isPayvesselConfigured();
         const hasBillstack = this.isBillstackConfigured();
-        const hasSafeHaven = this.isSafeHavenConfigured();
-        if (!hasPayvessel && !hasBillstack && !hasSafeHaven) {
+        if (!hasPayvessel && !hasBillstack) {
             return {
                 canAttempt: false,
                 code: 'PROVIDER_NOT_CONFIGURED',
-                message: 'No virtual account provider is properly configured.',
+                message: 'No supported virtual account provider (9PSB/PalmPay) is properly configured.',
             };
         }
 
         const payvesselKycOk = await this.isPayvesselKycSatisfied(user);
-        const hasSafeHavenIdentity = Boolean(user?.bvn || user?.nin);
-        if (!hasBillstack && !hasSafeHaven && hasPayvessel && !payvesselKycOk) {
+        if (!hasBillstack && hasPayvessel && !payvesselKycOk) {
             return {
                 canAttempt: false,
                 code: 'KYC_REQUIRED',
                 message: 'KYC/BVN verification is required to generate a virtual account.',
-            };
-        }
-        if (!hasBillstack && !hasPayvessel && hasSafeHaven && !hasSafeHavenIdentity) {
-            return {
-                canAttempt: false,
-                code: 'KYC_REQUIRED',
-                message: 'BVN or NIN is required to generate a Safe Haven virtual account.',
             };
         }
 
@@ -412,16 +414,24 @@ class VirtualAccountService {
                 const pAcc = u?.metadata?.dual_virtual_accounts?.accounts?.payvessel?.accountNumber ||
                              u?.metadata?.dual_virtual_accounts?.accounts?.payvessel?.account_number ||
                              u?.metadata?.payvessel?.account_number;
+                const sAcc = u?.metadata?.old_safehaven_account?.accountNumber ||
+                             u?.metadata?.old_safehaven_account?.number ||
+                             u?.metadata?.safehaven?.account_number ||
+                             u?.metadata?.safehaven?.accountNumber;
+                const sRef = u?.metadata?.safehaven_reference;
                 const bClean = String(bAcc || '').replace(/\D/g, '');
                 const pClean = String(pAcc || '').replace(/\D/g, '');
-                if (bClean === acc || pClean === acc || String(bAcc || '').trim() === raw || String(pAcc || '').trim() === raw) {
+                const sClean = String(sAcc || '').replace(/\D/g, '');
+                if (bClean === acc || pClean === acc || sClean === acc ||
+                    String(bAcc || '').trim() === raw || String(pAcc || '').trim() === raw || String(sAcc || '').trim() === raw ||
+                    String(sRef || '').trim() === raw) {
                     return u;
                 }
             }
             return null;
         }
 
-        // 3. PostgreSQL JSONB query matching camelCase and snake_case paths
+        // 3. PostgreSQL JSONB query matching camelCase and snake_case paths including legacy SafeHaven
         const sql = `
             SELECT *
             FROM "Users"
@@ -432,6 +442,11 @@ class VirtualAccountService {
                OR ("metadata"::jsonb #>> '{virtual_account,account_number}') = :raw
                OR ("metadata"::jsonb #>> '{billstack,account_number}') = :raw
                OR ("metadata"::jsonb #>> '{payvessel,account_number}') = :raw
+               OR ("metadata"::jsonb #>> '{old_safehaven_account,accountNumber}') = :raw
+               OR ("metadata"::jsonb #>> '{old_safehaven_account,number}') = :raw
+               OR ("metadata"::jsonb #>> '{safehaven,account_number}') = :raw
+               OR ("metadata"::jsonb #>> '{safehaven,accountNumber}') = :raw
+               OR ("metadata"::jsonb #>> '{safehaven_reference}') = :raw
                OR ("virtual_account_number" = :raw)
             LIMIT 1
         `;
@@ -466,6 +481,20 @@ class VirtualAccountService {
 
         const { transaction } = options;
         const meta = user.metadata || {};
+        const isSafeHaven = String(meta.va_provider || '').toLowerCase() === 'safehaven' ||
+            String(user.virtual_account_bank || '').toUpperCase().includes('SAFEHAVEN') ||
+            String(user.virtual_account_bank || '').toUpperCase().includes('SAFE HAVEN');
+
+        const archivedSafeHaven = isSafeHaven ? {
+            accountNumber: user.virtual_account_number,
+            bankName: user.virtual_account_bank,
+            accountName: user.virtual_account_name,
+            provider: 'safehaven',
+            deprecatedAt: new Date().toISOString(),
+            status: 'deprecated',
+            is_active: false,
+        } : (meta.old_safehaven_account || null);
+
         user.metadata = {
             ...meta,
             invalid_virtual_account: {
@@ -475,6 +504,11 @@ class VirtualAccountService {
                 accountName: user.virtual_account_name,
                 quarantinedAt: new Date().toISOString(),
             },
+            ...(archivedSafeHaven ? {
+                old_safehaven_account: archivedSafeHaven,
+                safehaven_deprecated: true,
+                va_status: 'deprecated',
+            } : {}),
             va_provider: null,
         };
         user.virtual_account_number = null;

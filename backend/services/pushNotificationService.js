@@ -1,7 +1,13 @@
 const fs = require('fs');
 const path = require('path');
-const admin = require('firebase-admin');
-const { getMessaging } = require('firebase-admin/messaging');
+let admin = null;
+let getMessaging = null;
+try {
+    admin = require('firebase-admin');
+    getMessaging = require('firebase-admin/messaging').getMessaging;
+} catch (_) {
+    // firebase-admin is optional or operates in simulation mode
+}
 const logger = require('../utils/logger');
 const User = require('../models/User');
 
@@ -18,10 +24,14 @@ class PushNotificationService {
      */
     _initFirebase() {
         try {
+            if (!admin) {
+                logger.warn('[PushNotification] Firebase Admin SDK is not installed. Operating in simulation mode.');
+                return;
+            }
             const existingApps = admin.getApps ? admin.getApps() : (admin.apps || []);
             if (existingApps.length > 0) {
                 this.firebaseApp = existingApps[0];
-                this.messaging = getMessaging(this.firebaseApp);
+                this.messaging = getMessaging ? getMessaging(this.firebaseApp) : null;
                 this.isInitialized = true;
                 return;
             }
