@@ -158,6 +158,9 @@ export const resources = {
       },
       dashboard: {
         welcome: 'Welcome back, {{name}}',
+        goodMorning: 'Good Morning, {{name}}',
+        goodAfternoon: 'Good Afternoon, {{name}}',
+        goodEvening: 'Good Evening, {{name}}',
         overview: "Here's a clear view of your activity, wallet, and next actions.",
         walletBalance: 'Wallet balance',
         recentTransactions: 'Recent transactions',
@@ -817,6 +820,9 @@ export const resources = {
       },
       dashboard: {
         welcome: 'Barka da dawowa, {{name}}',
+        goodMorning: 'Barka da safiya, {{name}}',
+        goodAfternoon: 'Barka da rana, {{name}}',
+        goodEvening: 'Barka da yamma, {{name}}',
         overview: 'Ga taƙaitaccen bayanin ayyukanku, walat, da matakai na gaba.',
         walletBalance: 'Adadin walat',
         recentTransactions: 'Sabbin mu’amaloli',
@@ -1476,6 +1482,9 @@ export const resources = {
       },
       dashboard: {
         welcome: 'Kaabo pada, {{name}}',
+        goodMorning: 'Ẹ kaárọ̀, {{name}}',
+        goodAfternoon: 'Ẹ kaásan, {{name}}',
+        goodEvening: 'Ẹ kaalẹ́, {{name}}',
         overview: 'Eyi ni akojopo to ye ti iṣẹ rẹ, wallet, ati igbesẹ to tẹle.',
         walletBalance: 'Iye owo wallet',
         recentTransactions: 'Awọn gbigbe tuntun',
@@ -2135,6 +2144,9 @@ export const resources = {
       },
       dashboard: {
         welcome: 'Nnọọ ọzọ, {{name}}',
+        goodMorning: 'Ụtụtụ ọma, {{name}}',
+        goodAfternoon: 'Ehihie ọma, {{name}}',
+        goodEvening: 'Mgbede ọma, {{name}}',
         overview: 'Nke a bụ nkọwa doro anya gbasara ọrụ gị, wallet, na nzọụkwụ ndị sochirinụ.',
         walletBalance: 'Ego wallet',
         recentTransactions: 'Azụmahịa ọhụrụ',

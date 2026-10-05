@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
+import '../../i18n';
 import UserDashboard from './UserDashboard';
 
 const apiGet = vi.fn();
@@ -72,12 +73,12 @@ describe('UserDashboard stats cleanup', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Welcome back/i)).toBeInTheDocument();
+      expect(screen.getByText(/Good (Morning|Afternoon|Evening)/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Wallet Balance')).toBeInTheDocument();
-    expect(screen.getAllByText('Recent Transactions').length).toBeGreaterThan(0);
-    expect(screen.queryByText('Total Spent')).not.toBeInTheDocument();
-    expect(screen.queryByText('Total Funded')).not.toBeInTheDocument();
+    expect(screen.getByText(/wallet balance/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/recent transactions/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/total spent/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/total funded/i)).not.toBeInTheDocument();
   });
 });

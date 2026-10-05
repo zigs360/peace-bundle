@@ -85,12 +85,18 @@ export default function UserDashboard() {
   const hasRealtime = walletBalance !== null && walletBalanceUpdatedAt > statsFetchedAt;
   const displayBalance = hasRealtime ? walletBalance : balanceFromStats;
   const userName = user?.fullName || user?.name || 'User';
+  const getGreetingKey = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'dashboard.goodMorning';
+    if (hour < 17) return 'dashboard.goodAfternoon';
+    return 'dashboard.goodEvening';
+  };
 
   return (
     <FadeIn className="p-1">
       <PageHeader
         eyebrow={t('nav.userDashboard')}
-        title={t('dashboard.welcome', { name: userName })}
+        title={t(getGreetingKey(), { name: userName })}
         description={t('dashboard.overview')}
       />
 
