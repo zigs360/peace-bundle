@@ -50,13 +50,13 @@ class BillstackVirtualAccountService {
   getRouterBreakerConfig() {
     const threshold = parseInt(String(process.env.VA_ROUTER_BREAKER_THRESHOLD || '3'), 10);
     const windowMs = parseInt(String(process.env.VA_ROUTER_BREAKER_WINDOW_MS || String(2 * 60 * 1000)), 10);
-    const openMs = parseInt(String(process.env.VA_ROUTER_BREAKER_OPEN_MS || String(5 * 60 * 1000)), 10);
-    const probeIntervalMs = parseInt(String(process.env.VA_ROUTER_BREAKER_PROBE_INTERVAL_MS || String(30 * 1000)), 10);
+    const openMs = parseInt(String(process.env.VA_ROUTER_BREAKER_OPEN_MS || String(60 * 1000)), 10);
+    const probeIntervalMs = parseInt(String(process.env.VA_ROUTER_BREAKER_PROBE_INTERVAL_MS || String(15 * 1000)), 10);
     return {
       threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 3,
       windowMs: Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 2 * 60 * 1000,
-      openMs: Number.isFinite(openMs) && openMs > 0 ? openMs : 5 * 60 * 1000,
-      probeIntervalMs: Number.isFinite(probeIntervalMs) && probeIntervalMs > 0 ? probeIntervalMs : 30 * 1000,
+      openMs: Number.isFinite(openMs) && openMs > 0 ? openMs : 60 * 1000,
+      probeIntervalMs: Number.isFinite(probeIntervalMs) && probeIntervalMs > 0 ? probeIntervalMs : 15 * 1000,
     };
   }
 
@@ -70,6 +70,7 @@ class BillstackVirtualAccountService {
   canAttempt(key, options = {}) {
     const k = String(key || '').toUpperCase();
     if (!k) return true;
+    if (options.force) return true;
     const breaker = this.getRouterBreaker();
     const entry = breaker.get(k) || null;
     if (!entry?.openUntil) return true;
@@ -222,7 +223,8 @@ class BillstackVirtualAccountService {
       .map((s) => this.normalizeBankCode(s))
       .map((s) => (s === 'SAFEHAVENMFB' ? 'SAFEHAVEN' : s))
       .filter(Boolean);
-    const defaultOrder = ['9PSB', 'PALMPAY'];
+    const preferred = this.normalizeBankCode(process.env.BILLSTACK_BANK || 'PALMPAY') || 'PALMPAY';
+    const defaultOrder = preferred === '9PSB' ? ['9PSB', 'PALMPAY'] : ['PALMPAY', '9PSB'];
     const order = list.length ? list : defaultOrder;
     const uniq = [];
     for (const item of order) {
@@ -509,7 +511,7 @@ class BillstackVirtualAccountService {
         const res = await this.clientWithTimeout(options.timeoutMs).post(endpoint, payload);
         const body = res.data || {};
         const isSuccess = body.status === true || body.status === 'success' || body.success === true;
-        if (!isSuccess && body.status !== undefined && body.success !== undefined) {
+        if (!isSuccess && (body.status === false || body.success === false || (body.status !== undefined && body.success !== undefined))) {
           throw new Error(body.message || body.error || 'Cannot reserve account at the moment.');
         }
 
@@ -630,6 +632,10 @@ class BillstackVirtualAccountService {
     const primaryFailures = [];
     let lastError = null;
 
+    const candidateBillstackBanks = order.filter((b) => billstackBanks.includes(b));
+    const allBillstackRoutesOpen = candidateBillstackBanks.length > 0 && candidateBillstackBanks.every((b) => this.isCircuitOpen(`BILLSTACK:${b}`));
+    const isForced = Boolean(options.force);
+
     let hasViableClosedRoute = false;
     for (const item of order) {
       const bankCode = String(item || '').trim().toUpperCase();
@@ -646,17 +652,16 @@ class BillstackVirtualAccountService {
         hasViableClosedRoute = true;
         break;
       }
-      if (bankCode === 'SAFEHAVEN' && canUseSafeHaven && !this.isCircuitOpen('SAFEHAVEN')) {
-        hasViableClosedRoute = true;
-        break;
-      }
     }
 
-    const emergencyProbeBank = !hasViableClosedRoute && canUseBillstack && order.length > 0 ? order[0] : null;
+    const emergencyProbeBank = (isForced || (!hasViableClosedRoute && canUseBillstack && order.length > 0) || (allBillstackRoutesOpen && canUseBillstack))
+      ? (candidateBillstackBanks[0] || order[0])
+      : null;
     if (emergencyProbeBank) {
-      logger.warn('[VA Router] All candidate routes currently circuit-open; attempting emergency canary probe on primary route', {
+      logger.warn('[VA Router] Candidate route(s) circuit-open; attempting emergency canary probe on primary route', {
         bank: emergencyProbeBank,
         userId: user?.id,
+        isForced,
       });
     }
 
@@ -672,10 +677,11 @@ class BillstackVirtualAccountService {
         const circuitKey = `BILLSTACK:${key}`;
         const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB' || (key === 'PALMPAY' && (process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true' || (Boolean(process.env.PAYVESSEL_API_KEY) && !isTest)));
         if (canUseBillstack) {
-          const isEmergencyProbe = emergencyProbeBank === key;
+          const isEmergencyProbe = isForced || emergencyProbeBank === key;
           const shouldAttempt = this.canAttempt(circuitKey, {
+            force: isForced,
             emergencyProbe: isEmergencyProbe,
-            allowCanaryProbe: !hasViableClosedRoute,
+            allowCanaryProbe: isForced || !hasViableClosedRoute || allBillstackRoutesOpen,
           });
 
           if (!shouldAttempt) {
@@ -838,6 +844,38 @@ class BillstackVirtualAccountService {
           logger.warn('[VA Router] Secondary allocation failed', { userId: user?.id, provider: 'payvessel', bank: 'PALMPAY', failureCategory: failure.category, status: failure.status, message: failure.message });
           continue;
         }
+      }
+    }
+
+    // Self-healing fallback: If all routes were skipped due to circuit_open, DO NOT FAIL with attemptedBanks: []!
+    // Perform a forced emergency probe on the primary BillStack bank so the system can self-heal.
+    if (attempts.length > 0 && attempts.every((a) => a.status === 'skipped') && canUseBillstack) {
+      const fallbackBank = candidateBillstackBanks[0] || order[0] || 'PALMPAY';
+      logger.warn('[VA Router] All candidate routes were circuit-open skipped; attempting forced canary probe on primary route to self-heal', {
+        bank: fallbackBank,
+        userId: user?.id,
+      });
+      try {
+        const reference = referenceBase ? `${referenceBase}-${fallbackBank}`.slice(0, 64) : options.reference;
+        const result = await this.generateVirtualAccount(user, fallbackBank, { timeoutMs, reference });
+        this.markCircuitSuccess(`BILLSTACK:${fallbackBank}`);
+        const validated = this.validateProvisioningResult(result, { provider: 'billstack', bank: fallbackBank });
+        attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: fallbackBank, tier: 'primary', status: 'success', isProbe: true });
+        if (attempts.length > 1) {
+          logger.warn('[VA Router] Fallback occurred via forced self-healing probe', { userId: user?.id, selected: { provider: 'billstack', bank: fallbackBank }, attempts });
+        }
+        return {
+          provider: 'billstack',
+          bank: fallbackBank,
+          ...validated,
+          routing: { attempts, primaryFailures, health },
+        };
+      } catch (probeErr) {
+        lastError = probeErr;
+        const failure = this.classifyRoutingFailure(probeErr);
+        this.markCircuitFailure(`BILLSTACK:${fallbackBank}`, failure.category);
+        attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: fallbackBank, tier: 'primary', status: 'failed', failure, isProbe: true });
+        primaryFailures.push({ ...failure, bank: fallbackBank, provider: 'billstack', at: new Date().toISOString() });
       }
     }
 

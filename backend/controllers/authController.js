@@ -239,7 +239,7 @@ const registerUser = async (req, res) => {
                     const readiness = await VirtualAccountService.getProvisioningReadiness(user);
                     if (readiness.canAttempt) {
                         await VirtualAccountService.recordProvisioningAttempt(user.id);
-                        await VirtualAccountService.assignVirtualAccount(user);
+                        await VirtualAccountService.assignVirtualAccount(user, { force: true });
                         await VirtualAccountService.recordProvisioningSuccess(user.id);
                         logger.info(`[Auth] Primary virtual account provisioned on signup for user ${user.id}`);
                     }
@@ -768,7 +768,7 @@ const submitKyc = async (req, res) => {
 
         // 4. Trigger Virtual Account Assignment
         if (isBvnVerified) {
-            VirtualAccountService.assignVirtualAccount(user).catch(err => {
+            VirtualAccountService.assignVirtualAccount(user, { force: true }).catch(err => {
                 logger.error(`[VirtualAccount] Assignment failed after KYC for user ${user.id}: ${err.message}`);
             });
         }

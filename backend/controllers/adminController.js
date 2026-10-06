@@ -1483,7 +1483,7 @@ const approveKyc = async (req, res) => {
 
         // Attempt to assign a virtual account now that KYC is approved
         try {
-            const account = await VirtualAccountService.assignVirtualAccount(user);
+            const account = await VirtualAccountService.assignVirtualAccount(user, { force: true });
             if (account) {
                 logger.info(`Virtual account created for user ${user.id} after KYC approval.`);
             } else {
@@ -1808,7 +1808,7 @@ const retryUserVirtualAccount = async (req, res) => {
 
         const virtualAccountService = require('../services/virtualAccountService');
         await virtualAccountService.recordProvisioningAttempt(user.id);
-        const details = await virtualAccountService.assignVirtualAccount(user);
+        const details = await virtualAccountService.assignVirtualAccount(user, { force: true });
         await virtualAccountService.recordProvisioningSuccess(user.id);
         // #region debug-point B:admin-retry-assigned
         (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'B',location:'backend/controllers/adminController.js:retryUserVirtualAccount',msg:'[DEBUG] admin VA retry assigned account before notify',data:{targetUserId:req.params.id,bankName:details?.bankName||null,accountNumberLast4:String(details?.accountNumber||'').slice(-4)||null},ts:Date.now()})}).catch(()=>{})})();

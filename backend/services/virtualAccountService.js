@@ -763,11 +763,14 @@ class VirtualAccountService {
             const remaining = Number.isFinite(maxUsers) ? Math.max(0, maxUsers - summary.processed) : batchSize;
             const limit = Math.min(batchSize, remaining || batchSize);
 
+            const isPostgres = typeof sequelize.getDialect === 'function' && sequelize.getDialect() === 'postgres';
+            const likeOp = isPostgres ? Op.iLike : Op.like;
+
             const where = {
                 [Op.or]: [
                     { virtual_account_number: null },
-                    { virtual_account_bank: { [Op.iLike]: '%safe%haven%' } },
-                    { virtual_account_bank: { [Op.iLike]: '%safehaven%' } }
+                    { virtual_account_bank: { [likeOp]: '%safe%haven%' } },
+                    { virtual_account_bank: { [likeOp]: '%safehaven%' } }
                 ]
             };
             if (!includeInactive) {
@@ -779,8 +782,8 @@ class VirtualAccountService {
                     {
                         [Op.or]: [
                             { virtual_account_number: null },
-                            { virtual_account_bank: { [Op.iLike]: '%safe%haven%' } },
-                            { virtual_account_bank: { [Op.iLike]: '%safehaven%' } }
+                            { virtual_account_bank: { [likeOp]: '%safe%haven%' } },
+                            { virtual_account_bank: { [likeOp]: '%safehaven%' } }
                         ]
                     },
                     {
@@ -1044,6 +1047,7 @@ class VirtualAccountService {
             const routed = await billstackVirtualAccountService.generateVirtualAccountRouted(user, {
                 referenceBase,
                 priorityOrder: process.env.VA_ROUTER_PRIORITY || undefined,
+                force: Boolean(force || options.force),
             });
 
             const accountDetails = this.normalizeVirtualAccountResult(routed, {

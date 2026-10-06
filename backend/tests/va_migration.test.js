@@ -43,7 +43,7 @@ describe('Virtual account migration', () => {
     for (const user of legacyUsers) {
       const updatedUser = await User.findByPk(user.id);
       expect(updatedUser.virtual_account_number).toBe('1234567890');
-      expect(updatedUser.virtual_account_bank).toBe('Test Bank');
+      expect(updatedUser.virtual_account_bank).toBe('TEST BANK');
       expect(updatedUser.virtual_account_name).toBe(user.name);
     }
   });

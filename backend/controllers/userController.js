@@ -106,7 +106,7 @@ const requestVirtualAccount = async (req, res) => {
         logger.info(`[VirtualAccount] Manual request initiated by user ${userId} (${user.email})`);
         await virtualAccountService.recordProvisioningAttempt(userId);
         
-        const account = await virtualAccountService.assignVirtualAccount(user);
+        const account = await virtualAccountService.assignVirtualAccount(user, { force: true });
         await virtualAccountService.recordProvisioningSuccess(userId);
 
         // #region debug-point B:manual-request-success
@@ -230,7 +230,7 @@ const getVirtualAccountSummary = async (req, res) => {
             }
             try {
                 await virtualAccountService.recordProvisioningAttempt(user.id);
-                const account = await virtualAccountService.assignVirtualAccount(user);
+                const account = await virtualAccountService.assignVirtualAccount(user, { force: true });
                 if (account) {
                     await virtualAccountService.recordProvisioningSuccess(user.id);
                     const masked = maskAccountNumber(user.virtual_account_number);
@@ -736,7 +736,7 @@ const getWalletSummary = async (req, res) => {
             if (readiness.canAttempt) {
                 try {
                     await virtualAccountService.recordProvisioningAttempt(user.id);
-                    const account = await virtualAccountService.assignVirtualAccount(user);
+                    const account = await virtualAccountService.assignVirtualAccount(user, { force: true });
                     if (account) {
                         await virtualAccountService.recordProvisioningSuccess(user.id);
                         await user.reload();
