@@ -477,25 +477,24 @@ class BillstackVirtualAccountService {
       candidateEndpoints.push(this.getEndpointUrl(configuredPath));
     }
 
-    // 1. Official BillStack API v2 Reserved Accounts endpoints (per official docs)
+    // 1. Official BillStack documentation canonical endpoint:
+    // https://docs.billstack.co/create-account.md -> POST https://api.billstack.co/v2/thirdparty/generateVirtualAccount/
+    candidateEndpoints.push(`${v2Base}/thirdparty/generateVirtualAccount/`);
+    candidateEndpoints.push(`${v2Base}/thirdparty/generateVirtualAccount`);
+    candidateEndpoints.push(this.getEndpointUrl('thirdparty/generateVirtualAccount/'));
+    candidateEndpoints.push(this.getEndpointUrl('thirdparty/generateVirtualAccount'));
+    candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount/'));
+    candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount'));
+
+    // 2. Direct v2 endpoints
+    candidateEndpoints.push(`${v2Base}/generateVirtualAccount/`);
+    candidateEndpoints.push(`${v2Base}/generateVirtualAccount`);
     candidateEndpoints.push(`${v2Base}/reserved-accounts`);
     candidateEndpoints.push(`${v2Base}/reserved-accounts/`);
     candidateEndpoints.push(this.getEndpointUrl('reserved-accounts'));
     candidateEndpoints.push(this.getEndpointUrl('reserved-accounts/'));
 
-    // 2. Documented BillStack generateVirtualAccount variants
-    candidateEndpoints.push(`${v2Base}/generateVirtualAccount`);
-    candidateEndpoints.push(`${v2Base}/generateVirtualAccount/`);
-    candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount'));
-    candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount/'));
-
-    // 3. Thirdparty namespaced variants
-    candidateEndpoints.push(`${v2Base}/thirdparty/generateVirtualAccount`);
-    candidateEndpoints.push(`${v2Base}/thirdparty/generateVirtualAccount/`);
-    candidateEndpoints.push(this.getEndpointUrl('thirdparty/generateVirtualAccount'));
-    candidateEndpoints.push(this.getEndpointUrl('thirdparty/generateVirtualAccount/'));
-
-    // 4. General virtual-accounts REST variants
+    // 3. REST virtual-accounts variants
     candidateEndpoints.push(`${v2Base}/virtual-accounts`);
     candidateEndpoints.push(`${v2Base}/virtual-accounts/`);
     candidateEndpoints.push(`${v2Base}/thirdparty/reserved-accounts`);
@@ -574,8 +573,8 @@ class BillstackVirtualAccountService {
       } catch (e) {
         lastError = e;
         const status = e.response?.status;
-        if (status === 404 && i < endpointsToTry.length - 1) {
-          logger.warn(`[BillStack] Candidate endpoint ${endpoint} returned 404, attempting alternative candidate ${endpointsToTry[i + 1]}...`);
+        if ((status === 404 || status === 405) && i < endpointsToTry.length - 1) {
+          logger.warn(`[BillStack] Candidate endpoint ${endpoint} returned ${status}, attempting alternative candidate ${endpointsToTry[i + 1]}...`);
           continue;
         }
         break;
