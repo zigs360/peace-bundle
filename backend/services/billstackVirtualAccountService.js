@@ -124,6 +124,7 @@ class BillstackVirtualAccountService {
       breaker.delete(String(key).toUpperCase());
     } else {
       breaker.clear();
+      this._winningEndpoint = null;
     }
   }
 
@@ -319,20 +320,9 @@ class BillstackVirtualAccountService {
     const rawPath = String(path || '').trim();
     if (/^https?:\/\//i.test(rawPath)) return rawPath;
 
-    const base = String(this.baseUrl || 'https://api.billstack.co/v2/thirdparty').trim().replace(/\/+$/, '');
-    let origin = 'https://api.billstack.co';
-    try {
-      origin = new URL(base).origin;
-    } catch (_) {}
-
+    const base = String(this.baseUrl || 'https://api.billstack.co/v2').trim().replace(/\/+$/, '');
     const cleanPath = rawPath.replace(/^\/+/, '');
-    if (base.includes('/v2/thirdparty')) {
-      return `${base}/${cleanPath}`;
-    }
-    if (base.includes('/v2')) {
-      return `${base}/thirdparty/${cleanPath}`;
-    }
-    return `${origin}/v2/thirdparty/${cleanPath}`;
+    return `${base}/${cleanPath}`;
   }
 
   client() {
@@ -431,13 +421,26 @@ class BillstackVirtualAccountService {
     }
 
     const reference = options.reference ? String(options.reference) : `PB-${user.id}`;
+    const fullName = `${firstName} ${lastName}`.trim();
+    const email = String(user.email || '').trim().toLowerCase();
+    const phone = this.normalizePhone(user.phone);
+
     const payload = {
       reference,
-      email: String(user.email || '').trim().toLowerCase(),
-      phone: this.normalizePhone(user.phone),
+      account_name: fullName,
+      accountName: fullName,
+      name: fullName,
+      email,
+      customer_email: email,
+      phone,
+      customer_phone: phone,
       firstName,
       lastName,
+      first_name: firstName,
+      last_name: lastName,
       bank: normalizedBank,
+      bank_code: normalizedBank,
+      preferred_bank: normalizedBank,
     };
 
     const bvn = String(user.bvn || options.bvn || '').trim();
@@ -446,25 +449,56 @@ class BillstackVirtualAccountService {
       payload.idType = 'bvn';
       payload.idNumber = bvn;
       payload.bvn = bvn;
+      payload.id_type = 'bvn';
+      payload.id_number = bvn;
     } else if (nin) {
       payload.idType = 'nin';
       payload.idNumber = nin;
       payload.nin = nin;
+      payload.id_type = 'nin';
+      payload.id_number = nin;
     }
+
+    let origin = 'https://api.billstack.co';
+    try {
+      origin = new URL(this.baseUrl || 'https://api.billstack.co').origin;
+    } catch (_) {}
+    const v2Base = `${origin}/v2`;
 
     const configuredPath = (process.env.BILLSTACK_GENERATE_VA_PATH || process.env.BILLSTACK_VA_PATH || '').trim();
     const candidateEndpoints = [];
-    if (configuredPath) {
-      candidateEndpoints.push(this.getEndpointUrl(configuredPath));
-      candidateEndpoints.push(configuredPath);
+
+    if (this._winningEndpoint) {
+      candidateEndpoints.push(this._winningEndpoint);
     }
 
-    candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount/'));
+    if (configuredPath) {
+      candidateEndpoints.push(configuredPath);
+      candidateEndpoints.push(this.getEndpointUrl(configuredPath));
+    }
+
+    // 1. Official BillStack API v2 Reserved Accounts endpoints (per official docs)
+    candidateEndpoints.push(`${v2Base}/reserved-accounts`);
+    candidateEndpoints.push(`${v2Base}/reserved-accounts/`);
+    candidateEndpoints.push(this.getEndpointUrl('reserved-accounts'));
+    candidateEndpoints.push(this.getEndpointUrl('reserved-accounts/'));
+
+    // 2. Documented BillStack generateVirtualAccount variants
+    candidateEndpoints.push(`${v2Base}/generateVirtualAccount`);
+    candidateEndpoints.push(`${v2Base}/generateVirtualAccount/`);
     candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount'));
-    candidateEndpoints.push('/generateVirtualAccount/');
-    candidateEndpoints.push('/generateVirtualAccount');
-    candidateEndpoints.push('/thirdparty/generateVirtualAccount/');
-    candidateEndpoints.push('/thirdparty/generateVirtualAccount');
+    candidateEndpoints.push(this.getEndpointUrl('generateVirtualAccount/'));
+
+    // 3. Thirdparty namespaced variants
+    candidateEndpoints.push(`${v2Base}/thirdparty/generateVirtualAccount`);
+    candidateEndpoints.push(`${v2Base}/thirdparty/generateVirtualAccount/`);
+    candidateEndpoints.push(this.getEndpointUrl('thirdparty/generateVirtualAccount'));
+    candidateEndpoints.push(this.getEndpointUrl('thirdparty/generateVirtualAccount/'));
+
+    // 4. General virtual-accounts REST variants
+    candidateEndpoints.push(`${v2Base}/virtual-accounts`);
+    candidateEndpoints.push(`${v2Base}/virtual-accounts/`);
+    candidateEndpoints.push(`${v2Base}/thirdparty/reserved-accounts`);
 
     const endpointsToTry = [...new Set(candidateEndpoints)];
     let lastError = null;
@@ -475,28 +509,73 @@ class BillstackVirtualAccountService {
       try {
         const res = await this.clientWithTimeout(options.timeoutMs).post(endpoint, payload);
         const body = res.data || {};
-        if (!body.status) {
-          throw new Error(body.message || 'Cannot reserve account at the moment.');
+        const isSuccess = body.status === true || body.status === 'success' || body.success === true;
+        if (!isSuccess && body.status !== undefined && body.success !== undefined) {
+          throw new Error(body.message || body.error || 'Cannot reserve account at the moment.');
         }
 
-        const account = Array.isArray(body.data?.account) ? body.data.account[0] : null;
-        if (!account?.account_number) {
-          throw new Error('BillStack did not return an account number');
+        const data = body.data || body;
+        const account = Array.isArray(data?.account)
+          ? data.account[0]
+          : Array.isArray(data?.accounts)
+          ? data.accounts[0]
+          : (data?.account || data);
+
+        const accountNumber = String(
+          account?.account_number ||
+          account?.accountNumber ||
+          data?.account_number ||
+          data?.accountNumber ||
+          body?.account_number ||
+          body?.accountNumber ||
+          ''
+        ).replace(/\D/g, '');
+
+        if (!accountNumber || accountNumber.length < 10) {
+          throw new Error(body.message || body.error || 'BillStack did not return an account number');
         }
+
+        const bankName = String(
+          account?.bank_name ||
+          account?.bankName ||
+          data?.bank_name ||
+          data?.bankName ||
+          account?.bank ||
+          data?.bank ||
+          payload.bank
+        ).trim();
+
+        const accountName = String(
+          account?.account_name ||
+          account?.accountName ||
+          data?.account_name ||
+          data?.accountName ||
+          account?.name ||
+          data?.name ||
+          fullName
+        ).trim();
+
+        const trackingReference =
+          data?.reference ||
+          account?.reference ||
+          body?.reference ||
+          data?.transaction_ref ||
+          payload.reference;
 
         successfulResponse = {
-          accountNumber: account.account_number,
-          bankName: account.bank_name || payload.bank,
-          accountName: account.account_name || `${firstName} ${lastName}`.trim(),
-          trackingReference: body.data?.reference || payload.reference,
+          accountNumber,
+          bankName,
+          accountName,
+          trackingReference,
           raw: body,
         };
+        this._winningEndpoint = endpoint;
         break;
       } catch (e) {
         lastError = e;
         const status = e.response?.status;
         if (status === 404 && i < endpointsToTry.length - 1) {
-          logger.warn(`[BillStack] Candidate endpoint ${endpoint} returned 404, attempting alternative candidate...`);
+          logger.warn(`[BillStack] Candidate endpoint ${endpoint} returned 404, attempting alternative candidate ${endpointsToTry[i + 1]}...`);
           continue;
         }
         break;
@@ -509,9 +588,17 @@ class BillstackVirtualAccountService {
 
     const status = lastError?.response?.status;
     const providerBody = lastError?.response?.data;
-    const message = providerBody?.message || lastError?.message || 'BillStack generateVirtualAccount failed';
+    const message = providerBody?.message || providerBody?.error || lastError?.message || 'BillStack generateVirtualAccount failed';
     const safeRequest = this.sanitizePayloadForLogs(payload);
-    logger.error('[BillStack] generateVirtualAccount failed', { userId: user.id, status, message, request: safeRequest });
+    logger.error('[BillStack] generateVirtualAccount failed', {
+      userId: user.id,
+      status,
+      message,
+      failedEndpoint: lastError?.config?.url || null,
+      baseURL: lastError?.config?.baseURL || null,
+      responseBody: providerBody || null,
+      request: safeRequest
+    });
     const err = new Error(message);
     err.status = status || null;
     err.code = lastError?.code || err.code;

@@ -14,6 +14,10 @@ describe('BillStack virtual account provider', () => {
     process.env.BILLSTACK_BANK = 'PALMPAY';
   });
 
+  beforeEach(() => {
+    billstackVirtualAccountService.resetCircuitBreakers();
+  });
+
   afterEach(() => {
     jest.restoreAllMocks();
   });
