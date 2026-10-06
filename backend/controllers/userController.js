@@ -72,18 +72,22 @@ const requestVirtualAccount = async (req, res) => {
 
         if (user.virtual_account_number) {
             if (!virtualAccountService.isDisplayableVirtualAccount(user)) {
+                logger.info(`[VirtualAccount] Quarantining obsolete virtual account during request for user ${userId} (${user.virtual_account_bank})`);
                 await virtualAccountService.quarantineUnauthorizedVirtualAccount(user);
+                user.virtual_account_number = null;
+                user.virtual_account_bank = null;
+                user.virtual_account_name = null;
             } else {
-            const masked = maskAccountNumber(user.virtual_account_number);
-            return res.json({
-                success: true,
-                message: 'You already have a virtual account assigned.',
-                hasVirtualAccount: true,
-                accountNumberMasked: masked,
-                last4: String(user.virtual_account_number).slice(-4),
-                bankName: user.virtual_account_bank,
-                accountName: user.virtual_account_name
-            });
+                const masked = maskAccountNumber(user.virtual_account_number);
+                return res.json({
+                    success: true,
+                    message: 'You already have a virtual account assigned.',
+                    hasVirtualAccount: true,
+                    accountNumberMasked: masked,
+                    last4: String(user.virtual_account_number).slice(-4),
+                    bankName: user.virtual_account_bank,
+                    accountName: user.virtual_account_name
+                });
             }
         }
 
@@ -187,7 +191,15 @@ const getVirtualAccountSummary = async (req, res) => {
 
         const hasActiveAccount = user.virtual_account_number && virtualAccountService.hasActiveSupportedVirtualAccount(user);
 
-        if (!hasActiveAccount) {
+        if (user.virtual_account_number && !hasActiveAccount) {
+            logger.info(`[VirtualAccount] Quarantining obsolete virtual account for user ${userId} (${user.virtual_account_bank})`);
+            await virtualAccountService.quarantineUnauthorizedVirtualAccount(user);
+            user.virtual_account_number = null;
+            user.virtual_account_bank = null;
+            user.virtual_account_name = null;
+        }
+
+        if (!hasActiveAccount || !user.virtual_account_number) {
             const meta = user.metadata || {};
             const lastAttemptAt = meta.va_last_attempt_at ? new Date(meta.va_last_attempt_at) : null;
             if (meta.va_status === 'processing' && lastAttemptAt && Number.isFinite(lastAttemptAt.getTime())) {

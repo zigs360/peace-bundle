@@ -237,6 +237,7 @@ class VirtualAccountService {
             .split(',')
             .map((item) => String(item || '').trim().toLowerCase())
             .filter(Boolean);
+        const preferred = String(requestedProvider || '').trim().toLowerCase();
         const base = configured.length ? configured : ['9psb'];
         return [...new Set(base.filter((item) => ['9psb', 'palmpay'].includes(item)))];
     }
@@ -270,7 +271,13 @@ class VirtualAccountService {
 
     getUserProvider(user) {
         const provider = user?.metadata?.va_provider;
-        return String(provider || '').trim().toLowerCase();
+        if (provider) return String(provider).trim().toLowerCase();
+        const bank = String(user?.virtual_account_bank || '').toLowerCase();
+        if (bank.includes('safe') && bank.includes('haven')) return 'safehaven';
+        if (bank.includes('safehaven')) return 'safehaven';
+        if (bank.includes('9psb') || bank.includes('palmpay')) return 'billstack';
+        if (bank.includes('wema')) return 'payvessel';
+        return '';
     }
 
     isApprovedProvider(provider) {
@@ -306,6 +313,12 @@ class VirtualAccountService {
     }
 
     isDisplayableVirtualAccount(user) {
+        if (!user?.virtual_account_number) return false;
+        const bank = String(user?.virtual_account_bank || '').toLowerCase();
+        if (bank.includes('safe') && bank.includes('haven')) return false;
+        if (bank.includes('safehaven')) return false;
+        const provider = this.getUserProvider(user);
+        if (provider === 'safehaven') return false;
         return this.hasActiveSupportedVirtualAccount(user);
     }
 
@@ -751,16 +764,31 @@ class VirtualAccountService {
             const limit = Math.min(batchSize, remaining || batchSize);
 
             const where = {
-                virtual_account_number: null
+                [Op.or]: [
+                    { virtual_account_number: null },
+                    { virtual_account_bank: { [Op.iLike]: '%safe%haven%' } },
+                    { virtual_account_bank: { [Op.iLike]: '%safehaven%' } }
+                ]
             };
             if (!includeInactive) {
                 where.account_status = 'active';
             }
 
             if (lastCreatedAt && lastId) {
-                where[Op.or] = [
-                    { createdAt: { [Op.gt]: lastCreatedAt } },
-                    { createdAt: lastCreatedAt, id: { [Op.gt]: lastId } }
+                where[Op.and] = [
+                    {
+                        [Op.or]: [
+                            { virtual_account_number: null },
+                            { virtual_account_bank: { [Op.iLike]: '%safe%haven%' } },
+                            { virtual_account_bank: { [Op.iLike]: '%safehaven%' } }
+                        ]
+                    },
+                    {
+                        [Op.or]: [
+                            { createdAt: { [Op.gt]: lastCreatedAt } },
+                            { createdAt: lastCreatedAt, id: { [Op.gt]: lastId } }
+                        ]
+                    }
                 ];
             }
 
@@ -788,8 +816,12 @@ class VirtualAccountService {
                 }
 
                 if (row.virtual_account_number) {
-                    summary.skipped_existing++;
-                    continue;
+                    if (this.isDisplayableVirtualAccount(row)) {
+                        summary.skipped_existing++;
+                        continue;
+                    }
+                    logger.info(`[VirtualAccount] Bulk migration quarantining obsolete account for user ${row.id} (${row.virtual_account_bank})`);
+                    await this.quarantineUnauthorizedVirtualAccount(row);
                 }
 
                 const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};

@@ -148,6 +148,43 @@ describe('Virtual Account Request', () => {
     expect(updated.metadata?.invalid_virtual_account?.accountNumber).toBe('9010732536');
   });
 
+  it('quarantines an existing Safe Haven virtual account and replaces it with an approved provider account', async () => {
+    const assignedAccountNumber = `90${String(Date.now()).slice(-8)}`;
+    jest.spyOn(payvesselService, 'createVirtualAccount').mockResolvedValueOnce({
+      accountNumber: assignedAccountNumber,
+      bankName: 'PALMPAY',
+      accountName: 'Safe Haven User',
+      trackingReference: 'PV_SH_REPLACE_1',
+    });
+
+    const user = await User.create({
+      name: 'Safe Haven User',
+      email: `sh_user_${Date.now()}@test.com`,
+      phone: `080${String(Date.now()).slice(-8)}`,
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+      virtual_account_number: '1122334455',
+      virtual_account_bank: 'Safe Haven Microfinance Bank',
+      virtual_account_name: 'Safe Haven User',
+      metadata: { va_provider: 'safehaven' },
+    });
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET);
+    const res = await request(app)
+      .get('/api/users/virtual-account')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.hasVirtualAccount).toBe(true);
+    expect(res.body.bankName).toBe('PALMPAY');
+
+    const updated = await User.findByPk(user.id);
+    expect(updated.virtual_account_number).toBe(assignedAccountNumber);
+    expect(updated.metadata?.invalid_virtual_account?.accountNumber).toBe('1122334455');
+    expect(updated.metadata?.invalid_virtual_account?.bankName).toBe('Safe Haven Microfinance Bank');
+  });
+
   it('does not require BVN/KYC when billstack is configured (uses billstack instead of payvessel)', async () => {
     const prevEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
