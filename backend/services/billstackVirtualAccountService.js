@@ -51,10 +51,12 @@ class BillstackVirtualAccountService {
     const threshold = parseInt(String(process.env.VA_ROUTER_BREAKER_THRESHOLD || '3'), 10);
     const windowMs = parseInt(String(process.env.VA_ROUTER_BREAKER_WINDOW_MS || String(2 * 60 * 1000)), 10);
     const openMs = parseInt(String(process.env.VA_ROUTER_BREAKER_OPEN_MS || String(5 * 60 * 1000)), 10);
+    const probeIntervalMs = parseInt(String(process.env.VA_ROUTER_BREAKER_PROBE_INTERVAL_MS || String(30 * 1000)), 10);
     return {
       threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 3,
       windowMs: Number.isFinite(windowMs) && windowMs > 0 ? windowMs : 2 * 60 * 1000,
       openMs: Number.isFinite(openMs) && openMs > 0 ? openMs : 5 * 60 * 1000,
+      probeIntervalMs: Number.isFinite(probeIntervalMs) && probeIntervalMs > 0 ? probeIntervalMs : 30 * 1000,
     };
   }
 
@@ -65,9 +67,37 @@ class BillstackVirtualAccountService {
     return entry.openUntil > Date.now();
   }
 
-  markCircuitFailure(key) {
+  canAttempt(key, options = {}) {
+    const k = String(key || '').toUpperCase();
+    if (!k) return true;
+    const breaker = this.getRouterBreaker();
+    const entry = breaker.get(k) || null;
+    if (!entry?.openUntil) return true;
+    const now = Date.now();
+    if (now >= entry.openUntil) {
+      return true;
+    }
+    if (options.emergencyProbe) {
+      entry.lastProbeAt = now;
+      breaker.set(k, entry);
+      return true;
+    }
+    if (options.allowCanaryProbe) {
+      const { probeIntervalMs } = this.getRouterBreakerConfig();
+      if (!entry.lastProbeAt || now - entry.lastProbeAt >= probeIntervalMs) {
+        entry.lastProbeAt = now;
+        breaker.set(k, entry);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  markCircuitFailure(key, failureCategory = null) {
     const k = String(key || '').toUpperCase();
     if (!k) return;
+    if (failureCategory === 'invalid_request') return;
+
     const { threshold, windowMs, openMs } = this.getRouterBreakerConfig();
     const breaker = this.getRouterBreaker();
     const now = Date.now();
@@ -77,6 +107,7 @@ class BillstackVirtualAccountService {
     if (next.count >= threshold) {
       next.openUntil = now + openMs;
     }
+    next.lastFailureAt = now;
     breaker.set(k, next);
   }
 
@@ -85,6 +116,31 @@ class BillstackVirtualAccountService {
     if (!k) return;
     const breaker = this.getRouterBreaker();
     breaker.delete(k);
+  }
+
+  resetCircuitBreakers(key = null) {
+    const breaker = this.getRouterBreaker();
+    if (key) {
+      breaker.delete(String(key).toUpperCase());
+    } else {
+      breaker.clear();
+    }
+  }
+
+  getCircuitStatus() {
+    const breaker = this.getRouterBreaker();
+    const result = {};
+    const now = Date.now();
+    for (const [key, entry] of breaker.entries()) {
+      const open = Boolean(entry.openUntil && entry.openUntil > now);
+      result[key] = {
+        open,
+        failures: entry.count || 0,
+        remainingMs: open ? Math.max(0, entry.openUntil - now) : 0,
+        lastProbeAt: entry.lastProbeAt ? new Date(entry.lastProbeAt).toISOString() : null,
+      };
+    }
+    return result;
   }
 
   getHealthCache() {
@@ -488,6 +544,36 @@ class BillstackVirtualAccountService {
     const primaryFailures = [];
     let lastError = null;
 
+    let hasViableClosedRoute = false;
+    for (const item of order) {
+      const bankCode = String(item || '').trim().toUpperCase();
+      if (!bankCode) continue;
+      if (billstackBanks.includes(bankCode) && canUseBillstack && !this.isCircuitOpen(`BILLSTACK:${bankCode}`)) {
+        hasViableClosedRoute = true;
+        break;
+      }
+      if (bankCode === '9PSB' && canUsePayvessel && !this.isCircuitOpen('PAYVESSEL:9PSB')) {
+        hasViableClosedRoute = true;
+        break;
+      }
+      if (bankCode === 'PALMPAY' && canUsePayvessel && !this.isCircuitOpen('PAYVESSEL:PALMPAY') && (process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true' || (Boolean(process.env.PAYVESSEL_API_KEY) && !isTest))) {
+        hasViableClosedRoute = true;
+        break;
+      }
+      if (bankCode === 'SAFEHAVEN' && canUseSafeHaven && !this.isCircuitOpen('SAFEHAVEN')) {
+        hasViableClosedRoute = true;
+        break;
+      }
+    }
+
+    const emergencyProbeBank = !hasViableClosedRoute && canUseBillstack && order.length > 0 ? order[0] : null;
+    if (emergencyProbeBank) {
+      logger.warn('[VA Router] All candidate routes currently circuit-open; attempting emergency canary probe on primary route', {
+        bank: emergencyProbeBank,
+        userId: user?.id,
+      });
+    }
+
     for (const item of order) {
       const key = String(item || '').trim().toUpperCase();
       if (!key) continue;
@@ -500,7 +586,13 @@ class BillstackVirtualAccountService {
         const circuitKey = `BILLSTACK:${key}`;
         const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB' || (key === 'PALMPAY' && (process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true' || (Boolean(process.env.PAYVESSEL_API_KEY) && !isTest)));
         if (canUseBillstack) {
-          if (this.isCircuitOpen(circuitKey)) {
+          const isEmergencyProbe = emergencyProbeBank === key;
+          const shouldAttempt = this.canAttempt(circuitKey, {
+            emergencyProbe: isEmergencyProbe,
+            allowCanaryProbe: !hasViableClosedRoute,
+          });
+
+          if (!shouldAttempt) {
             attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'skipped', reason: 'circuit_open' });
             if (!supportsDirectProviderFallback) continue;
           } else {
@@ -509,7 +601,7 @@ class BillstackVirtualAccountService {
               const result = await this.generateVirtualAccount(user, key, { timeoutMs, reference });
               this.markCircuitSuccess(circuitKey);
               const validated = this.validateProvisioningResult(result, { provider: 'billstack', bank: key });
-              attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'success' });
+              attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'success', isProbe: isEmergencyProbe });
               // #region debug-point D:router-success
               (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router succeeded on primary provider',data:{userId:user?.id||null,bank:key,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
               // #endregion
@@ -525,8 +617,8 @@ class BillstackVirtualAccountService {
             } catch (e) {
               lastError = e;
               const failure = this.classifyRoutingFailure(e);
-              this.markCircuitFailure(circuitKey);
-              attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'failed', failure });
+              this.markCircuitFailure(circuitKey, failure.category);
+              attempts.push({ at: new Date().toISOString(), provider: 'billstack', bank: key, tier: 'primary', status: 'failed', failure, isProbe: isEmergencyProbe });
               // #region debug-point E:router-attempt-failed
               (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router attempt failed',data:{userId:user?.id||null,bank:key,failureCategory:failure.category,message:failure.message,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
               // #endregion
@@ -546,7 +638,8 @@ class BillstackVirtualAccountService {
       if (key === 'SAFEHAVEN') {
         const circuitKey = 'SAFEHAVEN';
         if (!canUseSafeHaven) continue;
-        if (this.isCircuitOpen(circuitKey)) {
+        const shouldAttemptSH = this.canAttempt(circuitKey, { allowCanaryProbe: !hasViableClosedRoute });
+        if (!shouldAttemptSH) {
           attempts.push({ at: new Date().toISOString(), provider: 'safehaven', bank: 'SAFEHAVEN', tier: 'secondary', status: 'skipped', reason: 'circuit_open' });
           continue;
         }
@@ -569,7 +662,7 @@ class BillstackVirtualAccountService {
         } catch (e) {
           lastError = e;
           const failure = this.classifyRoutingFailure(e);
-          this.markCircuitFailure(circuitKey);
+          this.markCircuitFailure(circuitKey, failure.category);
           attempts.push({ at: new Date().toISOString(), provider: 'safehaven', bank: 'SAFEHAVEN', tier: 'secondary', status: 'failed', failure });
           // #region debug-point E:router-safehaven-failed
           (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router SafeHaven failed',data:{userId:user?.id||null,message:failure.message,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
@@ -585,7 +678,8 @@ class BillstackVirtualAccountService {
           logger.warn('[VA Router] PayVessel secondary fallback skipped (unconfigured or unhealthy)', { bank: key, payvesselHttpOk });
           continue;
         }
-        if (this.isCircuitOpen(circuitKey)) {
+        const shouldAttempt9PSB = this.canAttempt(circuitKey, { allowCanaryProbe: !hasViableClosedRoute });
+        if (!shouldAttempt9PSB) {
           attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: '9PSB', tier: 'secondary', status: 'skipped', reason: 'circuit_open' });
           continue;
         }
@@ -612,7 +706,7 @@ class BillstackVirtualAccountService {
         } catch (e) {
           lastError = e;
           const failure = this.classifyRoutingFailure(e);
-          this.markCircuitFailure(circuitKey);
+          this.markCircuitFailure(circuitKey, failure.category);
           attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: '9PSB', tier: 'secondary', status: 'failed', failure });
           // #region debug-point E:router-9psb-failed
           (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router 9PSB failed',data:{userId:user?.id||null,message:failure.message,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
@@ -628,7 +722,8 @@ class BillstackVirtualAccountService {
           logger.warn('[VA Router] PayVessel secondary fallback skipped for PALMPAY (unconfigured or unhealthy)', { bank: key, payvesselHttpOk });
           continue;
         }
-        if (this.isCircuitOpen(circuitKey)) {
+        const shouldAttemptPP = this.canAttempt(circuitKey, { allowCanaryProbe: !hasViableClosedRoute });
+        if (!shouldAttemptPP) {
           attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: 'PALMPAY', tier: 'secondary', status: 'skipped', reason: 'circuit_open' });
           continue;
         }
@@ -652,7 +747,7 @@ class BillstackVirtualAccountService {
         } catch (e) {
           lastError = e;
           const failure = this.classifyRoutingFailure(e);
-          this.markCircuitFailure(circuitKey);
+          this.markCircuitFailure(circuitKey, failure.category);
           attempts.push({ at: new Date().toISOString(), provider: 'payvessel', bank: 'PALMPAY', tier: 'secondary', status: 'failed', failure });
           logger.warn('[VA Router] Secondary allocation failed', { userId: user?.id, provider: 'payvessel', bank: 'PALMPAY', failureCategory: failure.category, status: failure.status, message: failure.message });
           continue;

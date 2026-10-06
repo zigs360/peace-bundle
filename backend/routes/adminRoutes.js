@@ -39,6 +39,7 @@ const {
     upgradeBillstackVirtualAccount,
     retryUserVirtualAccount,
     getVirtualAccountHealth,
+    resetVirtualAccountCircuits,
     getReferralAnalytics,
     viewKycDocument,
     listPendingFundingReviews,
@@ -199,6 +200,7 @@ router.post('/wallet/deductions/:reference/reverse', protect, admin, adminWallet
 // Referral Analytics Route
 router.get('/referrals/analytics', protect, admin, getReferralAnalytics);
 router.get('/virtual-accounts/health', protect, admin, getVirtualAccountHealth);
+router.post('/virtual-accounts/circuits/reset', protect, admin, resetVirtualAccountCircuits);
 router.get('/funding/pending-review', protect, admin, listPendingFundingReviews);
 router.post('/funding/pending-review/:id/approve', protect, admin, approvePendingFundingReview);
 router.post('/funding/pending-review/:id/reject', protect, admin, rejectPendingFundingReview);

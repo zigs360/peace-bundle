@@ -147,6 +147,13 @@ class VirtualAccountService {
         if (lower.includes('cannot reserve') && (lower.includes('palmpay') || lower.includes('account'))) return true;
         if (lower.includes('temporarily') && (lower.includes('unavailable') || lower.includes('moment'))) return true;
         if (lower.includes('timeout') || lower.includes('timed out')) return true;
+        if (lower.includes('circuit_open') || lower.includes('circuit open')) return true;
+        if (lower.includes('routing failed across all providers') || lower.includes('across all providers')) return true;
+        if (lower.includes('service unavailable') || lower.includes('service_unavailable')) return true;
+        if (lower.includes('network') || lower.includes('econnrefused') || lower.includes('etimedout') || lower.includes('socket hang up') || lower.includes('econnreset')) return true;
+        if (lower.includes('status code 503') || lower.includes('status code 502') || lower.includes('status code 504') || lower.includes('status code 404')) return true;
+        if (lower.includes('status 503') || lower.includes('status 502') || lower.includes('status 504') || lower.includes('status 404')) return true;
+        if (lower.includes('downtime')) return true;
         return false;
     }
 
@@ -736,6 +743,8 @@ class VirtualAccountService {
 
         let lastCreatedAt = null;
         let lastId = null;
+        let consecutiveTransientFailures = 0;
+        const maxConsecutiveTransientFailures = Math.max(1, parseInt(String(process.env.VA_BULK_MAX_CONSECUTIVE_TRANSIENT || '3'), 10));
 
         while (summary.processed < maxUsers) {
             const remaining = Number.isFinite(maxUsers) ? Math.max(0, maxUsers - summary.processed) : batchSize;
@@ -835,6 +844,7 @@ class VirtualAccountService {
                     });
                     if (createdForUser) {
                         summary.created++;
+                        consecutiveTransientFailures = 0;
                         await this.recordProvisioningSuccess(row.id);
                     }
                 } catch (err) {
@@ -842,15 +852,27 @@ class VirtualAccountService {
                     const transient = typeof this.isTransientProviderError === 'function' ? this.isTransientProviderError(msg) : false;
                     if (transient) {
                         summary.pending++;
+                        consecutiveTransientFailures++;
                         logger.warn(`[VirtualAccount] Bulk assignment pending for user ${row.id}: ${msg}`);
                         await this.recordProvisioningFailure(row.id, msg);
+                        if (consecutiveTransientFailures >= maxConsecutiveTransientFailures) {
+                            logger.warn(`[VirtualAccount] Bulk assignment paused early: ${consecutiveTransientFailures} consecutive transient provider failures encountered. Pausing batch to allow provider recovery.`);
+                            summary.abortedEarly = true;
+                            summary.abortReason = 'consecutive_transient_failures';
+                            break;
+                        }
                         continue;
                     }
+                    consecutiveTransientFailures = 0;
                     summary.failed++;
                     summary.errors.push({ userId: row.id, email: row.email, error: msg });
                     logger.error(`[VirtualAccount] Bulk assignment failed for user ${row.id}: ${msg}`);
                     await this.recordProvisioningFailure(row.id, msg);
                 }
+            }
+
+            if (summary.abortedEarly) {
+                break;
             }
 
             const last = users[users.length - 1];

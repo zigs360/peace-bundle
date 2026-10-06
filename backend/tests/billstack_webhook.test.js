@@ -408,4 +408,8 @@ describe('BillStack webhook', () => {
     expect(txn.status).toBe('pending');
     expect(txn.metadata.review_status).toBe('pending_review');
   });
+
+  afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  });
 });

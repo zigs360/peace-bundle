@@ -119,4 +119,43 @@ describe('Bulk assign missing virtual accounts', () => {
     expect(after1.virtual_account_number).toBeNull();
     expect(after2.virtual_account_number).toBeTruthy();
   });
+
+  it('pauses batch early when consecutive transient routing failures occur to prevent log spam', async () => {
+    process.env.VA_BULK_MAX_CONSECUTIVE_TRANSIENT = '3';
+    const testUsers = [];
+    for (let i = 0; i < 5; i++) {
+      const u = await User.create({
+        name: `Transient User ${i}`,
+        email: `transient_${i}_${Date.now()}@test.com`,
+        phone: `0819900111${i}`,
+        password: 'password123',
+        role: 'user',
+        account_status: 'active',
+      });
+      testUsers.push(u);
+    }
+
+    const spy = jest.spyOn(payvesselService, 'createVirtualAccount').mockImplementation(async () => {
+      throw new Error('Virtual account routing failed across all providers (attempted banks: 9PSB)');
+    });
+
+    const summary = await virtualAccountService.bulkAssignMissingVirtualAccounts({
+      batchSize: 10,
+      maxUsers: 10,
+      notify: false,
+      includeInactive: false,
+    });
+
+    spy.mockRestore();
+
+    expect(summary.abortedEarly).toBe(true);
+    expect(summary.abortReason).toBe('consecutive_transient_failures');
+    expect(summary.pending).toBe(3);
+    expect(summary.failed).toBe(0); // Transient errors are tracked as pending, not hard failures
+  });
+
+  afterAll(async () => {
+    delete process.env.VA_BULK_MAX_CONSECUTIVE_TRANSIENT;
+    await SystemSetting.set('virtual_account_provider', 'billstack', 'string', 'api');
+  });
 });

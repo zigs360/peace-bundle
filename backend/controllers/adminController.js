@@ -1940,6 +1940,14 @@ const getVirtualAccountHealth = async (req, res) => {
                     clientIdSet: Boolean(process.env.SAFEHAVEN_CLIENT_ID)
                 }
             },
+            circuits: (() => {
+                try {
+                    const billstackVirtualAccountService = require('../services/billstackVirtualAccountService');
+                    return billstackVirtualAccountService.getCircuitStatus();
+                } catch (_) {
+                    return {};
+                }
+            })(),
             webhooks: {
                 billstack: baseUrl ? `${baseUrl}/api/webhooks/billstack` : '/api/webhooks/billstack',
                 payvessel: baseUrl ? `${baseUrl}/api/webhooks/payvessel` : '/api/webhooks/payvessel',
@@ -1950,6 +1958,23 @@ const getVirtualAccountHealth = async (req, res) => {
     } catch (e) {
         logger.error(`[Admin] Virtual account health failed: ${e.message}`);
         return res.status(500).json({ success: false, message: 'Failed to load virtual account health' });
+    }
+};
+
+const resetVirtualAccountCircuits = async (req, res) => {
+    try {
+        const billstackVirtualAccountService = require('../services/billstackVirtualAccountService');
+        const { key } = req.body || {};
+        billstackVirtualAccountService.resetCircuitBreakers(key || null);
+        logger.info(`[Admin] Virtual account circuit breaker(s) reset. Key: ${key || 'ALL'}`);
+        return res.json({
+            success: true,
+            message: `Circuit breaker ${key ? key : 'all circuits'} reset successfully`,
+            circuits: billstackVirtualAccountService.getCircuitStatus()
+        });
+    } catch (error) {
+        logger.error(`[Admin] Failed to reset circuit breakers: ${error.message}`);
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -2250,6 +2275,7 @@ module.exports = {
     upgradeBillstackVirtualAccount,
     retryUserVirtualAccount,
     getVirtualAccountHealth,
+    resetVirtualAccountCircuits,
     listPendingFundingReviews,
     approvePendingFundingReview,
     rejectPendingFundingReview,

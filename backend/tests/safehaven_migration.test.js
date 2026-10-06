@@ -190,6 +190,9 @@ describe('SafeHaven Migration and Fallback Strategy', () => {
       });
       expect(notification).toBeDefined();
       expect(notification.title).toContain('URGENT');
+
+      // Allow background async webhook actions (treasury sync/notification) to settle
+      await new Promise((resolve) => setTimeout(resolve, 500));
     });
 
     it('rejects invalid signature in production mode', async () => {

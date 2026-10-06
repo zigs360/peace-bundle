@@ -19,6 +19,10 @@ describe('VA Router circuit breaker', () => {
     delete process.env.SAFEHAVEN_HEALTH_URL;
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('opens the circuit for a failing provider and skips it on subsequent routing attempts', async () => {
     jest.spyOn(safeHavenVirtualAccountService, 'isConfigured').mockReturnValue(false);
     jest.spyOn(payvesselService, 'createVirtualAccount').mockImplementation(async () => {
@@ -60,6 +64,75 @@ describe('VA Router circuit breaker', () => {
     const calls = generateSpy.mock.calls.map((c) => c[1]);
     const palmpayCalls = calls.filter((b) => b === 'PALMPAY').length;
     expect(palmpayCalls).toBe(3);
+  });
+
+  it('allows emergency canary probe when all candidate routes are circuit-open and self-heals upon success', async () => {
+    jest.spyOn(safeHavenVirtualAccountService, 'isConfigured').mockReturnValue(false);
+    jest.spyOn(payvesselService, 'createVirtualAccount').mockImplementation(async () => {
+      throw new Error('PayVessel unavailable');
+    });
+    jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
+
+    const user = await User.create({
+      name: 'Canary User',
+      email: `canary_${Date.now()}@test.com`,
+      phone: `080${String(Date.now()).slice(-8)}`,
+      password: 'password123',
+      role: 'user',
+      account_status: 'active',
+    });
+
+    // Manually trip circuits into OPEN state across candidate routes
+    for (let i = 0; i < 3; i++) {
+      billstackVirtualAccountService.markCircuitFailure('BILLSTACK:9PSB', 'downtime');
+      billstackVirtualAccountService.markCircuitFailure('BILLSTACK:PALMPAY', 'downtime');
+      billstackVirtualAccountService.markCircuitFailure('PAYVESSEL:9PSB', 'downtime');
+    }
+    expect(billstackVirtualAccountService.isCircuitOpen('BILLSTACK:9PSB')).toBe(true);
+    expect(billstackVirtualAccountService.isCircuitOpen('BILLSTACK:PALMPAY')).toBe(true);
+    expect(billstackVirtualAccountService.isCircuitOpen('PAYVESSEL:9PSB')).toBe(true);
+
+    // Now mock generateVirtualAccount to simulate that BillStack has recovered
+    const generateSpy = jest.spyOn(billstackVirtualAccountService, 'generateVirtualAccount').mockImplementation(async (_user, bank) => {
+      return {
+        accountNumber: `99${String(Date.now()).slice(-8)}`,
+        bankName: bank,
+        accountName: 'Canary User',
+        trackingReference: `BILL-CANARY-${bank}-${Date.now()}`,
+      };
+    });
+
+    // The router should NOT fail with attemptedBanks: []. It should perform an emergency canary probe on 9PSB
+    const result = await billstackVirtualAccountService.generateVirtualAccountRouted(user, { priorityOrder: '9PSB,PALMPAY' });
+    expect(result).toBeTruthy();
+    expect(result.provider).toBe('billstack');
+    expect(result.bank).toBe('9PSB');
+    expect(generateSpy).toHaveBeenCalledTimes(1);
+
+    // The successful probe must have self-healed the 9PSB circuit!
+    expect(billstackVirtualAccountService.isCircuitOpen('BILLSTACK:9PSB')).toBe(false);
+  });
+
+  it('does not trip provider circuit breaker on user-specific invalid_request errors', () => {
+    billstackVirtualAccountService.markCircuitFailure('BILLSTACK:9PSB', 'invalid_request');
+    billstackVirtualAccountService.markCircuitFailure('BILLSTACK:9PSB', 'invalid_request');
+    billstackVirtualAccountService.markCircuitFailure('BILLSTACK:9PSB', 'invalid_request');
+    billstackVirtualAccountService.markCircuitFailure('BILLSTACK:9PSB', 'invalid_request');
+    expect(billstackVirtualAccountService.isCircuitOpen('BILLSTACK:9PSB')).toBe(false);
+  });
+
+  it('allows manual reset and status reporting via resetCircuitBreakers and getCircuitStatus', () => {
+    billstackVirtualAccountService.markCircuitFailure('BILLSTACK:PROVIDUS', 'downtime');
+    billstackVirtualAccountService.markCircuitFailure('BILLSTACK:PROVIDUS', 'downtime');
+    billstackVirtualAccountService.markCircuitFailure('BILLSTACK:PROVIDUS', 'downtime');
+    expect(billstackVirtualAccountService.isCircuitOpen('BILLSTACK:PROVIDUS')).toBe(true);
+
+    const status = billstackVirtualAccountService.getCircuitStatus();
+    expect(status['BILLSTACK:PROVIDUS']).toBeDefined();
+    expect(status['BILLSTACK:PROVIDUS'].open).toBe(true);
+
+    billstackVirtualAccountService.resetCircuitBreakers('BILLSTACK:PROVIDUS');
+    expect(billstackVirtualAccountService.isCircuitOpen('BILLSTACK:PROVIDUS')).toBe(false);
   });
 });
 
