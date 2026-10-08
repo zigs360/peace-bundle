@@ -174,10 +174,65 @@ class DynamicProviderService {
   }
 
   /**
-   * Get current primary active provider
+   * Check if a provider supports a given service type
+   * @param {ApiProvider} provider
+   * @param {string} serviceType - 'data', 'vtu_data', 'airtime', 'vtu_airtime', 'sim_management'
+   */
+  providerSupportsService(provider, serviceType) {
+    if (!provider || !serviceType) return true;
+    const cleanType = String(serviceType).trim().toLowerCase();
+    const serviceTypeKey = cleanType === 'vtu_airtime' ? 'airtime' : cleanType === 'vtu_data' ? 'data' : cleanType;
+    const caps = Array.isArray(provider.capabilities) ? provider.capabilities : [];
+
+    // If provider service_type is explicitly set and restricted:
+    if (provider.service_type && provider.service_type !== 'all' && provider.service_type !== 'vtu') {
+      if (provider.service_type !== serviceTypeKey) return false;
+    }
+
+    if (serviceTypeKey === 'airtime') {
+      if (provider.service_type === 'airtime') return true;
+      if (caps.includes('vtu_airtime') || caps.includes('airtime')) return true;
+      if (provider.service_type === 'data') return false;
+      if (caps.length > 0 && !caps.includes('vtu_airtime') && !caps.includes('airtime')) {
+        return false;
+      }
+      return true;
+    }
+
+    if (serviceTypeKey === 'data') {
+      if (provider.service_type === 'data') return true;
+      if (caps.includes('vtu_data') || caps.includes('data')) return true;
+      if (provider.service_type === 'airtime') return false;
+      if (caps.length > 0 && !caps.includes('vtu_data') && !caps.includes('data')) {
+        return false;
+      }
+      return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * Get current primary active provider, respecting service capability if serviceType is given
    */
   async getPrimaryProvider(serviceType = null) {
     await this.ensureDefaultProviders();
+
+    // Check service-specific environment overrides if defined
+    if (serviceType && (serviceType === 'airtime' || serviceType === 'vtu_airtime')) {
+      const explicitAirtime = (process.env.AIRTIME_PRIMARY_ROUTE || '').trim().toLowerCase();
+      if (explicitAirtime) {
+        const airtimeTarget = await ApiProvider.findOne({ where: { slug: explicitAirtime, is_active: true } });
+        if (airtimeTarget) return airtimeTarget;
+      }
+    }
+    if (serviceType && (serviceType === 'data' || serviceType === 'vtu_data')) {
+      const explicitData = (process.env.DATA_PRIMARY_ROUTE || '').trim().toLowerCase();
+      if (explicitData) {
+        const dataTarget = await ApiProvider.findOne({ where: { slug: explicitData, is_active: true } });
+        if (dataTarget) return dataTarget;
+      }
+    }
 
     // 1. First check for active primary provider in the database
     let primary = await ApiProvider.findOne({ where: { is_primary: true, is_active: true } });
@@ -206,6 +261,18 @@ class DynamicProviderService {
       }
       if (primary) {
         await this.setPrimaryProvider(primary.id);
+      }
+    }
+
+    // 3. If serviceType is specified and the primary provider does NOT support it
+    // (for example, the primary provider only has data, but the request is for airtime),
+    // automatically fall back to the active provider that DOES support this service!
+    if (serviceType && primary && !this.providerSupportsService(primary, serviceType)) {
+      const capability = serviceType === 'vtu_airtime' ? 'airtime' : serviceType === 'vtu_data' ? 'data' : serviceType;
+      const specializedProvider = await this.getActiveProvider(capability);
+      if (specializedProvider) {
+        logger.info(`[DynamicProvider] Primary provider '${primary.name}' does not support '${serviceType}', routing to specialized provider '${specializedProvider.name}'`);
+        return specializedProvider;
       }
     }
 

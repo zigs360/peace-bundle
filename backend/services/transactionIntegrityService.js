@@ -493,6 +493,14 @@ class TransactionIntegrityService {
   }
 
   selectAirtimeRoute({ network, preferredSim = null, primaryProvider = null }) {
+    const envAirtime = String(process.env.AIRTIME_PRIMARY_ROUTE || '').toLowerCase();
+    if (envAirtime === 'ogdams' && (!primaryProvider || primaryProvider.slug === 'ogdams')) {
+      return {
+        paymentChannel: 'ogdams_wallet',
+        fulfillmentRoute: 'ogdams_api',
+        provider: String(network || '').toLowerCase(),
+      };
+    }
     const primary = primaryProvider || globalThis.__peacebundle_primary_provider;
     if (primary && primary.slug && primary.is_active) {
       if (primary.slug === 'smeplug') {
@@ -548,8 +556,28 @@ class TransactionIntegrityService {
   }
 
   selectDataRoute({ plan, preferredSim = null, primaryProvider = null }) {
-    const primary = primaryProvider || globalThis.__peacebundle_primary_provider;
     const provider = String(plan?.provider || '').toLowerCase();
+    const source = String(plan?.source || '').trim().toLowerCase();
+
+    // If plan specifically defines a dedicated provider target:
+    if (source === 'smeplug' || (plan?.smeplug_plan_id && !plan?.quicklysim_plan_id && !plan?.api_source)) {
+      return {
+        paymentChannel: 'smeplug_wallet',
+        fulfillmentRoute: 'smeplug_api',
+        provider,
+        source: 'smeplug',
+      };
+    }
+    if (source === 'ogdams' || (plan?.ogdams_sku && !plan?.quicklysim_plan_id && !plan?.api_source)) {
+      return {
+        paymentChannel: 'ogdams_wallet',
+        fulfillmentRoute: 'ogdams_api',
+        provider,
+        source: 'ogdams',
+      };
+    }
+
+    const primary = primaryProvider || globalThis.__peacebundle_primary_provider;
     if (primary && primary.slug && primary.is_active) {
       if (primary.slug === 'smeplug') {
         return {
@@ -575,7 +603,6 @@ class TransactionIntegrityService {
       };
     }
 
-    const source = String(plan?.source || '').trim().toLowerCase();
     const simPoolEnabled = String(process.env.SIM_POOL_ENABLED || 'false').toLowerCase() === 'true';
     const allowWalletFallback = String(process.env.SIM_POOL_ALLOW_WALLET_FALLBACK || 'false').toLowerCase() === 'true';
     if (preferredSim && plan?.available_sim !== false) {

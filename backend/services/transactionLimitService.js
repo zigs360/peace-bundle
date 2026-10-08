@@ -9,43 +9,60 @@ class TransactionLimitService {
    * @returns {Promise<Object>}
    */
   async canTransact(user) {
-    // Determine role (User model has 'role' field, simpler than Spatie)
+    // Check if limits are globally disabled
+    try {
+      const enabledSetting = await SystemSetting.findOne({ where: { key: 'transaction_limits_enabled' } });
+      if (enabledSetting && (enabledSetting.value === 'false' || enabledSetting.value === false)) {
+        return { allowed: true };
+      }
+    } catch (_) {}
+
+    // Determine role (User model has 'role' field)
     const role = user.role || 'user';
 
     // Get limits for role
     const limits = await this.getLimitsForRole(role);
 
     // Check daily limit (count)
-    const dailyCount = await this.getDailyTransactionCount(user);
-    if (limits.daily_transactions && dailyCount >= limits.daily_transactions) {
-      return {
-        allowed: false,
-        reason: 'Daily transaction limit reached',
-        limit: limits.daily_transactions,
-        current: dailyCount,
-      };
+    let dailyCount = 0;
+    if (limits.daily_transactions && limits.daily_transactions > 0) {
+      dailyCount = await this.getDailyTransactionCount(user);
+      if (dailyCount >= limits.daily_transactions) {
+        return {
+          allowed: false,
+          reason: 'Daily transaction limit reached',
+          limit: limits.daily_transactions,
+          current: dailyCount,
+        };
+      }
     }
 
     // Check hourly limit (count)
-    const hourlyCount = await this.getHourlyTransactionCount(user);
-    if (limits.hourly_transactions && hourlyCount >= limits.hourly_transactions) {
-      return {
-        allowed: false,
-        reason: 'Hourly transaction limit reached',
-        limit: limits.hourly_transactions,
-        current: hourlyCount,
-      };
+    let hourlyCount = 0;
+    if (limits.hourly_transactions && limits.hourly_transactions > 0) {
+      hourlyCount = await this.getHourlyTransactionCount(user);
+      if (hourlyCount >= limits.hourly_transactions) {
+        return {
+          allowed: false,
+          reason: 'Hourly transaction limit reached',
+          limit: limits.hourly_transactions,
+          current: hourlyCount,
+        };
+      }
     }
 
     // Check daily value limit (sum amount)
-    const dailyValue = await this.getDailyTransactionValue(user);
-    if (limits.daily_value_limit && dailyValue >= limits.daily_value_limit) {
-      return {
-        allowed: false,
-        reason: 'Daily transaction value limit reached',
-        limit: limits.daily_value_limit,
-        current: dailyValue,
-      };
+    let dailyValue = 0;
+    if (limits.daily_value_limit && limits.daily_value_limit > 0) {
+      dailyValue = await this.getDailyTransactionValue(user);
+      if (dailyValue >= limits.daily_value_limit) {
+        return {
+          allowed: false,
+          reason: 'Daily transaction value limit reached',
+          limit: limits.daily_value_limit,
+          current: dailyValue,
+        };
+      }
     }
 
     return {
@@ -61,17 +78,17 @@ class TransactionLimitService {
    * @returns {Promise<Object>}
    */
   async getLimitsForRole(role) {
-    // Default limits structure
+    // Default limits structure - unlimited by default unless explicitly configured in SystemSetting
     const defaults = {
       user: {
-        daily_transactions: 50,
-        hourly_transactions: 10,
-        daily_value_limit: 50000,
+        daily_transactions: null,
+        hourly_transactions: null,
+        daily_value_limit: null,
       },
       reseller: {
-        daily_transactions: 500,
-        hourly_transactions: 100,
-        daily_value_limit: 500000,
+        daily_transactions: null,
+        hourly_transactions: null,
+        daily_value_limit: null,
       },
       admin: {
         daily_transactions: null, // Unlimited
@@ -96,9 +113,13 @@ class TransactionLimitService {
     const limits = { ...roleDefaults };
 
     settings.forEach(s => {
-      if (s.key.includes('daily_transactions')) limits.daily_transactions = parseInt(s.value);
-      if (s.key.includes('hourly_transactions')) limits.hourly_transactions = parseInt(s.value);
-      if (s.key.includes('daily_value_limit')) limits.daily_value_limit = parseFloat(s.value);
+      const val = parseInt(s.value, 10);
+      if (s.key.includes('daily_transactions')) limits.daily_transactions = Number.isFinite(val) && val > 0 ? val : null;
+      if (s.key.includes('hourly_transactions')) limits.hourly_transactions = Number.isFinite(val) && val > 0 ? val : null;
+      if (s.key.includes('daily_value_limit')) {
+        const floatVal = parseFloat(s.value);
+        limits.daily_value_limit = Number.isFinite(floatVal) && floatVal > 0 ? floatVal : null;
+      }
     });
 
     return limits;
