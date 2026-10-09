@@ -357,7 +357,7 @@ describe('BillStack webhook', () => {
         type: 'RESERVED_ACCOUNT_TRANSACTION',
         reference: `BILLSTACK-TXN-${Date.now()}`,
         amount: '100',
-        account: { account_number: '0000000000' }
+        account: { account_number: '9999999999' }
       }
     };
 

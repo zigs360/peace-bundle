@@ -159,7 +159,7 @@ describe('BillStack virtual account provider', () => {
       name: 'Test User Failure',
       email: `billstack_va_fail_${Date.now()}@test.com`,
       phone: `0902234${String(Date.now()).slice(-4)}`,
-      bvn: '12345678901',
+      bvn: `33${String(Date.now()).slice(-9)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',

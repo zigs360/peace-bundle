@@ -41,6 +41,10 @@ class BillstackVirtualAccountService {
     this.timeoutMs = parseInt(process.env.BILLSTACK_TIMEOUT_MS || '30000', 10);
   }
 
+  isConfigured() {
+    return Boolean(this.baseUrl && this.secretKey);
+  }
+
   getRouterBreaker() {
     const key = '__peacebundle_va_router_breaker';
     if (!globalThis[key]) globalThis[key] = new Map();
@@ -224,7 +228,9 @@ class BillstackVirtualAccountService {
       .map((s) => (s === 'SAFEHAVENMFB' ? 'SAFEHAVEN' : s))
       .filter(Boolean);
     const preferred = this.normalizeBankCode(process.env.BILLSTACK_BANK || 'PALMPAY') || 'PALMPAY';
-    const defaultOrder = preferred === '9PSB' ? ['9PSB', 'PALMPAY'] : ['PALMPAY', '9PSB'];
+    const defaultOrder = preferred === '9PSB'
+      ? ['9PSB', 'PALMPAY', 'PROVIDUS', 'SAFEHAVEN']
+      : ['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB'];
     const order = list.length ? list : defaultOrder;
     const uniq = [];
     for (const item of order) {
@@ -648,7 +654,7 @@ class BillstackVirtualAccountService {
         hasViableClosedRoute = true;
         break;
       }
-      if (bankCode === 'PALMPAY' && canUsePayvessel && !this.isCircuitOpen('PAYVESSEL:PALMPAY') && (process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true' || (Boolean(process.env.PAYVESSEL_API_KEY) && !isTest))) {
+      if (bankCode === 'PALMPAY' && canUsePayvessel && !this.isCircuitOpen('PAYVESSEL:PALMPAY') && process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true') {
         hasViableClosedRoute = true;
         break;
       }
@@ -675,7 +681,7 @@ class BillstackVirtualAccountService {
 
       if (billstackBanks.includes(key)) {
         const circuitKey = `BILLSTACK:${key}`;
-        const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB' || (key === 'PALMPAY' && (process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true' || (Boolean(process.env.PAYVESSEL_API_KEY) && !isTest)));
+        const supportsDirectProviderFallback = key === 'SAFEHAVEN' || key === '9PSB' || (key === 'PALMPAY' && process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true');
         if (canUseBillstack) {
           const isEmergencyProbe = isForced || emergencyProbeBank === key;
           const shouldAttempt = this.canAttempt(circuitKey, {
@@ -808,7 +814,7 @@ class BillstackVirtualAccountService {
         }
       }
 
-      if (key === 'PALMPAY' && (process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true' || (Boolean(process.env.PAYVESSEL_API_KEY) && !isTest))) {
+      if (key === 'PALMPAY' && process.env.PAYVESSEL_FALLBACK_PALMPAY === 'true') {
         const circuitKey = 'PAYVESSEL:PALMPAY';
         if (!canUsePayvessel) {
           logger.warn('[VA Router] PayVessel secondary fallback skipped for PALMPAY (unconfigured or unhealthy)', { bank: key, payvesselHttpOk });

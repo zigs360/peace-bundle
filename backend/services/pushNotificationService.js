@@ -40,11 +40,24 @@ class PushNotificationService {
 
             // 1. Try environment variable as JSON string or file path
             if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+                const envVal = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
                 try {
-                    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+                    serviceAccount = JSON.parse(envVal);
                 } catch {
-                    if (fs.existsSync(process.env.FIREBASE_SERVICE_ACCOUNT)) {
-                        serviceAccount = JSON.parse(fs.readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT, 'utf8'));
+                    const candidatePaths = [
+                        envVal,
+                        path.resolve(process.cwd(), envVal),
+                        path.resolve(__dirname, '..', envVal)
+                    ];
+                    for (const cp of candidatePaths) {
+                        if (fs.existsSync(cp)) {
+                            try {
+                                serviceAccount = JSON.parse(fs.readFileSync(cp, 'utf8'));
+                                break;
+                            } catch {
+                                // continue
+                            }
+                        }
                     }
                 }
             }
@@ -53,11 +66,18 @@ class PushNotificationService {
             if (!serviceAccount) {
                 const configPath = path.join(__dirname, '..', 'config', 'firebase-service-account.json');
                 if (fs.existsSync(configPath)) {
-                    serviceAccount = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                    try {
+                        serviceAccount = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                    } catch (parseErr) {
+                        logger.error(`[PushNotification] Failed to parse config file: ${parseErr.message}`);
+                    }
                 }
             }
 
             if (serviceAccount && serviceAccount.project_id && serviceAccount.private_key) {
+                if (typeof serviceAccount.private_key === 'string' && serviceAccount.private_key.includes('\\n')) {
+                    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+                }
                 this.firebaseApp = admin.initializeApp({
                     credential: admin.cert(serviceAccount)
                 });

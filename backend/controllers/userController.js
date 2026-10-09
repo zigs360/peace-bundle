@@ -55,21 +55,6 @@ const requestVirtualAccount = async (req, res) => {
                 }
             }
         }
-        if (metaNow.va_status === 'pending' && metaNow.va_next_retry_at) {
-            const nextRetryAt = new Date(metaNow.va_next_retry_at);
-            if (Number.isFinite(nextRetryAt.getTime()) && nextRetryAt.getTime() > Date.now()) {
-                const retryAfterSeconds = Math.max(1, Math.ceil((nextRetryAt.getTime() - Date.now()) / 1000));
-                res.set('Retry-After', String(retryAfterSeconds));
-                return res.json({
-                    success: false,
-                    code: 'PROVIDER_TEMPORARILY_UNAVAILABLE',
-                    message: 'Virtual account generation is temporarily unavailable. Please try again later.',
-                    nextRetryAt: nextRetryAt.toISOString(),
-                    retryAfterSeconds,
-                });
-            }
-        }
-
         if (user.virtual_account_number) {
             if (!virtualAccountService.isDisplayableVirtualAccount(user)) {
                 logger.info(`[VirtualAccount] Quarantining obsolete virtual account during request for user ${userId} (${user.virtual_account_bank})`);

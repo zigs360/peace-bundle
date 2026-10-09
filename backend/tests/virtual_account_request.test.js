@@ -16,6 +16,10 @@ describe('Virtual Account Request', () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET || 'peace_bundle_secret_key_123';
   });
 
+  beforeEach(() => {
+    billstackVirtualAccountService.resetCircuitBreakers();
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
   });
@@ -322,7 +326,7 @@ describe('Virtual Account Request', () => {
       name: 'Safe Haven User',
       email: `fallback_safehaven_${Date.now()}@test.com`,
       phone: `081${String(Date.now()).slice(-8)}`,
-      bvn: '12345678901',
+      bvn: `22${String(Date.now()).slice(-9)}`,
       password: 'password123',
       role: 'user',
       account_status: 'active',

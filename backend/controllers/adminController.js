@@ -1794,10 +1794,11 @@ const retryUserVirtualAccount = async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        if (user.virtual_account_number) {
+        const virtualAccountService = require('../services/virtualAccountService');
+        if (user.virtual_account_number && virtualAccountService.hasActiveSupportedVirtualAccount(user)) {
             return res.status(400).json({
                 success: false,
-                message: 'User already has a virtual account',
+                message: 'User already has an active virtual account',
                 data: {
                     bank: user.virtual_account_bank,
                     accountNumber: user.virtual_account_number,
@@ -1806,7 +1807,6 @@ const retryUserVirtualAccount = async (req, res) => {
             });
         }
 
-        const virtualAccountService = require('../services/virtualAccountService');
         await virtualAccountService.recordProvisioningAttempt(user.id);
         const details = await virtualAccountService.assignVirtualAccount(user, { force: true });
         await virtualAccountService.recordProvisioningSuccess(user.id);
