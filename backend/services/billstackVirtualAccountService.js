@@ -225,17 +225,14 @@ class BillstackVirtualAccountService {
     const list = raw
       .split(',')
       .map((s) => this.normalizeBankCode(s))
-      .map((s) => (s === 'SAFEHAVENMFB' ? 'SAFEHAVEN' : s))
-      .filter(Boolean);
+      .filter((s) => s && s !== 'SAFEHAVEN' && s !== 'SAFEHAVENMFB');
     const preferred = this.normalizeBankCode(process.env.BILLSTACK_BANK || 'PALMPAY') || 'PALMPAY';
-    const defaultOrder = preferred === '9PSB'
-      ? ['9PSB', 'PALMPAY', 'PROVIDUS', 'SAFEHAVEN']
-      : ['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB'];
+    const defaultOrder = preferred === '9PSB' ? ['9PSB', 'PALMPAY'] : ['PALMPAY', '9PSB'];
     const order = list.length ? list : defaultOrder;
     const uniq = [];
     for (const item of order) {
       const key = String(item || '').trim().toUpperCase();
-      if (!key) continue;
+      if (!key || key === 'SAFEHAVEN' || key === 'SAFEHAVENMFB') continue;
       if (!uniq.includes(key)) uniq.push(key);
     }
     return uniq;
@@ -734,40 +731,8 @@ class BillstackVirtualAccountService {
       }
 
       if (key === 'SAFEHAVEN') {
-        const circuitKey = 'SAFEHAVEN';
-        if (!canUseSafeHaven) continue;
-        const shouldAttemptSH = this.canAttempt(circuitKey, { allowCanaryProbe: !hasViableClosedRoute });
-        if (!shouldAttemptSH) {
-          attempts.push({ at: new Date().toISOString(), provider: 'safehaven', bank: 'SAFEHAVEN', tier: 'secondary', status: 'skipped', reason: 'circuit_open' });
-          continue;
-        }
-        try {
-          const reference = options.reference || (referenceBase ? `${referenceBase}-SAFEHAVEN`.slice(0, 64) : `SHVA-${user?.id}`);
-          const result = await safeHavenVirtualAccountService.createVirtualAccount(user, { timeoutMs, reference });
-          this.markCircuitSuccess(circuitKey);
-          const validated = this.validateProvisioningResult(result, { provider: 'safehaven', bank: 'SAFEHAVEN' });
-          attempts.push({ at: new Date().toISOString(), provider: 'safehaven', bank: 'SAFEHAVEN', tier: 'secondary', status: 'success' });
-          // #region debug-point D:router-success-secondary
-          (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'D',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router succeeded on secondary provider',data:{userId:user?.id||null,bank:'SAFEHAVEN',attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
-          // #endregion
-          logger.warn('[VA Router] Fallback occurred (secondary)', { userId: user?.id, selected: { provider: 'safehaven', bank: 'SAFEHAVEN' }, attempts });
-          return {
-            provider: 'safehaven',
-            bank: 'SAFEHAVEN',
-            ...validated,
-            routing: { attempts, primaryFailures, health },
-          };
-        } catch (e) {
-          lastError = e;
-          const failure = this.classifyRoutingFailure(e);
-          this.markCircuitFailure(circuitKey, failure.category);
-          attempts.push({ at: new Date().toISOString(), provider: 'safehaven', bank: 'SAFEHAVEN', tier: 'secondary', status: 'failed', failure });
-          // #region debug-point E:router-safehaven-failed
-          (()=>{const fs=require('fs'),p='.dbg/manual-va-no-response.env';let u='http://127.0.0.1:7777/event',s='manual-va-no-response';try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'backend/services/billstackVirtualAccountService.js:generateVirtualAccountRouted',msg:'[DEBUG] VA router SafeHaven failed',data:{userId:user?.id||null,message:failure.message,attemptedBanks:this.getAttemptedBanksFromAttempts(attempts)},ts:Date.now()})}).catch(()=>{})})();
-          // #endregion
-          logger.warn('[VA Router] Secondary allocation failed', { userId: user?.id, provider: 'safehaven', bank: 'SAFEHAVEN', failureCategory: failure.category, status: failure.status, message: failure.message });
-          continue;
-        }
+        logger.info('[VA Router] SafeHaven is deprecated. Skipping route.');
+        continue;
       }
 
       if (key === '9PSB') {

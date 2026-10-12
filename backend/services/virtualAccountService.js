@@ -266,11 +266,7 @@ class VirtualAccountService {
     }
 
     getApprovedProviders() {
-        const list = ['payvessel', 'billstack'];
-        if (safeHavenVirtualAccountService.isConfigured()) {
-            list.push('safehaven');
-        }
-        return list;
+        return ['payvessel', 'billstack'];
     }
 
     getUserProvider(user) {

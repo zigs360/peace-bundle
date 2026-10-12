@@ -139,7 +139,7 @@ describe('BillStack virtual account provider', () => {
     expect(updated.metadata?.billstack_reference).toBe('R-TEST-REF');
   });
 
-  it('logs and throws the full attempted bank chain when all four banks fail', async () => {
+  it('logs and throws the full attempted bank chain when active banks fail and skips deprecated safehaven', async () => {
     const origPriority = process.env.VA_ROUTER_PRIORITY;
     process.env.VA_ROUTER_PRIORITY = 'PALMPAY,PROVIDUS,SAFEHAVEN,9PSB';
     jest.spyOn(billstackVirtualAccountService, 'isConfigured').mockReturnValue(true);
@@ -166,21 +166,21 @@ describe('BillStack virtual account provider', () => {
     });
 
     await expect(virtualAccountService.assignVirtualAccount(user)).rejects.toMatchObject({
-      message: expect.stringContaining('(attempted banks: PALMPAY, PROVIDUS, SAFEHAVEN, 9PSB)'),
+      message: expect.stringContaining('(attempted banks: PALMPAY, PROVIDUS, 9PSB)'),
       details: expect.objectContaining({
-        attemptedBanks: ['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB'],
+        attemptedBanks: ['PALMPAY', 'PROVIDUS', '9PSB'],
       }),
     });
 
-    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB']);
-    expect(safeHavenSpy).toHaveBeenCalledTimes(1);
+    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', 'PROVIDUS', '9PSB']);
+    expect(safeHavenSpy).not.toHaveBeenCalled();
     expect(payvesselSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
       '[VirtualAccount] Failed to assign virtual account (transient)',
       expect.objectContaining({
         userId: user.id,
-        attemptedBanks: ['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB'],
-        message: expect.stringContaining('(attempted banks: PALMPAY, PROVIDUS, SAFEHAVEN, 9PSB)'),
+        attemptedBanks: ['PALMPAY', 'PROVIDUS', '9PSB'],
+        message: expect.stringContaining('(attempted banks: PALMPAY, PROVIDUS, 9PSB)'),
       }),
     );
     process.env.VA_ROUTER_PRIORITY = origPriority;

@@ -289,20 +289,20 @@ describe('Virtual Account Request', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.accountNumber).toBeTruthy();
     expect(payvesselSpy).toHaveBeenCalledTimes(1);
-    expect(billstackSpy).toHaveBeenCalledTimes(4);
-    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB']);
+    expect(billstackSpy).toHaveBeenCalledTimes(2);
+    expect(billstackSpy.mock.calls.map((call) => call[1])).toEqual(['PALMPAY', '9PSB']);
 
     const updated = await User.findByPk(user.id);
     expect(updated.metadata?.va_provider).toBe('payvessel');
     expect(updated.metadata?.va_fallback_used).toBe(true);
     expect(updated.metadata?.va_assignment_workflow).toBe('payvessel_9PSB');
-    expect(updated.metadata?.va_primary_failures).toHaveLength(4);
-    expect(updated.metadata?.va_primary_failures?.map((entry) => entry.bank)).toEqual(['PALMPAY', 'PROVIDUS', 'SAFEHAVEN', '9PSB']);
+    expect(updated.metadata?.va_primary_failures).toHaveLength(2);
+    expect(updated.metadata?.va_primary_failures?.map((entry) => entry.bank)).toEqual(['PALMPAY', '9PSB']);
 
     process.env.NODE_ENV = prevEnv;
   });
 
-  it('uses Safe Haven as the preferred secondary workflow when configured', async () => {
+  it('does not route to Safe Haven when deprecated and falls back to PayVessel', async () => {
     const prevEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
 
@@ -314,13 +314,13 @@ describe('Virtual Account Request', () => {
     const billstackSpy = jest.spyOn(billstackVirtualAccountService, 'generateVirtualAccount').mockImplementation(async () => {
       throw new Error('Cannot reserve account at the moment.');
     });
-    const safeHavenSpy = jest.spyOn(safeHavenVirtualAccountService, 'createVirtualAccount').mockResolvedValue({
-      accountNumber: `31${String(Date.now()).slice(-8)}`,
-      bankName: 'Safe Haven',
+    const safeHavenSpy = jest.spyOn(safeHavenVirtualAccountService, 'createVirtualAccount');
+    const payvesselSpy = jest.spyOn(payvesselService, 'createVirtualAccount').mockResolvedValue({
+      accountNumber: `24${String(Date.now()).slice(-8)}`,
+      bankName: '9PSB',
       accountName: 'Safe Haven User',
-      trackingReference: `SH-${Date.now()}`,
+      trackingReference: `PV-9PSB-${Date.now()}`,
     });
-    const payvesselSpy = jest.spyOn(payvesselService, 'createVirtualAccount');
 
     const user = await User.create({
       name: 'Safe Haven User',
@@ -339,16 +339,12 @@ describe('Virtual Account Request', () => {
       .send({});
 
     expect(res.statusCode).toBe(200);
-    expect(billstackSpy).toHaveBeenCalledTimes(3);
-    expect(safeHavenSpy).toHaveBeenCalledTimes(1);
-    expect(payvesselSpy).not.toHaveBeenCalled();
+    expect(safeHavenSpy).not.toHaveBeenCalled();
+    expect(payvesselSpy).toHaveBeenCalled();
 
     const updated = await User.findByPk(user.id);
-    expect(updated.metadata?.va_provider).toBe('safehaven');
+    expect(updated.metadata?.va_provider).toBe('payvessel');
     expect(updated.metadata?.va_fallback_used).toBe(true);
-    expect(updated.metadata?.va_assignment_workflow).toBe('safehaven_SAFEHAVEN');
-    expect(updated.metadata?.safehaven_reference).toBeTruthy();
-    expect(updated.virtual_account_bank).toBe('SAFE HAVEN');
 
     process.env.NODE_ENV = prevEnv;
   });
