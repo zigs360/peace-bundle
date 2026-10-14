@@ -1,6 +1,54 @@
 const Beneficiary = require('../models/Beneficiary');
 const logger = require('../utils/logger');
 
+const normalizePhone = (value) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.startsWith('234') && digits.length === 13) return `0${digits.slice(3)}`;
+    return digits;
+};
+
+const saveBeneficiaryForUser = async ({ userId, phone, network, name, accountNumber, bankName }) => {
+    if (!userId || (!phone && !accountNumber)) return null;
+    const normalizedPhone = phone ? normalizePhone(phone) : null;
+    const cleanNetwork = network ? String(network).toLowerCase().trim() : null;
+    const cleanName = (name && String(name).trim()) || (normalizedPhone ? `${(cleanNetwork || 'VTU').toUpperCase()} - ${normalizedPhone}` : 'Beneficiary');
+
+    const whereClause = { userId };
+    if (normalizedPhone) {
+        whereClause.phoneNumber = normalizedPhone;
+    } else if (accountNumber) {
+        whereClause.accountNumber = accountNumber;
+    }
+
+    const existing = await Beneficiary.findOne({ where: whereClause });
+
+    if (existing) {
+        const updateData = {
+            name: (name && String(name).trim()) || existing.name || cleanName,
+            network: cleanNetwork || existing.network,
+            accountNumber: accountNumber || existing.accountNumber,
+            bankName: bankName || existing.bankName,
+        };
+        if (typeof existing.update === 'function') {
+            return await existing.update(updateData);
+        }
+        Object.assign(existing, updateData);
+        if (typeof existing.save === 'function') {
+            await existing.save();
+        }
+        return existing;
+    }
+
+    return await Beneficiary.create({
+        userId,
+        name: cleanName,
+        phoneNumber: normalizedPhone,
+        network: cleanNetwork,
+        accountNumber,
+        bankName,
+    });
+};
+
 // @desc    Get user beneficiaries
 // @route   GET /api/beneficiaries
 // @access  Private
@@ -24,17 +72,17 @@ const createBeneficiary = async (req, res) => {
     try {
         const { name, phoneNumber, network, accountNumber, bankName } = req.body;
 
-        if (!name) {
-            return res.status(400).json({ success: false, message: 'Name is required' });
+        if (!name && !phoneNumber && !accountNumber) {
+            return res.status(400).json({ success: false, message: 'Phone number or account number is required' });
         }
 
-        const beneficiary = await Beneficiary.create({
+        const beneficiary = await saveBeneficiaryForUser({
             userId: req.user.id,
-            name,
-            phoneNumber,
+            phone: phoneNumber,
             network,
+            name,
             accountNumber,
-            bankName
+            bankName,
         });
 
         res.status(201).json(beneficiary);
@@ -71,5 +119,6 @@ const deleteBeneficiary = async (req, res) => {
 module.exports = {
     getBeneficiaries,
     createBeneficiary,
-    deleteBeneficiary
+    deleteBeneficiary,
+    saveBeneficiaryForUser,
 };

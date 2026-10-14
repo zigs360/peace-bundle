@@ -31,6 +31,7 @@ const {
     toFiniteNumber,
 } = require('../utils/dataPlanUtils');
 const { sanitizeTransactionForClient, sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
+const { saveBeneficiaryForUser } = require('./beneficiaryController');
 
 const dashboardStatsCache = globalThis.__peacebundle_dashboard_stats_cache || new Map();
 globalThis.__peacebundle_dashboard_stats_cache = dashboardStatsCache;
@@ -274,6 +275,8 @@ const buyData = async (req, res) => {
         phone: Joi.string().required(),
         amount: Joi.number().positive().optional(),
         reference: Joi.string().pattern(/^[A-Za-z0-9_-]{6,64}$/).optional(),
+        save_beneficiary: Joi.boolean().optional(),
+        beneficiary_name: Joi.string().max(100).allow('', null).optional(),
     });
 
     const { value, error } = schema.validate({
@@ -282,6 +285,8 @@ const buyData = async (req, res) => {
         phone: rawPhone,
         amount: rawAmount,
         reference: rawReference,
+        save_beneficiary: req.body?.save_beneficiary,
+        beneficiary_name: req.body?.beneficiary_name,
     }, { abortEarly: false });
 
     if (error) {
@@ -505,6 +510,15 @@ const buyData = async (req, res) => {
             ? 'Data purchase order submitted and is processing'
             : 'Data purchase successful';
 
+        if (value.save_beneficiary) {
+            saveBeneficiaryForUser({
+                userId,
+                phone,
+                network,
+                name: value.beneficiary_name,
+            }).catch((bErr) => logger.warn('[Beneficiary] Auto-save error in buyData', { error: bErr.message, userId }));
+        }
+
         res.json({
             success: true,
             status: finalStatusLower,
@@ -557,9 +571,18 @@ const buyAirtime = async (req, res) => {
         }, 'phone normalization').required(),
         amount: Joi.number().integer().min(50).max(Number.parseInt(process.env.AIRTIME_MAX_NGN || '100000', 10)).required(),
         reference: Joi.string().pattern(/^[A-Za-z0-9_-]{6,64}$/).optional(),
+        save_beneficiary: Joi.boolean().optional(),
+        beneficiary_name: Joi.string().max(100).allow('', null).optional(),
     });
 
-    const { value, error } = schema.validate({ network: rawNetwork, phone: rawPhone, amount: rawAmount, reference: rawReference }, { abortEarly: false });
+    const { value, error } = schema.validate({
+        network: rawNetwork,
+        phone: rawPhone,
+        amount: rawAmount,
+        reference: rawReference,
+        save_beneficiary: req.body?.save_beneficiary,
+        beneficiary_name: req.body?.beneficiary_name,
+    }, { abortEarly: false });
     if (error) {
         return res.status(400).json({ success: false, message: 'Invalid request', details: error.details.map((d) => d.message) });
     }
@@ -755,6 +778,15 @@ const buyAirtime = async (req, res) => {
         
         if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
         const updatedWallet = await walletService.getBalance(user);
+
+        if (value.save_beneficiary) {
+            saveBeneficiaryForUser({
+                userId,
+                phone,
+                network,
+                name: value.beneficiary_name,
+            }).catch((bErr) => logger.warn('[Beneficiary] Auto-save error in buyAirtime', { error: bErr.message, userId }));
+        }
 
         res.json({
             success: true,

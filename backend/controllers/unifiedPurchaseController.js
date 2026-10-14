@@ -13,6 +13,7 @@ const transactionIntegrityService = require('../services/transactionIntegritySer
 const logger = require('../utils/logger');
 const sequelize = require('../config/database');
 const { sanitizeTransactionForClient, sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
+const { saveBeneficiaryForUser } = require('./beneficiaryController');
 
 const maskPhone = (value) => {
   const digits = String(value || '').replace(/\D/g, '');
@@ -180,6 +181,15 @@ const purchaseUnified = async (req, res) => {
 
         const updatedWallet = await walletService.getBalance(user);
         
+        if (req.body?.save_beneficiary) {
+          saveBeneficiaryForUser({
+            userId,
+            phone: cleanPhone,
+            network: cleanNetwork,
+            name: req.body?.beneficiary_name,
+          }).catch((err) => logger.warn('[Beneficiary] Auto-save error in unified airtime', { error: err.message, userId }));
+        }
+
         return res.json({
           success: true,
           message: providerResult?.pending
@@ -274,6 +284,15 @@ const purchaseUnified = async (req, res) => {
 
         await t.commit();
         const updatedWallet = await walletService.getBalance(user);
+
+        if (req.body?.save_beneficiary) {
+          saveBeneficiaryForUser({
+            userId,
+            phone: cleanPhone,
+            network: cleanNetwork,
+            name: req.body?.beneficiary_name,
+          }).catch((err) => logger.warn('[Beneficiary] Auto-save error in unified data', { error: err.message, userId }));
+        }
 
         return res.json({
           success: true,

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api from '../../services/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Smartphone, Banknote, Star, CheckCircle, Loader2, Zap, AlertCircle } from 'lucide-react';
@@ -6,6 +6,7 @@ import { FadeIn, SlideUp } from '../../components/animations/MotionComponents';
 import { detectNetwork, networkServices, recommendations, isValidNigerianNumber } from '../../utils/networkDetection';
 import { toast } from 'react-hot-toast';
 import SelectProvider from '../../components/Forms/SelectProvider';
+import BeneficiaryPicker, { Beneficiary } from '../../components/BeneficiaryPicker';
 import { useNotifications } from '../../context/NotificationContext';
 import { useTransactionPinGate } from '../../hooks/useTransactionPinGate';
 
@@ -68,8 +69,39 @@ export default function BuyAirtime() {
   const [isPhoneValid, setIsPhoneValid] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
   const [purchaseResult, setPurchaseResult] = useState<PurchaseResult | null>(null);
+  const [saveBeneficiary, setSaveBeneficiary] = useState(false);
+  const [beneficiaryName, setBeneficiaryName] = useState('');
+  const [savedBeneficiaries, setSavedBeneficiaries] = useState<Beneficiary[]>([]);
   const { pricingVersion } = useNotifications();
   const { ensureTransactionPin, prompt } = useTransactionPinGate('financial');
+
+  useEffect(() => {
+    api.get<Beneficiary[]>('/beneficiaries')
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        setSavedBeneficiaries(list);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSelectBeneficiary = (b: Beneficiary) => {
+    if (b.phoneNumber) {
+      setPhone(b.phoneNumber);
+    }
+    if (b.network) {
+      const net = b.network.toLowerCase();
+      setNetwork(net);
+      setManualOverride(true);
+      fetchDataPlans(net);
+    }
+  };
+
+  const matchedBeneficiary = useMemo(() => {
+    const clean = phone.replace(/\D/g, '');
+    if (!clean || clean.length < 10) return null;
+    const last10 = clean.slice(-10);
+    return savedBeneficiaries.find((b) => (b.phoneNumber || '').replace(/\D/g, '').endsWith(last10)) || null;
+  }, [phone, savedBeneficiaries]);
 
   useEffect(() => {
     setIsPhoneValid(isValidNigerianNumber(phone));
@@ -139,6 +171,12 @@ export default function BuyAirtime() {
         serviceType,
         network,
       };
+      if (saveBeneficiary) {
+        payload.save_beneficiary = true;
+        if (beneficiaryName.trim()) {
+          payload.beneficiary_name = beneficiaryName.trim();
+        }
+      }
       const selectedDataPlan = dataPlans.find((plan) => String(plan.id) === String(planId));
       const selectedDataAmount = Number(
         selectedDataPlan?.effective_price ??
@@ -173,6 +211,8 @@ export default function BuyAirtime() {
               phone: cleanPhone,
               planId: Number(planId),
               amount: selectedDataAmount,
+              ...(saveBeneficiary ? { save_beneficiary: true } : {}),
+              ...(saveBeneficiary && beneficiaryName.trim() ? { beneficiary_name: beneficiaryName.trim() } : {}),
             };
         const res = await api.post(endpoint, requestBody);
 
@@ -183,6 +223,13 @@ export default function BuyAirtime() {
           syncWalletBalanceCache(nextResult.balance);
           setAmount('');
           setPlanId('');
+          if (saveBeneficiary) {
+            api.get<Beneficiary[]>('/beneficiaries')
+              .then((bRes) => setSavedBeneficiaries(Array.isArray(bRes.data) ? bRes.data : []))
+              .catch(() => {});
+            setSaveBeneficiary(false);
+            setBeneficiaryName('');
+          }
         }
       } catch (err: any) {
         const responseData = err.response?.data;
@@ -248,7 +295,10 @@ export default function BuyAirtime() {
         </div>
         <form onSubmit={handlePurchase}>
           <div className="mb-6">
-            <label className="block text-gray-700 font-bold mb-2">Phone Number</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-gray-700 font-bold">Phone Number</label>
+              <BeneficiaryPicker onSelect={handleSelectBeneficiary} currentPhone={phone} />
+            </div>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Smartphone className="h-5 w-5 text-gray-400" />
@@ -304,6 +354,37 @@ export default function BuyAirtime() {
                 </button>
               )}
             </div>
+
+            {matchedBeneficiary ? (
+              <div className="flex items-center gap-1.5 mt-2.5 text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Saved beneficiary: <strong className="font-semibold text-emerald-900">{matchedBeneficiary.name}</strong> ({matchedBeneficiary.network?.toUpperCase() || 'Phone'})</span>
+              </div>
+            ) : isPhoneValid ? (
+              <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={saveBeneficiary}
+                    onChange={(e) => setSaveBeneficiary(e.target.checked)}
+                    className="w-4 h-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-xs font-semibold text-gray-700">
+                    Save as beneficiary for future purchases
+                  </span>
+                </label>
+                {saveBeneficiary && (
+                  <input
+                    type="text"
+                    value={beneficiaryName}
+                    onChange={(e) => setBeneficiaryName(e.target.value)}
+                    placeholder="Beneficiary nickname (e.g. Mum, Brother, Work Phone)"
+                    className="w-full text-xs px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:outline-none bg-white"
+                    maxLength={50}
+                  />
+                )}
+              </div>
+            ) : null}
           </div>
 
           <AnimatePresence>

@@ -3,6 +3,7 @@ const dataPurchaseService = require('../services/dataPurchaseService');
 const transactionLimitService = require('../services/transactionLimitService');
 const logger = require('../utils/logger');
 const { sanitizePlanForClient, sanitizeTransactionForClient, sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
+const { saveBeneficiaryForUser } = require('./beneficiaryController');
 
 class DataPurchaseController {
     
@@ -116,6 +117,15 @@ class DataPurchaseController {
                     ),
                     transaction: sanitizeTransactionForClient(transaction, { isAdmin: user.role === 'admin' })
                 });
+            }
+
+            if (req.body?.save_beneficiary) {
+                saveBeneficiaryForUser({
+                    userId: user.id,
+                    phone: recipient_phone,
+                    network: plan.provider,
+                    name: req.body?.beneficiary_name,
+                }).catch((err) => logger.warn('[Beneficiary] Auto-save error in data purchase', { error: err.message, userId: user.id }));
             }
 
             res.json({
