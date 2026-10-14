@@ -1,6 +1,7 @@
 const axios = require('axios');
 const ApiProvider = require('../models/ApiProvider');
 const logger = require('../utils/logger');
+const { sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
 
 const sanitizeHeader = (val) => {
   if (val === null || val === undefined) return '';
@@ -646,8 +647,9 @@ class DynamicProviderService {
           (resData?.message && String(resData.message).toLowerCase().includes('successful'));
 
         if (!isOk) {
-          const errMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || 'QuicklySIM data purchase failed';
-          logger.warn(`[DynamicProvider] QuicklySIM data purchase failed: ${errMsg}`, { status: response?.status, data: resData });
+          const rawErrMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || 'Data purchase could not be delivered on Peace Bundle';
+          logger.warn(`[DynamicProvider] QuicklySIM data purchase failed: ${rawErrMsg}`, { status: response?.status, data: resData });
+          const errMsg = sanitizeUserFacingErrorMessage(rawErrMsg, 'Data purchase failed on Peace Bundle and was automatically reversed');
           return {
             success: false,
             provider: provider.name,
@@ -664,8 +666,9 @@ class DynamicProviderService {
         };
       } catch (err) {
         const errData = err.response?.data;
-        const errMsg = errData?.message || errData?.msg || errData?.error || errData?.desc || err.message;
-        logger.error(`[DynamicProvider] QuicklySIM data purchase exception: ${errMsg}`, { status: err.response?.status, data: errData });
+        const rawErrMsg = errData?.message || errData?.msg || errData?.error || errData?.desc || err.message;
+        logger.error(`[DynamicProvider] QuicklySIM data purchase exception: ${rawErrMsg}`, { status: err.response?.status, data: errData });
+        const errMsg = sanitizeUserFacingErrorMessage(rawErrMsg, 'Data purchase failed on Peace Bundle and was automatically reversed');
         return {
           success: false,
           provider: provider.name,
@@ -781,8 +784,9 @@ class DynamicProviderService {
           (resData?.message && String(resData.message).toLowerCase().includes('successful'));
 
         if (!isOk) {
-          const errMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || 'QuicklySIM airtime purchase failed';
-          logger.warn(`[DynamicProvider] QuicklySIM airtime purchase failed: ${errMsg}`, { status: response?.status, data: resData });
+          const rawErrMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || 'Airtime purchase could not be delivered on Peace Bundle';
+          logger.warn(`[DynamicProvider] QuicklySIM airtime purchase failed: ${rawErrMsg}`, { status: response?.status, data: resData });
+          const errMsg = sanitizeUserFacingErrorMessage(rawErrMsg, 'Airtime purchase failed on Peace Bundle and was automatically reversed');
           return {
             success: false,
             provider: provider.name,
@@ -799,8 +803,9 @@ class DynamicProviderService {
         };
       } catch (err) {
         const errData = err.response?.data;
-        const errMsg = errData?.message || errData?.msg || errData?.error || errData?.desc || err.message;
-        logger.error(`[DynamicProvider] QuicklySIM airtime purchase exception: ${errMsg}`, { status: err.response?.status, data: errData });
+        const rawErrMsg = errData?.message || errData?.msg || errData?.error || errData?.desc || err.message;
+        logger.error(`[DynamicProvider] QuicklySIM airtime purchase exception: ${rawErrMsg}`, { status: err.response?.status, data: errData });
+        const errMsg = sanitizeUserFacingErrorMessage(rawErrMsg, 'Airtime purchase failed on Peace Bundle and was automatically reversed');
         return {
           success: false,
           provider: provider.name,

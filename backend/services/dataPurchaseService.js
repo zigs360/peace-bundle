@@ -468,7 +468,7 @@ class DataPurchaseService {
           return;
         }
 
-        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Provider data purchase failed', t, {
+        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Data purchase failed on Peace Bundle and was automatically reversed', t, {
           flagAsAnomaly: true,
         });
         return;
@@ -476,7 +476,7 @@ class DataPurchaseService {
 
       if (route.fulfillmentRoute === 'sim_pool' || route.fulfillmentRoute === 'ogdams_sim') {
         if (!simPoolEnabled && !sim) {
-          await transactionIntegrityService.failAndRefund(transaction, 'SIM pool route selected but SIM pool is disabled', t, {
+          await transactionIntegrityService.failAndRefund(transaction, 'Data service unavailable on Peace Bundle at this moment and was reversed', t, {
             flagAsAnomaly: true,
           });
           return;
@@ -605,7 +605,7 @@ class DataPurchaseService {
           return;
         }
 
-        await transactionIntegrityService.failAndRefund(transaction, response.error || simRouteError || 'Data purchase failed', t, {
+        await transactionIntegrityService.failAndRefund(transaction, response.error || simRouteError || 'Data purchase failed on Peace Bundle and was automatically reversed', t, {
           flagAsAnomaly: true,
         });
         return;
@@ -642,7 +642,7 @@ class DataPurchaseService {
           return;
         }
 
-        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Provider data purchase failed', t, {
+        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Data purchase failed on Peace Bundle and was automatically reversed', t, {
           flagAsAnomaly: true,
         });
         return;
@@ -658,7 +658,7 @@ class DataPurchaseService {
 
         const ok = String(response?.status || '').toLowerCase() === 'success';
         if (!ok) {
-          await transactionIntegrityService.failAndRefund(transaction, response?.message || 'Ogdams data purchase failed', t, {
+          await transactionIntegrityService.failAndRefund(transaction, response?.message || 'Data purchase failed on Peace Bundle and was automatically reversed', t, {
             flagAsAnomaly: true,
           });
           return;
@@ -722,14 +722,14 @@ class DataPurchaseService {
           return;
         }
 
-        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Unknown error', t, {
+        await transactionIntegrityService.failAndRefund(transaction, response.error || 'Data purchase could not be delivered on Peace Bundle and was automatically reversed', t, {
           flagAsAnomaly: true,
         });
         return;
       }
 
       if (simPoolEnabled && !allowWalletFallback && route.fulfillmentRoute !== 'smeplug_api') {
-        await transactionIntegrityService.failAndRefund(transaction, 'No valid locked route available for this data purchase', t, {
+        await transactionIntegrityService.failAndRefund(transaction, 'Data service route currently unavailable on Peace Bundle and was automatically reversed', t, {
           flagAsAnomaly: true,
         });
         return;

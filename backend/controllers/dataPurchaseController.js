@@ -2,7 +2,7 @@ const { DataPlan, Sim, Wallet } = require('../models');
 const dataPurchaseService = require('../services/dataPurchaseService');
 const transactionLimitService = require('../services/transactionLimitService');
 const logger = require('../utils/logger');
-const { sanitizePlanForClient, sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
+const { sanitizePlanForClient, sanitizeTransactionForClient, sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
 
 class DataPurchaseController {
     
@@ -110,7 +110,10 @@ class DataPurchaseController {
             if (['failed', 'refunded'].includes(String(transaction.status || '').toLowerCase())) {
                 return res.status(502).json({
                     success: false,
-                    message: transaction.failure_reason || 'Data purchase failed and was automatically reversed',
+                    message: sanitizeUserFacingErrorMessage(
+                        transaction.failure_reason,
+                        'Data purchase failed on Peace Bundle and was automatically reversed'
+                    ),
                     transaction: sanitizeTransactionForClient(transaction, { isAdmin: user.role === 'admin' })
                 });
             }
@@ -125,7 +128,7 @@ class DataPurchaseController {
             logger.error(`[DataPurchase] Store error for user ${user.id}: ${error.message}`);
             res.status(500).json({ 
                 success: false, 
-                message: error.message || 'Failed to process your data purchase request' 
+                message: sanitizeUserFacingErrorMessage(error.message, 'Failed to process your data purchase request on Peace Bundle') 
             });
         }
     }

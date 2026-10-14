@@ -92,7 +92,7 @@ describe('BuyAirtime page', () => {
 
     expect(await screen.findByText('Purchase Successful')).toBeInTheDocument();
     expect(screen.getByText('AIR-12345')).toBeInTheDocument();
-    expect(screen.getByText('ogdams')).toBeInTheDocument();
+    expect(screen.queryByText('ogdams')).not.toBeInTheDocument();
     expect(toastSuccess).toHaveBeenCalledWith('Airtime purchase successful');
   });
 
@@ -136,14 +136,14 @@ describe('BuyAirtime page', () => {
 
     expect(await screen.findByText('Purchase Reversed')).toBeInTheDocument();
     expect(screen.getByText('AIR-REFUND-123')).toBeInTheDocument();
-    expect(screen.getByText('smeplug')).toBeInTheDocument();
+    expect(screen.queryByText('smeplug')).not.toBeInTheDocument();
     expect(screen.getByText('₦5,000')).toBeInTheDocument();
     expect(localStorage.getItem('wallet_balance')).toBe('5000');
     expect(toastError).toHaveBeenCalledWith('Provider failed. Transaction was automatically reversed');
   });
 
   it('routes data purchases through the dedicated data endpoint', async () => {
-    apiGet.mockResolvedValueOnce({
+    apiGet.mockResolvedValue({
       data: [
         {
           id: 17,
@@ -186,6 +186,7 @@ describe('BuyAirtime page', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Data Bundle' }));
+    expect(await screen.findByRole('option', { name: /1GB/i })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox'), {
       target: { value: '17' },
     });

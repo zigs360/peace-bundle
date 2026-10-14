@@ -23,6 +23,11 @@ const NETWORK_TOP_KEYS = {
 const PLAN_CACHE_KEY = 'buy_data_plan_catalog_v3';
 const PLAN_CACHE_MAX_AGE_MS = 0; // Fetch real-time catalog without stale caching
 const DUPLICATE_GUARD_MS = 45 * 1000;
+const KNOWN_UPSTREAM_PROVIDERS_CLIENT_REGEX = /\b(quicklysim|topupmate|smeplug|ogdams|clubkonnect|safehaven)\b/gi;
+
+function sanitizeClientMessage(msg: string) {
+  return (msg || '').replace(KNOWN_UPSTREAM_PROVIDERS_CLIENT_REGEX, 'Peace Bundle');
+}
 
 type NetworkKey = typeof NETWORK_KEYS[number];
 type NetworkTopKey = typeof NETWORK_TOP_KEYS[NetworkKey];
@@ -115,13 +120,13 @@ function getDuplicateGuardKey(plan: CatalogPlan, phone: string) {
 
 function toPurchaseResult(payload: any, fallbackPhone: string, fallbackAmount: number): PurchaseResult {
   return {
-    message: String(payload?.message || 'Purchase completed'),
+    message: sanitizeClientMessage(String(payload?.message || 'Purchase completed')),
     status: String(payload?.transaction?.status || 'processing'),
     reference: String(payload?.transaction_ref || payload?.transaction?.reference || ''),
     phone: String(payload?.transaction?.recipient_phone || fallbackPhone),
     amount: Number(payload?.charged_price ?? payload?.transaction?.amount ?? fallbackAmount ?? 0),
     balance: typeof payload?.balance === 'number' ? payload.balance : Number.isFinite(Number(payload?.balance)) ? Number(payload.balance) : null,
-    provider: payload?.transaction?.metadata?.service_provider || payload?.transaction?.smeplug_response?.provider || null,
+    provider: null,
   };
 }
 
@@ -527,7 +532,7 @@ export default function BuyData() {
         }
         setFeedback({
           type: 'error',
-          text: responseData?.message || t('buyDataPage.purchaseFailed'),
+          text: sanitizeClientMessage(responseData?.message || t('buyDataPage.purchaseFailed')),
         });
       } finally {
         setLoading(false);
@@ -579,12 +584,7 @@ export default function BuyData() {
                   <div className="text-gray-500">Phone</div>
                   <div className="font-medium">{purchaseResult.phone}</div>
                 </div>
-                {purchaseResult.provider && (
-                  <div>
-                    <div className="text-gray-500">Provider Route</div>
-                    <div className="font-medium uppercase">{purchaseResult.provider}</div>
-                  </div>
-                )}
+
                 {purchaseResult.balance !== null && (
                   <div>
                     <div className="text-gray-500">Updated Wallet Balance</div>

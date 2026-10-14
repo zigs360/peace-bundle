@@ -30,7 +30,7 @@ const {
     normalizePhone,
     toFiniteNumber,
 } = require('../utils/dataPlanUtils');
-const { sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
+const { sanitizeTransactionForClient, sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
 
 const dashboardStatsCache = globalThis.__peacebundle_dashboard_stats_cache || new Map();
 globalThis.__peacebundle_dashboard_stats_cache = dashboardStatsCache;
@@ -90,12 +90,14 @@ const ensureWalletOnUser = async (user) => {
 };
 
 const buildAutoReversalMessage = (transaction, fallback) => {
+    const defaultFallback = fallback || 'Transaction failed on Peace Bundle and was automatically reversed';
     const reason = String(transaction?.failure_reason || '').trim();
-    if (!reason) return fallback;
-    if (String(transaction?.status || '').toLowerCase() === 'refunded') {
-        return `${reason}. Transaction was automatically reversed`;
+    if (!reason) return defaultFallback;
+    let message = reason;
+    if (String(transaction?.status || '').toLowerCase() === 'refunded' && !/revers|refund/i.test(reason)) {
+        message = `${reason}. Transaction was automatically reversed`;
     }
-    return reason;
+    return sanitizeUserFacingErrorMessage(message, defaultFallback);
 };
 
 const maskNotificationPhone = (value) => {
@@ -1265,7 +1267,8 @@ const index = async (req, res) => {
             offset: parseInt(offset)
         }));
 
-        res.json(rows);
+        const isClientAdmin = String(req.user?.role || '').toLowerCase() === 'admin';
+        res.json(rows.map(tx => sanitizeTransactionForClient(tx, { isAdmin: isClientAdmin })));
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -1380,7 +1383,7 @@ const getTransactions = async (req, res) => {
             where: { walletId: user.wallet.id },
             order: [['createdAt', 'DESC']]
         }));
-        res.json(transactions);
+        res.json(transactions.map(tx => sanitizeTransactionForClient(tx, { isAdmin })));
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
@@ -1448,7 +1451,7 @@ const getDashboardStats = async (req, res) => {
                 balance: parseFloat(wallet.balance || 0),
                 commission: parseFloat(wallet.commission_balance || 0),
                 bonus: parseFloat(wallet.bonus_balance || 0),
-                recentTransactions
+                recentTransactions: (recentTransactions || []).map(tx => sanitizeTransactionForClient(tx, { isAdmin }))
             };
 
             const durationMs = Date.now() - startedAt;

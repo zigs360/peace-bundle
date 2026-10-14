@@ -9,6 +9,12 @@ import { usePrivacy } from '../../context/PrivacyContext';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Transaction = any;
 
+const KNOWN_UPSTREAM_PROVIDERS_CLIENT_REGEX = /\b(quicklysim|topupmate|smeplug|ogdams|clubkonnect|safehaven)\b/gi;
+
+function sanitizeDescription(desc?: string) {
+  return (desc || '').replace(KNOWN_UPSTREAM_PROVIDERS_CLIENT_REGEX, 'Peace Bundle');
+}
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +89,7 @@ export default function TransactionsPage() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {tx.description}
+                    {sanitizeDescription(tx.description)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className={`flex items-center text-sm font-bold ${

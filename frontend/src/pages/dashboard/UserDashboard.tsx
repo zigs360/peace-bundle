@@ -14,6 +14,12 @@ import PageHeader from '../../components/ui/PageHeader';
 import StatCard from '../../components/ui/StatCard';
 import SurfaceCard from '../../components/ui/SurfaceCard';
 
+const KNOWN_UPSTREAM_PROVIDERS_CLIENT_REGEX = /\b(quicklysim|topupmate|smeplug|ogdams|clubkonnect|safehaven)\b/gi;
+
+function sanitizeDescription(desc?: string) {
+  return (desc || '').replace(KNOWN_UPSTREAM_PROVIDERS_CLIENT_REGEX, 'Peace Bundle');
+}
+
 export default function UserDashboard() {
   const { t } = useTranslation();
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -189,7 +195,7 @@ export default function UserDashboard() {
                       {tx.type === 'credit' ? <Wallet className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
                     </div>
                     <div className="ml-4">
-                      <p className="text-sm font-medium text-slate-900">{tx.description}</p>
+                      <p className="text-sm font-medium text-slate-900">{sanitizeDescription(tx.description)}</p>
                       <p className="text-xs text-slate-500">{new Date(tx.createdAt || Date.now()).toLocaleDateString()}</p>
                     </div>
                   </div>

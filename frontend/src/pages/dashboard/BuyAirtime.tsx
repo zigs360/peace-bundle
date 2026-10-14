@@ -26,8 +26,14 @@ type PurchaseResult = {
   provider: string | null;
 };
 
+const KNOWN_UPSTREAM_PROVIDERS_CLIENT_REGEX = /\b(quicklysim|topupmate|smeplug|ogdams|clubkonnect|safehaven)\b/gi;
+
+const sanitizeClientMessage = (msg: string) => {
+  return (msg || '').replace(KNOWN_UPSTREAM_PROVIDERS_CLIENT_REGEX, 'Peace Bundle');
+};
+
 const toPurchaseResult = (payload: any, fallbackPhone: string, fallbackNetwork: string | null, fallbackAmount: number): PurchaseResult => ({
-  message: String(payload?.message || 'Purchase completed'),
+  message: sanitizeClientMessage(String(payload?.message || 'Purchase completed')),
   status: String(payload?.transaction?.status || 'processing'),
   reference: String(payload?.transaction?.reference || ''),
   network: String(payload?.transaction?.provider || fallbackNetwork || ''),
@@ -41,7 +47,7 @@ const toPurchaseResult = (payload: any, fallbackPhone: string, fallbackNetwork: 
   ),
   balance: typeof payload?.balance === 'number' ? payload.balance : Number.isFinite(Number(payload?.balance)) ? Number(payload.balance) : null,
   pending: String(payload?.transaction?.status || '').toLowerCase() === 'queued' || /queued/i.test(String(payload?.message || '')),
-  provider: payload?.transaction?.metadata?.service_provider || payload?.transaction?.smeplug_response?.provider || null,
+  provider: null,
 });
 
 const syncWalletBalanceCache = (balance: number | null) => {
@@ -185,7 +191,7 @@ export default function BuyAirtime() {
           setPurchaseResult(refundedResult);
           syncWalletBalanceCache(refundedResult.balance);
         }
-        toast.error(responseData?.message || 'Purchase failed. Please try again.');
+        toast.error(sanitizeClientMessage(responseData?.message || 'Purchase failed. Please try again.'));
       } finally {
         setLoading(false);
       }
@@ -232,13 +238,13 @@ export default function BuyAirtime() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Buy Airtime</h1>
-          <p className="text-gray-600">Airtime purchases are charged from your platform wallet and processed through Ogdams first.</p>
+          <p className="text-gray-600">Airtime purchases are charged directly from your Peace Bundle wallet and processed instantly.</p>
         </div>
       </FadeIn>
 
       <SlideUp className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
         <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          Airtime requests use the dedicated platform airtime route with server-side validation, transaction logging, and provider verification.
+          Airtime requests are processed securely with instant validation, transaction logging, and automated refund protection.
         </div>
         <form onSubmit={handlePurchase}>
           <div className="mb-6">
@@ -458,10 +464,7 @@ export default function BuyAirtime() {
                           <div className="text-xs uppercase tracking-wide text-gray-500">Phone</div>
                           <div className="font-semibold text-gray-900">{purchaseResult.phone}</div>
                         </div>
-                        <div className="rounded-xl bg-white/80 px-4 py-3">
-                          <div className="text-xs uppercase tracking-wide text-gray-500">Provider Route</div>
-                          <div className="font-semibold text-gray-900 uppercase">{purchaseResult.provider || 'processing'}</div>
-                        </div>
+
                         {purchaseResult.balance !== null && (
                           <div className="rounded-xl bg-white/80 px-4 py-3 md:col-span-2">
                             <div className="text-xs uppercase tracking-wide text-gray-500">Updated Wallet Balance</div>

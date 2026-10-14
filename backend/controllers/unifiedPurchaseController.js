@@ -12,7 +12,7 @@ const transactionLimitService = require('../services/transactionLimitService');
 const transactionIntegrityService = require('../services/transactionIntegrityService');
 const logger = require('../utils/logger');
 const sequelize = require('../config/database');
-const { sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
+const { sanitizeTransactionForClient, sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
 
 const maskPhone = (value) => {
   const digits = String(value || '').replace(/\D/g, '');
@@ -169,7 +169,10 @@ const purchaseUnified = async (req, res) => {
           const updatedWallet = await walletService.getBalance(user);
           return res.status(502).json({
             success: false,
-            message: newTransaction.failure_reason || 'Failed to process airtime purchase',
+            message: sanitizeUserFacingErrorMessage(
+              newTransaction.failure_reason,
+              'Airtime purchase failed on Peace Bundle and was automatically reversed'
+            ),
             balance: updatedWallet,
             transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
           });
@@ -260,7 +263,10 @@ const purchaseUnified = async (req, res) => {
           const updatedWallet = await walletService.getBalance(user);
           return res.status(502).json({
             success: false,
-            message: newTransaction.failure_reason || 'Failed to process data purchase',
+            message: sanitizeUserFacingErrorMessage(
+              newTransaction.failure_reason,
+              'Data purchase failed on Peace Bundle and was automatically reversed'
+            ),
             balance: updatedWallet,
             transaction: sanitizeTransactionForClient(newTransaction, { isAdmin: String(user?.role || '').toLowerCase() === 'admin' })
           });
@@ -314,7 +320,7 @@ const purchaseUnified = async (req, res) => {
 
       return res.status(statusCode).json({ 
         success: false, 
-        message: errorMessage 
+        message: sanitizeUserFacingErrorMessage(errorMessage, 'Failed to complete transaction on Peace Bundle') 
       });
     }
 
@@ -325,7 +331,7 @@ const purchaseUnified = async (req, res) => {
     }
     res.status(500).json({ 
       success: false, 
-      message: 'Critical Server Error: ' + error.message 
+      message: sanitizeUserFacingErrorMessage(error.message, 'A server error occurred while processing transaction on Peace Bundle') 
     });
   }
 };

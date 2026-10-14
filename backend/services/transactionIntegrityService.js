@@ -10,6 +10,7 @@ const walletService = require('./walletService');
 const notificationRealtimeService = require('./notificationRealtimeService');
 const { getTransactionSchemaCompatibility } = require('./transactionSchemaCompatibilityService');
 const logger = require('../utils/logger');
+const { sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
 
 const PURCHASE_SOURCES = new Set(['airtime_purchase', 'data_purchase']);
 const DUPLICATE_WINDOW_MS = Number.parseInt(process.env.TRANSACTION_DUPLICATE_WINDOW_MS || '120000', 10);
@@ -458,7 +459,10 @@ class TransactionIntegrityService {
       // #region debug-point E:fail-and-refund
       (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='airtime-success-refund';try{const e=fs.readFileSync('.dbg/airtime-success-refund.env','utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s}catch{}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'E',location:'transactionIntegrityService.js:failAndRefund',msg:'[DEBUG] Transaction failAndRefund invoked',data:{reference:locked?.reference||null,status:locked?.status||null,source:locked?.source||null,reason:String(reason||''),auditEvent:options.auditEvent||'delivery_failed',failureReason:locked?.failure_reason||null,providerAttempts:locked?.metadata?.provider_attempts||[]},ts:Date.now()})}).catch(()=>{})})();
       // #endregion
-      locked.failure_reason = reason;
+      locked.failure_reason = sanitizeUserFacingErrorMessage(
+        reason,
+        'Transaction could not be completed on Peace Bundle and was automatically reversed'
+      );
       locked.status = 'failed';
       Object.assign(
         locked,
