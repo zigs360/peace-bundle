@@ -38,6 +38,7 @@ import WalletDeductions from './pages/admin/WalletDeductions';
 import CallSubAdmin from './pages/admin/CallSub';
 import ApiProviders from './pages/admin/ApiProviders';
 import BillstackMonitor from './pages/admin/BillstackMonitor';
+import AdminRankingPage from './pages/admin/AdminRankingPage';
 import UserLayout from './components/UserLayout';
 import CookieConsent from './components/common/CookieConsent';
 import UserDashboard from './pages/dashboard/UserDashboard';
@@ -112,6 +113,7 @@ function App() {
             <Route path="wallet-deductions" element={<WalletDeductions />} />
             <Route path="call-sub" element={<CallSubAdmin />} />
             <Route path="users" element={<AdminUsersPage />} />
+            <Route path="ranking" element={<AdminRankingPage />} />
             <Route path="transactions" element={<Transactions />} />
             <Route path="funding-review" element={<FundingReviews />} />
             <Route path="pricing" element={<AdminPricing />} />

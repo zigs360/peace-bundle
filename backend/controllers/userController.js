@@ -918,15 +918,17 @@ const getLeaderboard = async (req, res) => {
             }
 
             if (leaderboard.length < limit) {
-                leaderboard.push({
+                const entry = {
                     rank: rankCounter,
                     displayName: maskUserName(u.name),
                     avatar: u.avatar || null,
                     score,
-                    volume,
-                    transactionCount: count,
                     isCurrentUser: Boolean(isCurrentUser)
-                });
+                };
+                if (category === 'transactions') {
+                    entry.transactionCount = count;
+                }
+                leaderboard.push(entry);
             }
             rankCounter++;
         }

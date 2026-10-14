@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
-  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle, PhoneCall, History, ShieldAlert, Shield, UserX, Server, Wallet
+  BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle, PhoneCall, History, ShieldAlert, Shield, UserX, Server, Wallet, Trophy
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState, useRef, useEffect } from 'react';
@@ -186,6 +186,11 @@ export default function Layout() {
           <Link to="/admin/users" className={getLinkClasses('/admin/users')} title={isCollapsed ? t('admin.users') : ''}>
             <Users className={getIconClasses('/admin/users')} />
             {!isCollapsed && <span>{t('admin.users')}</span>}
+          </Link>
+
+          <Link to="/admin/ranking" className={getLinkClasses('/admin/ranking')} title={isCollapsed ? 'Top User Rankings' : ''}>
+            <Trophy className={getIconClasses('/admin/ranking')} />
+            {!isCollapsed && <span>Top User Rankings</span>}
           </Link>
           
           <Link to="/admin/kyc" className={getLinkClasses('/admin/kyc')} title={isCollapsed ? t('admin.kycManagement') : ''}>

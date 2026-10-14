@@ -233,4 +233,12 @@ router.get('/billstack/events', protect, admin, billstackMonitorController.getEv
 router.post('/billstack/reconcile-all', protect, admin, billstackMonitorController.reconcileAll);
 router.post('/billstack/events/:id/reprocess', protect, admin, billstackMonitorController.reprocessWebhookEvent);
 
+// Admin Leaderboard & Top User Rewards
+const {
+    getAdminLeaderboard,
+    rewardRankedUser,
+} = require('../controllers/adminLeaderboardController');
+router.get('/leaderboard', protect, admin, getAdminLeaderboard);
+router.post('/leaderboard/reward', protect, admin, rewardRankedUser);
+
 module.exports = router;

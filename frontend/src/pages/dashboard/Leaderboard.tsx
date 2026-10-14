@@ -58,9 +58,12 @@ export default function Leaderboard() {
   const topThree = leaderboard.slice(0, 3);
   const remaining = leaderboard.slice(3);
 
-  const renderScore = (score: number) => {
+  const renderScore = (score: number, rank?: number) => {
     if (category === 'volume') {
-      return formatAmount(score);
+      if (rank === 1) return 'Rank #1 Champion';
+      if (rank === 2) return 'Rank #2 Runner-Up';
+      if (rank === 3) return 'Rank #3 Finalist';
+      return rank ? `Rank #${rank}` : 'Top Ranked';
     }
     if (category === 'transactions') {
       return `${score.toLocaleString()} txns`;
@@ -190,9 +193,9 @@ export default function Leaderboard() {
             </div>
             <div className="flex items-center gap-4 text-right">
               <div className="bg-white px-4 py-2 rounded-lg border border-primary-100 shadow-xs">
-                <span className="text-xs text-gray-500 block">Your Score</span>
+                <span className="text-xs text-gray-500 block">Your Standing</span>
                 <span className="text-sm font-extrabold text-primary-700">
-                  {renderScore(myStats.score)}
+                  {myStats.rank !== '-' ? `Rank #${myStats.rank}` : 'Unranked'}
                 </span>
               </div>
             </div>
@@ -241,8 +244,8 @@ export default function Leaderboard() {
                       </h4>
                     </div>
                     <div className="mt-3 bg-slate-50 rounded-lg p-2.5 w-full border border-slate-100">
-                      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Score</div>
-                      <div className="text-sm font-extrabold text-slate-800">{renderScore(topThree[1].score)}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">{category === 'volume' ? 'Standing' : 'Score'}</div>
+                      <div className="text-sm font-extrabold text-slate-800">{category === 'volume' ? 'Rank #2 Runner-Up' : renderScore(topThree[1].score, 2)}</div>
                     </div>
                   </div>
                 )}
@@ -269,8 +272,8 @@ export default function Leaderboard() {
                       </h4>
                     </div>
                     <div className="mt-4 bg-amber-100/70 rounded-lg p-3 w-full border border-amber-200">
-                      <div className="text-[10px] uppercase tracking-wider text-amber-800 font-bold">Top Score</div>
-                      <div className="text-base font-extrabold text-amber-950">{renderScore(topThree[0].score)}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-amber-800 font-bold">{category === 'volume' ? 'Standing' : 'Top Score'}</div>
+                      <div className="text-base font-extrabold text-amber-950">{category === 'volume' ? 'Rank #1 Champion' : renderScore(topThree[0].score, 1)}</div>
                     </div>
                   </div>
                 )}
@@ -297,8 +300,8 @@ export default function Leaderboard() {
                       </h4>
                     </div>
                     <div className="mt-3 bg-orange-50/50 rounded-lg p-2.5 w-full border border-orange-100">
-                      <div className="text-[10px] uppercase tracking-wider text-orange-700 font-medium">Score</div>
-                      <div className="text-sm font-extrabold text-orange-900">{renderScore(topThree[2].score)}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-orange-700 font-medium">{category === 'volume' ? 'Standing' : 'Score'}</div>
+                      <div className="text-sm font-extrabold text-orange-900">{category === 'volume' ? 'Rank #3 Finalist' : renderScore(topThree[2].score, 3)}</div>
                     </div>
                   </div>
                 )}
@@ -340,16 +343,11 @@ export default function Leaderboard() {
                               <span className="text-[10px] bg-primary-100 text-primary-700 font-bold px-1.5 py-0.2 rounded">You</span>
                             )}
                           </div>
-                          {category === 'volume' && user.transactionCount !== undefined && (
-                            <div className="text-[10px] text-gray-400">
-                              {user.transactionCount} completed transactions
-                            </div>
-                          )}
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className="text-xs font-bold text-gray-900 block">
-                          {renderScore(user.score)}
+                        <span className="text-xs font-bold text-gray-700 block">
+                          {renderScore(user.score, user.rank)}
                         </span>
                       </div>
                     </div>
@@ -365,7 +363,7 @@ export default function Leaderboard() {
               <ShieldCheck className="w-5 h-5 text-primary-600 shrink-0 mt-0.5" />
               <div>
                 <span className="font-semibold text-gray-800">Privacy & Fair Play: </span>
-                All member names are masked to protect personal information. Only legitimate, verified, non-reversed transactions and deposits qualify. Account balances, phone numbers, and emails are strictly private and never published.
+                All member names are masked to protect personal information, and monetary amounts spent are strictly confidential and never displayed on public rankings. Standings update dynamically based on completed and verified activity.
               </div>
             </div>
           </StaggerItem>
