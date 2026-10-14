@@ -166,6 +166,15 @@ class WalletService {
         completed_at: new Date()
       }, { transaction: transaction, returning: false });
 
+      if (txnSource === 'funding' && amountNum > 0) {
+        try {
+          const referralService = require('./referralService');
+          await referralService.checkAndRewardQualifyingDeposit(user, amountNum, txn, transaction);
+        } catch (refErr) {
+          logger.warn(`[WalletService] Referral qualifying deposit check error for user ${user.id}: ${refErr.message}`);
+        }
+      }
+
       return txn;
     };
 

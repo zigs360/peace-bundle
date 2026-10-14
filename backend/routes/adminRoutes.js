@@ -46,7 +46,9 @@ const {
     approvePendingFundingReview,
     rejectPendingFundingReview,
     sendUserPasswordResetLink,
-    migrateSafeHavenAccounts
+    migrateSafeHavenAccounts,
+    getServiceControlStatuses,
+    toggleServiceControl
 } = require('../controllers/adminController');
 const {
     adminGetSubscriptionPlans,
@@ -142,6 +144,8 @@ router.post('/migrate-safehaven-accounts', protect, admin, migrateSafeHavenAccou
 // System Settings Routes
 router.get('/settings', protect, admin, getSystemSettings);
 router.put('/settings', protect, admin, updateSystemSettings);
+router.get('/services/status', protect, admin, getServiceControlStatuses);
+router.post('/services/toggle', protect, admin, toggleServiceControl);
 
 // Data Plan Routes
 router.get('/plans/export', protect, admin, adminPlanController.exportPlansCsv);

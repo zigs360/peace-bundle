@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
-import { Wallet, Activity, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Wallet, Activity, ArrowUpRight, ArrowDownLeft, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { SlideUp } from '../../components/animations/MotionComponents';
 import { staggerContainer, itemVariants } from '../../components/animations/variants';
+import { usePrivacy } from '../../context/PrivacyContext';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Transaction = any;
@@ -11,6 +12,7 @@ type Transaction = any;
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const { isAmountHidden, toggleAmountHidden, formatAmount } = usePrivacy();
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -35,8 +37,16 @@ export default function TransactionsPage() {
 
   return (
     <SlideUp className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200">
+      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-800">Transaction History</h2>
+        <button
+          onClick={toggleAmountHidden}
+          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+          title={isAmountHidden ? "Show amounts" : "Hide amounts (Privacy Mode)"}
+        >
+          {isAmountHidden ? <EyeOff size={16} className="text-amber-600" /> : <Eye size={16} />}
+          <span>{isAmountHidden ? "Show Amounts" : "Hide Amounts"}</span>
+        </button>
       </div>
       
       <div className="overflow-x-auto">
@@ -80,7 +90,7 @@ export default function TransactionsPage() {
                       tx.type === 'credit' ? 'text-green-600' : 'text-red-600'
                     }`}>
                       {tx.type === 'credit' ? <ArrowDownLeft className="w-4 h-4 mr-1" /> : <ArrowUpRight className="w-4 h-4 mr-1" />}
-                      ₦{tx.amount.toLocaleString()}
+                      {formatAmount(tx.amount)}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">

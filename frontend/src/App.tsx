@@ -53,10 +53,12 @@ import TransactionsPage from './pages/dashboard/TransactionsPage';
 import Settings from './pages/dashboard/Settings';
 import ApiKeys from './pages/dashboard/ApiKeys';
 import Affiliate from './pages/dashboard/Affiliate';
+import Leaderboard from './pages/dashboard/Leaderboard';
 import MyReviews from './pages/dashboard/MyReviews';
 import Support from './pages/dashboard/Support';
 import Beneficiaries from './pages/dashboard/Beneficiaries';
 import { NotificationProvider } from './context/NotificationContext';
+import { PrivacyProvider } from './context/PrivacyContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
 function App() {
@@ -64,9 +66,10 @@ function App() {
     <Router>
       <ErrorBoundary>
         <NotificationProvider>
-          <CookieConsent />
-          <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
-          <Routes>
+          <PrivacyProvider>
+            <CookieConsent />
+            <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+            <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Home />} />
           <Route path="/about" element={<About />} />
@@ -93,6 +96,7 @@ function App() {
             <Route path="settings" element={<Settings />} />
             <Route path="api-keys" element={<ApiKeys />} />
           <Route path="affiliate" element={<Affiliate />} />
+          <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="reviews" element={<MyReviews />} />
           <Route path="support" element={<Support />} />
             <Route path="beneficiaries" element={<Beneficiaries />} />
@@ -135,6 +139,7 @@ function App() {
           {/* Catch all */}
           <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </PrivacyProvider>
         </NotificationProvider>
       </ErrorBoundary>
     </Router>

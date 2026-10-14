@@ -1,13 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
-import { Wallet, Wifi, Phone, Activity, ArrowRight } from 'lucide-react';
+import { Wallet, Wifi, Phone, Activity, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { FadeIn, StaggerContainer, StaggerItem, HoverCard } from '../../components/animations/MotionComponents';
 import { User, DashboardStats } from '../../types';
 import { useVirtualAccount } from '../../hooks/useVirtualAccount';
 import VirtualAccountWidget from '../../components/VirtualAccountWidget';
 import { useNotifications } from '../../context/NotificationContext';
+import { usePrivacy } from '../../context/PrivacyContext';
 import { getStoredUser } from '../../utils/storage';
 import PageHeader from '../../components/ui/PageHeader';
 import StatCard from '../../components/ui/StatCard';
@@ -21,6 +22,7 @@ export default function UserDashboard() {
   const [statsFetchedAt, setStatsFetchedAt] = useState(0);
   const { state: va, refresh: refreshVa, reveal: revealVa, auditCopy, request: requestVa } = useVirtualAccount();
   const { walletVersion, walletBalance, walletBalanceUpdatedAt, isConnected } = useNotifications();
+  const { isAmountHidden, toggleAmountHidden, formatAmount } = usePrivacy();
 
   const fetchStats = useCallback(async (userId: string | number) => {
     try {
@@ -105,8 +107,25 @@ export default function UserDashboard() {
       <StaggerContainer className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-2">
         <StaggerItem>
           <StatCard 
-            title={t('dashboard.walletBalance')} 
-            value={`₦${Number(displayBalance).toLocaleString() || 0}`} 
+            title={
+              <span className="flex items-center justify-between">
+                <span>{t('dashboard.walletBalance')}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleAmountHidden();
+                  }}
+                  className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  title={isAmountHidden ? "Show balance" : "Hide balance (Privacy Mode)"}
+                  aria-label={isAmountHidden ? "Show balance" : "Hide balance"}
+                >
+                  {isAmountHidden ? <EyeOff size={16} className="text-amber-600" /> : <Eye size={16} />}
+                </button>
+              </span>
+            } 
+            value={formatAmount(displayBalance)} 
             icon={<Wallet className="h-6 w-6" />} 
             tone="primary"
           />
@@ -177,7 +196,7 @@ export default function UserDashboard() {
                   <span className={`text-sm font-bold ${
                     tx.type === 'credit' ? 'text-green-600' : 'text-red-600'
                   }`}>
-                    {tx.type === 'credit' ? '+' : '-'}₦{tx.amount.toLocaleString()}
+                    {tx.type === 'credit' ? '+' : '-'}{formatAmount(tx.amount)}
                   </span>
                 </div>
               ))

@@ -47,8 +47,25 @@ export default function AdminSettings() {
     }
   };
 
-  const handleChange = (key: string, value: any) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+  const [togglingKey, setTogglingKey] = useState<string | null>(null);
+
+  const handleInstantToggle = async (serviceType: 'data' | 'airtime', network: string, currentVal: boolean) => {
+    const key = `service_${serviceType}_${network}`;
+    const nextVal = !currentVal;
+    setTogglingKey(key);
+    try {
+      await api.post('/admin/services/toggle', {
+        serviceType,
+        network,
+        enabled: nextVal,
+      });
+      setSettings(prev => ({ ...prev, [key]: nextVal }));
+      toast.success(`${network.toUpperCase()} ${serviceType.toUpperCase()} turned ${nextVal ? 'ON' : 'OFF'}`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to toggle service switch');
+    } finally {
+      setTogglingKey(null);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -82,16 +99,16 @@ export default function AdminSettings() {
       <div className="bg-white rounded-lg shadow p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           
-          <div className="border-b pb-4 bg-gray-50 p-4 rounded-lg">
-            <h2 className="text-lg font-bold text-gray-900 mb-2">Service Availability Controls</h2>
-            <p className="text-xs text-gray-500 mb-4">Master switches to enable or disable VTU services system-wide for regular users.</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center justify-between p-3 bg-white border rounded-md shadow-sm">
+          <div className="border-b pb-6 bg-slate-50 p-5 rounded-xl border border-slate-200">
+            <h2 className="text-lg font-bold text-gray-900 mb-1">Master Service Switches</h2>
+            <p className="text-xs text-gray-500 mb-4">Global kill-switches to enable or disable services system-wide for regular users.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-lg shadow-sm">
                 <div>
                   <label htmlFor="data_purchase_enabled" className="block text-sm font-semibold text-gray-800 cursor-pointer">
-                    Enable Data Purchases
+                    Enable Data Purchases (Master)
                   </label>
-                  <span className="text-xs text-gray-500">Allow users to buy data plans</span>
+                  <span className="text-xs text-gray-500">Global master toggle for all data sales</span>
                 </div>
                 <input
                   id="data_purchase_enabled"
@@ -102,12 +119,12 @@ export default function AdminSettings() {
                 />
               </div>
 
-              <div className="flex items-center justify-between p-3 bg-white border rounded-md shadow-sm">
+              <div className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-lg shadow-sm">
                 <div>
                   <label htmlFor="airtime_purchase_enabled" className="block text-sm font-semibold text-gray-800 cursor-pointer">
-                    Enable Airtime Purchases
+                    Enable Airtime Purchases (Master)
                   </label>
-                  <span className="text-xs text-gray-500">Allow users to top-up airtime</span>
+                  <span className="text-xs text-gray-500">Global master toggle for all airtime sales</span>
                 </div>
                 <input
                   id="airtime_purchase_enabled"
@@ -116,6 +133,153 @@ export default function AdminSettings() {
                   checked={Boolean(settings['airtime_purchase_enabled'] ?? true)}
                   onChange={(e) => handleChange('airtime_purchase_enabled', e.target.checked)}
                 />
+              </div>
+            </div>
+
+            {/* 4 Data Network Switches */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">Data Network Controls (4 Switches)</h3>
+                <span className="text-xs text-slate-500">Click switch to toggle network independently</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { net: 'mtn', label: 'MTN Data', bg: 'bg-yellow-50 border-yellow-200 text-yellow-800' },
+                  { net: 'airtel', label: 'Airtel Data', bg: 'bg-red-50 border-red-200 text-red-800' },
+                  { net: 'glo', label: 'Glo Data', bg: 'bg-green-50 border-green-200 text-green-800' },
+                  { net: '9mobile', label: '9mobile Data', bg: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+                ].map(({ net, label, bg }) => {
+                  const key = `service_data_${net}`;
+                  const isChecked = Boolean(settings[key] ?? true);
+                  const isToggling = togglingKey === key;
+                  return (
+                    <div key={key} className={`p-3.5 rounded-lg border shadow-sm flex flex-col justify-between bg-white border-slate-200`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${bg}`}>{label}</span>
+                        <span className={`text-xs font-semibold ${isChecked ? 'text-green-600' : 'text-red-500'}`}>
+                          {isChecked ? 'ACTIVE' : 'OFF'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                        <span className="text-xs text-slate-500">Service Status</span>
+                        <button
+                          type="button"
+                          disabled={isToggling}
+                          onClick={() => handleInstantToggle('data', net, isChecked)}
+                          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            isChecked ? 'bg-primary-600' : 'bg-slate-300'
+                          } ${isToggling ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              isChecked ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 4 Airtime Network Switches */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">Airtime Network Controls (4 Switches)</h3>
+                <span className="text-xs text-slate-500">Click switch to toggle network independently</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { net: 'mtn', label: 'MTN Airtime', bg: 'bg-yellow-50 border-yellow-200 text-yellow-800' },
+                  { net: 'airtel', label: 'Airtel Airtime', bg: 'bg-red-50 border-red-200 text-red-800' },
+                  { net: 'glo', label: 'Glo Airtime', bg: 'bg-green-50 border-green-200 text-green-800' },
+                  { net: '9mobile', label: '9mobile Airtime', bg: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+                ].map(({ net, label, bg }) => {
+                  const key = `service_airtime_${net}`;
+                  const isChecked = Boolean(settings[key] ?? true);
+                  const isToggling = togglingKey === key;
+                  return (
+                    <div key={key} className={`p-3.5 rounded-lg border shadow-sm flex flex-col justify-between bg-white border-slate-200`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${bg}`}>{label}</span>
+                        <span className={`text-xs font-semibold ${isChecked ? 'text-green-600' : 'text-red-500'}`}>
+                          {isChecked ? 'ACTIVE' : 'OFF'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                        <span className="text-xs text-slate-500">Service Status</span>
+                        <button
+                          type="button"
+                          disabled={isToggling}
+                          onClick={() => handleInstantToggle('airtime', net, isChecked)}
+                          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            isChecked ? 'bg-primary-600' : 'bg-slate-300'
+                          } ${isToggling ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              isChecked ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Referral & Referee Program Settings */}
+            <div className="mt-6 pt-5 border-t border-slate-200">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 mb-1">Referral Program Qualification & Rewards</h3>
+              <p className="text-xs text-slate-500 mb-4">Bonuses are paid strictly after referee's first deposit meeting the qualifying minimum threshold.</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white p-3.5 border border-slate-200 rounded-lg shadow-sm">
+                  <label htmlFor="referral_qualifying_deposit_min" className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Min Qualifying Deposit (₦)
+                  </label>
+                  <input
+                    id="referral_qualifying_deposit_min"
+                    type="number"
+                    min="0"
+                    step="10"
+                    className="w-full border rounded-md px-3 py-1.5 text-sm font-semibold"
+                    value={settings['referral_qualifying_deposit_min'] ?? '100'}
+                    onChange={(e) => handleChange('referral_qualifying_deposit_min', e.target.value)}
+                  />
+                  <span className="text-[11px] text-slate-400 mt-1 block">Referee must deposit at least this amount</span>
+                </div>
+                <div className="bg-white p-3.5 border border-slate-200 rounded-lg shadow-sm">
+                  <label htmlFor="referrer_signup_bonus_amount" className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Referrer Reward (₦)
+                  </label>
+                  <input
+                    id="referrer_signup_bonus_amount"
+                    type="number"
+                    min="0"
+                    step="5"
+                    className="w-full border rounded-md px-3 py-1.5 text-sm font-semibold"
+                    value={settings['referrer_signup_bonus_amount'] ?? '100'}
+                    onChange={(e) => handleChange('referrer_signup_bonus_amount', e.target.value)}
+                  />
+                  <span className="text-[11px] text-slate-400 mt-1 block">Bonus credited to referrer's wallet</span>
+                </div>
+                <div className="bg-white p-3.5 border border-slate-200 rounded-lg shadow-sm">
+                  <label htmlFor="referee_signup_bonus_amount" className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Referee Welcome Bonus (₦)
+                  </label>
+                  <input
+                    id="referee_signup_bonus_amount"
+                    type="number"
+                    min="0"
+                    step="5"
+                    className="w-full border rounded-md px-3 py-1.5 text-sm font-semibold"
+                    value={settings['referee_signup_bonus_amount'] ?? '50'}
+                    onChange={(e) => handleChange('referee_signup_bonus_amount', e.target.value)}
+                  />
+                  <span className="text-[11px] text-slate-400 mt-1 block">Bonus credited to newly registered user</span>
+                </div>
               </div>
             </div>
           </div>

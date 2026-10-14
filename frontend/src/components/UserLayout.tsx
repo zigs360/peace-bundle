@@ -1,8 +1,10 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Wallet, Wifi, Phone, Receipt, Settings, LogOut, Tv, 
-  GraduationCap, Users, MessageSquare, Key, Share2, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Banknote, PhoneCall 
+  GraduationCap, Users, MessageSquare, Key, Share2, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Banknote, PhoneCall,
+  Trophy, Eye, EyeOff 
 } from 'lucide-react';
+import { usePrivacy } from '../context/PrivacyContext';
 import { useState, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -22,6 +24,7 @@ export default function UserLayout() {
   const [userRole, setUserRole] = useState<string>('user');
   const { isCollapsed, isMobileOpen, toggleCollapse, toggleMobile, closeMobile } = useSidebar();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const { isAmountHidden, toggleAmountHidden } = usePrivacy();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -92,6 +95,14 @@ export default function UserLayout() {
             <BrandMark compact />
         </div>
         <div className="flex items-center gap-2">
+            <button
+              onClick={toggleAmountHidden}
+              className="rounded-2xl p-2 text-slate-600 hover:bg-slate-100"
+              title={isAmountHidden ? "Show financial amounts" : "Hide financial amounts (Privacy Mode)"}
+              aria-label={isAmountHidden ? "Show financial amounts" : "Hide financial amounts"}
+            >
+              {isAmountHidden ? <EyeOff size={22} className="text-amber-600" /> : <Eye size={22} />}
+            </button>
             <button 
                 onClick={toggleMobile} 
                 className="rounded-2xl p-2 text-slate-600 hover:bg-slate-100"
@@ -228,18 +239,21 @@ export default function UserLayout() {
             {!isCollapsed && <span>{t('dashboard.transactionsMenu')}</span>}
           </Link>
 
+          <Link to="/dashboard/affiliate" className={getLinkClasses('/dashboard/affiliate')} title={isCollapsed ? t('dashboard.affiliate') : ''}>
+            <Share2 className={getIconClasses('/dashboard/affiliate')} />
+            {!isCollapsed && <span>{t('dashboard.affiliate')}</span>}
+          </Link>
+
+          <Link to="/dashboard/leaderboard" className={getLinkClasses('/dashboard/leaderboard')} title={isCollapsed ? 'Leaderboard' : ''}>
+            <Trophy className={getIconClasses('/dashboard/leaderboard')} />
+            {!isCollapsed && <span>Top Rankings</span>}
+          </Link>
+
           {(userRole === 'reseller' || userRole === 'admin') && (
-            <>
-              <Link to="/dashboard/api-keys" className={getLinkClasses('/dashboard/api-keys')} title={isCollapsed ? t('dashboard.apiKeys') : ''}>
-                <Key className={getIconClasses('/dashboard/api-keys')} />
-                {!isCollapsed && <span>{t('dashboard.apiKeys')}</span>}
-              </Link>
-              
-              <Link to="/dashboard/affiliate" className={getLinkClasses('/dashboard/affiliate')} title={isCollapsed ? t('dashboard.affiliate') : ''}>
-                <Share2 className={getIconClasses('/dashboard/affiliate')} />
-                {!isCollapsed && <span>{t('dashboard.affiliate')}</span>}
-              </Link>
-            </>
+            <Link to="/dashboard/api-keys" className={getLinkClasses('/dashboard/api-keys')} title={isCollapsed ? t('dashboard.apiKeys') : ''}>
+              <Key className={getIconClasses('/dashboard/api-keys')} />
+              {!isCollapsed && <span>{t('dashboard.apiKeys')}</span>}
+            </Link>
           )}
 
           <Link to="/dashboard/beneficiaries" className={getLinkClasses('/dashboard/beneficiaries')} title={isCollapsed ? t('dashboard.beneficiaries') : ''}>
@@ -283,6 +297,17 @@ export default function UserLayout() {
             <div className="hidden lg:block">
               <LanguageSwitcher />
             </div>
+
+            {/* Privacy Mode Toggle */}
+            <button
+              onClick={toggleAmountHidden}
+              className="rounded-2xl p-2 text-slate-600 transition-colors hover:bg-slate-100"
+              title={isAmountHidden ? "Show financial amounts" : "Hide financial amounts (Privacy Mode)"}
+              aria-label={isAmountHidden ? "Show financial amounts" : "Hide financial amounts"}
+            >
+              {isAmountHidden ? <EyeOff size={22} className="text-amber-600" /> : <Eye size={22} />}
+            </button>
+
             {/* Notification Icon */}
             <div className="relative" ref={notificationRef}>
               <button 

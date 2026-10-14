@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { User, Lock, Save, AlertCircle, FileText, Upload, Trash2, MailCheck } from 'lucide-react';
+import { User, Lock, Save, AlertCircle, FileText, Upload, Trash2, MailCheck, Eye, EyeOff, Shield } from 'lucide-react';
 import api, { SERVER_ROOT_URL } from '../../services/api';
 import { StaggerContainer, StaggerItem } from '../../components/animations/MotionComponents';
 import { getStoredUser } from '../../utils/storage';
+import { usePrivacy } from '../../context/PrivacyContext';
 
 export default function Settings() {
   type AccountDeletionRequestState = {
@@ -20,6 +21,8 @@ export default function Settings() {
     canCancel: boolean;
     reviewState: 'grace_period' | 'ready_for_review' | 'closed';
   };
+
+  const { isAmountHidden, toggleAmountHidden } = usePrivacy();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [user, setUser] = useState<any>(null);
@@ -611,6 +614,47 @@ export default function Settings() {
 
       {/* Password Section */}
       <StaggerItem className="space-y-6">
+        {/* Privacy Preferences Card */}
+        <div className="bg-white p-6 rounded-lg shadow-md">
+            <div className="flex items-center mb-4 border-b pb-4">
+                <Shield className="w-6 h-6 text-primary-600 mr-3" />
+                <div>
+                    <h2 className="text-xl font-bold text-gray-800">Privacy & Financial Visibility</h2>
+                    <p className="text-xs text-gray-500">Control sensitive wallet and transaction visibility</p>
+                </div>
+            </div>
+            <div className="flex items-center justify-between py-2">
+                <div>
+                    <div className="text-sm font-semibold text-gray-800">Hide Financial Amounts</div>
+                    <div className="text-xs text-gray-500">
+                        Mask wallet balances and amounts (e.g. ₦******) across your dashboard and transaction history.
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={toggleAmountHidden}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
+                        isAmountHidden ? 'bg-primary-600' : 'bg-gray-300'
+                    }`}
+                    title={isAmountHidden ? "Unhide financial amounts" : "Hide financial amounts"}
+                >
+                    <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            isAmountHidden ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                    />
+                </button>
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                {isAmountHidden ? <EyeOff className="w-4 h-4 text-primary-600 shrink-0" /> : <Eye className="w-4 h-4 text-gray-400 shrink-0" />}
+                <span>
+                    {isAmountHidden
+                        ? 'Privacy Mode is ACTIVE: Financial values are masked across all pages.'
+                        : 'Privacy Mode is INACTIVE: Exact financial amounts are displayed.'}
+                </span>
+            </div>
+        </div>
+
         <form onSubmit={handlePasswordChange} className="bg-white p-6 rounded-lg shadow-md">
             <div className="flex items-center mb-6 border-b pb-4">
                 <Lock className="w-6 h-6 text-primary-600 mr-3" />

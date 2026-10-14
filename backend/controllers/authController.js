@@ -164,6 +164,8 @@ const registerUser = async (req, res) => {
             });
         }
 
+        const tokenPayloadEmail = String(email || '').trim().toLowerCase();
+
         // Handle Referral (Optional)
         let referredBy = null;
         let referrerObj = null;
@@ -171,11 +173,16 @@ const registerUser = async (req, res) => {
             try {
                 referrerObj = await ReferralService.validateCode(referralCode);
                 if (referrerObj) {
-                    referredBy = referrerObj.referral_code;
+                    if (
+                        String(referrerObj.email || '').toLowerCase() === tokenPayloadEmail ||
+                        String(referrerObj.phone || '').replace(/\D/g, '') === String(phone || '').replace(/\D/g, '')
+                    ) {
+                        logger.warn(`Self-referral code attempt detected and blocked for ${tokenPayloadEmail}`);
+                        referrerObj = null;
+                    } else {
+                        referredBy = referrerObj.referral_code;
+                    }
                 }
-                // #region debug-point A:referral-validation
-                (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'A',location:'authController.js:registerUser',msg:'[DEBUG] Referral code validation completed',data:{inputReferralCode:referralCode||null,referrerFound:Boolean(referrerObj),referrerId:referrerObj?.id||null,referredBy:referredBy||null},ts:Date.now()})}).catch(()=>{})})();
-                // #endregion
             } catch (refErr) {
                 logger.warn(`Referral validation failed for code ${referralCode}: ${refErr.message}`);
             }
@@ -189,8 +196,6 @@ const registerUser = async (req, res) => {
         const salt = await bcrypt.genSalt(saltRounds);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        const tokenPayloadEmail = String(email || '').trim().toLowerCase();
-
         // Create user
         const user = await User.create({
             name: userName,
@@ -203,9 +208,6 @@ const registerUser = async (req, res) => {
             package: 'Standard',
             kyc_status: 'none'
         }, { transaction: t });
-        // #region debug-point B:user-created-with-referral
-        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'B',location:'authController.js:registerUser',msg:'[DEBUG] User created with referral fields',data:{userId:user?.id||null,referralCode:user?.referral_code||null,referredBy:user?.referred_by||null,referrerId:referrerObj?.id||null},ts:Date.now()})}).catch(()=>{})})();
-        // #endregion
 
         const token = generateToken(user.id);
         const refreshToken = generateRefreshToken(user.id);
@@ -252,10 +254,10 @@ const registerUser = async (req, res) => {
 
         const emailValidationPassed = welcomeEmailService.isValidEmail(tokenPayloadEmail);
 
-        // Track referral reward if applicable
+        // Record referral relationship (pending qualifying deposit)
         if (referrerObj) {
-            ReferralService.trackReferral(referrerObj, user, { referralClickToken: referralClickToken || null }).catch(err => {
-                logger.error(`[Referral] Failed to track referral reward for user ${user.id}: ${err.message}`);
+            ReferralService.recordReferralSignup(referrerObj, user, { referralClickToken: referralClickToken || null }).catch(err => {
+                logger.error(`[Referral] Failed to record referral for user ${user.id}: ${err.message}`);
             });
         }
 

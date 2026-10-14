@@ -46,6 +46,30 @@ const Referral = sequelize.define('Referral', {
     allowNull: true,
     field: 'referee_signup_bonus_awarded_at'
   },
+  status: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'pending',
+    field: 'status'
+  },
+  qualifying_deposit_amount: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true,
+    defaultValue: null,
+    field: 'qualifying_deposit_amount'
+  },
+  qualifying_deposit_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null,
+    field: 'qualifying_deposit_at'
+  },
+  qualifying_transaction_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: null,
+    field: 'qualifying_transaction_id'
+  },
   referrerId: {
     type: DataTypes.UUID,
     allowNull: true,

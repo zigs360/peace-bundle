@@ -1,7 +1,7 @@
 const { User, Wallet, Transaction, Referral, ReferralClick, SystemSetting } = require('../models');
-const { sequelize } = require('../config/db'); // Fix import to use associations
+const { sequelize } = require('../config/db');
 const crypto = require('crypto');
-const walletService = require('./walletService');
+const logger = require('../utils/logger');
 
 const parseRewardAmount = (value, fallback) => {
     const parsed = parseFloat(value);
@@ -53,12 +53,16 @@ class ReferralService {
      */
     async validateCode(code) {
         if (!code) return null;
+        const normalized = String(code).trim().toUpperCase();
         return await User.findOne({ 
-            where: { referral_code: code },
-            attributes: ['id', 'name', 'referral_code']
+            where: { referral_code: normalized },
+            attributes: ['id', 'name', 'email', 'phone', 'referral_code']
         });
     }
 
+    /**
+     * Track a click on a referral link.
+     */
     async trackClick({ referralCode, clickToken, landingPath = null, source = null, ip = null, userAgent = null }) {
         const normalizedCode = String(referralCode || '').trim().toUpperCase();
         const normalizedToken = String(clickToken || '').trim();
@@ -107,106 +111,57 @@ class ReferralService {
     }
 
     /**
-     * Process referral rewards (Credit ₦100 bonus to referrer)
+     * Record a new referral relationship at user signup.
+     * NOTE: Does NOT award any bonuses. Bonuses are strictly awarded upon qualifying deposit.
+     * Prevents self-referral, duplicate referral relationship, and reassignment.
      * @param {User} referrer 
      * @param {User} referredUser 
+     * @param {Object} options 
      */
-    async trackReferral(referrer, referredUser, options = {}) {
+    async recordReferralSignup(referrer, referredUser, options = {}) {
+        if (!referrer || !referredUser) {
+            return { recorded: false, reason: 'missing_user_context' };
+        }
+
+        // Strict self-referral prevention
+        if (
+            String(referrer.id) === String(referredUser.id) ||
+            (referrer.email && referredUser.email && String(referrer.email).toLowerCase() === String(referredUser.email).toLowerCase()) ||
+            (referrer.phone && referredUser.phone && String(referrer.phone).replace(/\D/g, '') === String(referredUser.phone).replace(/\D/g, ''))
+        ) {
+            logger.warn(`[Referral] Self-referral attempt blocked for user ${referredUser.id}`);
+            return { recorded: false, reason: 'self_referral_disallowed' };
+        }
+
         const t = await sequelize.transaction();
         try {
-            // #region debug-point C:track-referral-entry
-            (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'C',location:'referralService.js:trackReferral',msg:'[DEBUG] trackReferral started',data:{referrerId:referrer?.id||null,referrerCode:referrer?.referral_code||null,referredUserId:referredUser?.id||null},ts:Date.now()})}).catch(()=>{})})();
-            // #endregion
-            
-            const referrerWallet = await Wallet.findOne({ 
-                where: { userId: referrer.id },
-                transaction: t
-            });
-
-            if (!referrerWallet) {
-                throw new Error(`Wallet not found for referrer ${referrer.id}`);
-            }
-
-            const referrerBonusAmount = parseRewardAmount(
-                await SystemSetting.get('referrer_signup_bonus_amount', 100),
-                100,
-            );
-            const refereeBonusAmount = parseRewardAmount(
-                await SystemSetting.get('referee_signup_bonus_amount', 50),
-                50,
-            );
-
-            const [referralRecord, created] = await Referral.findOrCreate({
-                where: {
-                    referrerId: referrer.id,
-                    referredUserId: referredUser.id,
-                },
-                defaults: {
-                    referrerId: referrer.id,
-                    referredUserId: referredUser.id,
-                    registered_at: new Date(),
-                    total_commissions_earned: 0,
-                    total_transactions: 0,
-                },
+            // Check if referee already has an assigned referrer (prevents duplicates and reassignment)
+            const existingReferral = await Referral.findOne({
+                where: { referredUserId: referredUser.id },
                 transaction: t,
             });
 
-            let balanceBefore = parseFloat(referrerWallet.bonus_balance || 0);
-            let balanceAfter = balanceBefore;
-
-            if (!referralRecord.referrer_signup_bonus_awarded_at && referrerBonusAmount > 0) {
-                balanceAfter = balanceBefore + referrerBonusAmount;
-
-                await referrerWallet.update({
-                    bonus_balance: balanceAfter
-                }, { transaction: t });
-
-                await Transaction.create({
-                    userId: referrer.id,
-                    type: 'credit',
-                    amount: referrerBonusAmount,
-                    balance_before: balanceBefore,
-                    balance_after: balanceAfter,
-                    source: 'bonus',
-                    status: 'completed',
-                    reference: `REF-BONUS-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
-                    description: `Referral bonus for referring ${referredUser.name}`,
-                    metadata: {
-                        referredUserId: referredUser.id,
-                        referredUserName: referredUser.name,
-                        referralId: referralRecord.id,
-                        kind: 'referrer_signup_bonus',
-                    }
-                }, { transaction: t });
-
-                await referralRecord.update({
-                    total_commissions_earned: parseFloat(referralRecord.total_commissions_earned || 0) + referrerBonusAmount,
-                    referrer_signup_bonus_amount: referrerBonusAmount,
-                    referrer_signup_bonus_awarded_at: new Date(),
-                }, { transaction: t });
+            if (existingReferral) {
+                await t.rollback();
+                logger.info(`[Referral] User ${referredUser.id} already has a referral relationship (ID: ${existingReferral.id}). Reassignment blocked.`);
+                return { recorded: false, reason: 'already_referred', referralId: existingReferral.id };
             }
 
-            if (!referralRecord.referee_signup_bonus_awarded_at && refereeBonusAmount > 0) {
-                await walletService.adminAdjust(
-                    referredUser,
-                    refereeBonusAmount,
-                    'bonus',
-                    'Welcome bonus for joining via a referral link',
-                    {
-                        reference: `REF-WELCOME-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
-                        referralId: referralRecord.id,
-                        referrerId: referrer.id,
-                        referralCode: referrer.referral_code,
-                        kind: 'referee_signup_bonus',
-                    },
-                    t,
-                );
-
-                await referralRecord.update({
-                    referee_signup_bonus_amount: refereeBonusAmount,
-                    referee_signup_bonus_awarded_at: new Date(),
-                }, { transaction: t });
-            }
+            const referralRecord = await Referral.create({
+                referrerId: referrer.id,
+                referredUserId: referredUser.id,
+                status: 'pending',
+                registered_at: new Date(),
+                total_commissions_earned: 0,
+                total_transactions: 0,
+                referrer_signup_bonus_amount: 0,
+                referrer_signup_bonus_awarded_at: null,
+                referee_signup_bonus_amount: 0,
+                referee_signup_bonus_awarded_at: null,
+                qualifying_deposit_amount: null,
+                qualifying_deposit_at: null,
+                qualifying_transaction_id: null,
+            }, { transaction: t });
 
             if (options.referralClickToken) {
                 await ReferralClick.update(
@@ -225,18 +180,192 @@ class ReferralService {
                 );
             }
 
-            // #region debug-point C:track-referral-success
-            (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'post-fix',hypothesisId:'C',location:'referralService.js:trackReferral',msg:'[DEBUG] trackReferral settled referrer and referee rewards',data:{referrerId:referrer?.id||null,referredUserId:referredUser?.id||null,referralId:referralRecord?.id||null,referrerBonusAmount,refereeBonusAmount,referralClickToken:options?.referralClickToken||null,balanceBefore,balanceAfter},ts:Date.now()})}).catch(()=>{})})();
-            // #endregion
-
             await t.commit();
+            logger.info(`[Referral] Referral relationship registered: Referrer ${referrer.id} -> Referee ${referredUser.id} (Status: pending qualifying deposit)`);
+            return { recorded: true, referralId: referralRecord.id, status: 'pending' };
         } catch (error) {
             await t.rollback();
-            // #region debug-point C:track-referral-error
-            (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'pre-fix',hypothesisId:'C',location:'referralService.js:trackReferral',msg:'[DEBUG] trackReferral failed',data:{referrerId:referrer?.id||null,referredUserId:referredUser?.id||null,message:error?.message||null,stack:String(error?.stack||'').slice(0,1200)},ts:Date.now()})}).catch(()=>{})})();
-            // #endregion
+            logger.error(`[Referral] Failed to record referral signup: ${error.message}`);
             throw error;
         }
+    }
+
+    /**
+     * Backward-compatible alias for recordReferralSignup
+     */
+    async trackReferral(referrer, referredUser, options = {}) {
+        return this.recordReferralSignup(referrer, referredUser, options);
+    }
+
+    /**
+     * Verify and reward referral bonuses upon a qualifying deposit.
+     * Called whenever a user's wallet is funded via webhook or manual deposit.
+     * Ensures atomic idempotency: will only execute once per referral relationship.
+     * @param {User} refereeUser
+     * @param {number} depositAmount
+     * @param {Object} transactionRecord
+     * @param {Object} [externalTransaction]
+     */
+    async checkAndRewardQualifyingDeposit(refereeUser, depositAmount, transactionRecord = null, externalTransaction = null) {
+        if (!refereeUser || !refereeUser.id) {
+            return { rewarded: false, reason: 'missing_user' };
+        }
+
+        const amountNum = parseFloat(depositAmount || 0);
+        if (!Number.isFinite(amountNum) || amountNum <= 0) {
+            return { rewarded: false, reason: 'invalid_deposit_amount' };
+        }
+
+        const work = async (t) => {
+            // Find pending referral for this user where bonuses have not been awarded yet
+            const referralRecord = await Referral.findOne({
+                where: {
+                    referredUserId: refereeUser.id,
+                    referrer_signup_bonus_awarded_at: null,
+                },
+                transaction: t,
+                lock: true,
+            });
+
+            if (!referralRecord) {
+                return { rewarded: false, reason: 'no_pending_qualifying_referral' };
+            }
+
+            // Minimum qualifying threshold (default: ₦100)
+            const minQualifyingDeposit = parseRewardAmount(
+                await SystemSetting.get('referral_qualifying_deposit_min', 100),
+                100
+            );
+
+            if (amountNum < minQualifyingDeposit) {
+                logger.info(`[Referral] Referee ${refereeUser.id} funded ₦${amountNum}, below qualifying minimum ₦${minQualifyingDeposit}. Bonus deferred.`);
+                return { rewarded: false, reason: 'below_qualifying_threshold', minQualifyingDeposit, depositAmount: amountNum };
+            }
+
+            const referrerUser = await User.findByPk(referralRecord.referrerId, { transaction: t });
+            if (!referrerUser) {
+                logger.error(`[Referral] Referrer ${referralRecord.referrerId} not found for referral ${referralRecord.id}`);
+                return { rewarded: false, reason: 'referrer_not_found' };
+            }
+
+            const referrerWallet = await Wallet.findOne({
+                where: { userId: referrerUser.id },
+                transaction: t,
+                lock: true,
+            });
+
+            if (!referrerWallet) {
+                logger.error(`[Referral] Referrer wallet not found for user ${referrerUser.id}`);
+                return { rewarded: false, reason: 'referrer_wallet_not_found' };
+            }
+
+            const refereeWallet = await Wallet.findOne({
+                where: { userId: refereeUser.id },
+                transaction: t,
+                lock: true,
+            });
+
+            const referrerBonusAmount = parseRewardAmount(
+                await SystemSetting.get('referrer_signup_bonus_amount', 100),
+                100
+            );
+            const refereeBonusAmount = parseRewardAmount(
+                await SystemSetting.get('referee_signup_bonus_amount', 50),
+                50
+            );
+
+            const now = new Date();
+            const txId = transactionRecord?.id || transactionRecord?.reference || `DEP-${Date.now()}`;
+
+            // 1. Credit Referrer Bonus Balance
+            let referrerBalanceBefore = parseFloat(referrerWallet.bonus_balance || 0);
+            let referrerBalanceAfter = referrerBalanceBefore;
+
+            if (referrerBonusAmount > 0) {
+                referrerBalanceAfter = referrerBalanceBefore + referrerBonusAmount;
+                await referrerWallet.update({ bonus_balance: referrerBalanceAfter }, { transaction: t });
+
+                await Transaction.create({
+                    id: crypto.randomUUID(),
+                    userId: referrerUser.id,
+                    walletId: referrerWallet.id,
+                    type: 'credit',
+                    amount: referrerBonusAmount,
+                    balance_before: referrerBalanceBefore,
+                    balance_after: referrerBalanceAfter,
+                    source: 'bonus',
+                    status: 'completed',
+                    reference: `REF-BONUS-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+                    description: `Referral bonus for referring ${refereeUser.name || 'Friend'} (Qualifying Deposit ₦${amountNum.toLocaleString()})`,
+                    metadata: {
+                        referredUserId: refereeUser.id,
+                        referredUserName: refereeUser.name,
+                        referralId: referralRecord.id,
+                        qualifyingDepositAmount: amountNum,
+                        kind: 'referrer_qualifying_bonus',
+                    },
+                    completed_at: now,
+                }, { transaction: t });
+            }
+
+            // 2. Credit Referee Welcome Bonus Balance
+            let refereeBalanceBefore = refereeWallet ? parseFloat(refereeWallet.bonus_balance || 0) : 0;
+            let refereeBalanceAfter = refereeBalanceBefore;
+
+            if (refereeWallet && refereeBonusAmount > 0) {
+                refereeBalanceAfter = refereeBalanceBefore + refereeBonusAmount;
+                await refereeWallet.update({ bonus_balance: refereeBalanceAfter }, { transaction: t });
+
+                await Transaction.create({
+                    id: crypto.randomUUID(),
+                    userId: refereeUser.id,
+                    walletId: refereeWallet.id,
+                    type: 'credit',
+                    amount: refereeBonusAmount,
+                    balance_before: refereeBalanceBefore,
+                    balance_after: refereeBalanceAfter,
+                    source: 'bonus',
+                    status: 'completed',
+                    reference: `REF-WELCOME-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+                    description: `Welcome bonus for making your first qualifying deposit!`,
+                    metadata: {
+                        referralId: referralRecord.id,
+                        referrerId: referrerUser.id,
+                        qualifyingDepositAmount: amountNum,
+                        kind: 'referee_qualifying_bonus',
+                    },
+                    completed_at: now,
+                }, { transaction: t });
+            }
+
+            // 3. Mark Referral as Rewarded
+            await referralRecord.update({
+                status: 'rewarded',
+                qualifying_deposit_amount: amountNum,
+                qualifying_deposit_at: now,
+                qualifying_transaction_id: String(txId),
+                referrer_signup_bonus_amount: referrerBonusAmount,
+                referrer_signup_bonus_awarded_at: now,
+                referee_signup_bonus_amount: refereeBonusAmount,
+                referee_signup_bonus_awarded_at: now,
+                total_commissions_earned: parseFloat(referralRecord.total_commissions_earned || 0) + referrerBonusAmount,
+            }, { transaction: t });
+
+            logger.info(`[Referral] Qualifying deposit rewarded! Referrer ${referrerUser.id} credited ₦${referrerBonusAmount}, Referee ${refereeUser.id} credited ₦${refereeBonusAmount}`);
+
+            return {
+                rewarded: true,
+                referralId: referralRecord.id,
+                referrerBonusAmount,
+                refereeBonusAmount,
+                depositAmount: amountNum,
+            };
+        };
+
+        if (externalTransaction) {
+            return await work(externalTransaction);
+        }
+        return await sequelize.transaction(work);
     }
 }
 

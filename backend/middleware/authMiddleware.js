@@ -8,7 +8,8 @@ const protect = async (req, res, next) => {
 
     if (token) {
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'test' ? 'test_jwt_secret_key_12345' : '');
+        const decoded = jwt.verify(token, secret);
 
         req.user = await User.findByPk(decoded.id, {
           attributes: {

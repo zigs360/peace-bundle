@@ -1238,6 +1238,17 @@ const getSystemSettings = async (req, res) => {
         const defaults = [
             { key: 'data_purchase_enabled', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable data plan purchases for regular users' },
             { key: 'airtime_purchase_enabled', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable airtime purchases for regular users' },
+            { key: 'service_data_mtn', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable MTN Data service' },
+            { key: 'service_data_airtel', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable Airtel Data service' },
+            { key: 'service_data_glo', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable Glo Data service' },
+            { key: 'service_data_9mobile', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable 9mobile Data service' },
+            { key: 'service_airtime_mtn', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable MTN Airtime service' },
+            { key: 'service_airtime_airtel', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable Airtel Airtime service' },
+            { key: 'service_airtime_glo', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable Glo Airtime service' },
+            { key: 'service_airtime_9mobile', value: 'true', type: 'boolean', group: 'services', description: 'Enable or disable 9mobile Airtime service' },
+            { key: 'referral_qualifying_deposit_min', value: '100', type: 'number', group: 'referrals', description: 'Minimum deposit required for referee to qualify and award referral bonuses' },
+            { key: 'referrer_signup_bonus_amount', value: '100', type: 'number', group: 'referrals', description: 'Bonus awarded to referrer upon referee qualifying deposit' },
+            { key: 'referee_signup_bonus_amount', value: '50', type: 'number', group: 'referrals', description: 'Bonus awarded to referee upon first qualifying deposit' },
             { key: 'maintenanceMode', value: 'false', type: 'boolean', group: 'general', description: 'System maintenance mode' },
             { key: 'allowRegistration', value: 'true', type: 'boolean', group: 'general', description: 'Allow new user registrations' },
             { key: 'developerMode', value: 'false', type: 'boolean', group: 'general', description: 'Developer mode flag' }
@@ -1284,8 +1295,8 @@ const getSystemSettings = async (req, res) => {
 // @access  Public
 const getPublicSettings = async (req, res) => {
     try {
-        const dataEnabled = await SystemSetting.get('data_purchase_enabled', true);
-        const airtimeEnabled = await SystemSetting.get('airtime_purchase_enabled', true);
+        const serviceControlService = require('../services/serviceControlService');
+        const serviceStatuses = await serviceControlService.getAllServiceStatuses();
         const maintenanceMode = await SystemSetting.get('maintenanceMode', false);
         const allowRegistration = await SystemSetting.get('allowRegistration', true);
 
@@ -1293,8 +1304,17 @@ const getPublicSettings = async (req, res) => {
         res.json({
             success: true,
             settings: {
-                data_purchase_enabled: dataEnabled !== false && dataEnabled !== 'false',
-                airtime_purchase_enabled: airtimeEnabled !== false && airtimeEnabled !== 'false',
+                data_purchase_enabled: serviceStatuses.master.data,
+                airtime_purchase_enabled: serviceStatuses.master.airtime,
+                services: serviceStatuses,
+                service_data_mtn: serviceStatuses.data.mtn,
+                service_data_airtel: serviceStatuses.data.airtel,
+                service_data_glo: serviceStatuses.data.glo,
+                service_data_9mobile: serviceStatuses.data['9mobile'],
+                service_airtime_mtn: serviceStatuses.airtime.mtn,
+                service_airtime_airtel: serviceStatuses.airtime.airtel,
+                service_airtime_glo: serviceStatuses.airtime.glo,
+                service_airtime_9mobile: serviceStatuses.airtime['9mobile'],
                 maintenanceMode: maintenanceMode === true || maintenanceMode === 'true',
                 allowRegistration: allowRegistration !== false && allowRegistration !== 'false'
             }
@@ -1305,6 +1325,19 @@ const getPublicSettings = async (req, res) => {
             settings: {
                 data_purchase_enabled: true,
                 airtime_purchase_enabled: true,
+                services: {
+                    master: { data: true, airtime: true },
+                    data: { mtn: true, airtel: true, glo: true, '9mobile': true },
+                    airtime: { mtn: true, airtel: true, glo: true, '9mobile': true }
+                },
+                service_data_mtn: true,
+                service_data_airtel: true,
+                service_data_glo: true,
+                service_data_9mobile: true,
+                service_airtime_mtn: true,
+                service_airtime_airtel: true,
+                service_airtime_glo: true,
+                service_airtime_9mobile: true,
                 maintenanceMode: false,
                 allowRegistration: true
             }
@@ -1579,8 +1612,21 @@ const getReferralAnalytics = async (req, res) => {
             subQuery: false
         });
 
+        const pendingReferrals = await Referral.count({
+            where: { referrer_signup_bonus_awarded_at: null }
+        });
+        const rewardedReferrals = await Referral.count({
+            where: { referrer_signup_bonus_awarded_at: { [Op.ne]: null } }
+        });
+        const totalBonusPaid = await Referral.sum('referrer_signup_bonus_amount', {
+            where: { referrer_signup_bonus_awarded_at: { [Op.ne]: null } }
+        }) || 0;
+
         res.json({
             totalReferrals,
+            pendingReferrals,
+            rewardedReferrals,
+            totalBonusPaid,
             totalClicks,
             totalConvertedClicks,
             conversionRate,
@@ -2235,7 +2281,49 @@ const migrateSafeHavenAccounts = async (req, res) => {
     }
 };
 
+// @desc    Get All Service Control Statuses (Admin)
+// @route   GET /api/admin/services/status
+// @access  Private (Admin)
+const getServiceControlStatuses = async (req, res) => {
+    try {
+        const serviceControlService = require('../services/serviceControlService');
+        const statuses = await serviceControlService.getAllServiceStatuses();
+        res.json({ success: true, statuses });
+    } catch (error) {
+        logger.error('[Admin] Error fetching service control statuses:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch service statuses' });
+    }
+};
+
+// @desc    Toggle Service Control Switch (Admin)
+// @route   POST /api/admin/services/toggle
+// @access  Private (Admin)
+const toggleServiceControl = async (req, res) => {
+    try {
+        const { serviceType, network, enabled } = req.body;
+        if (!serviceType || !network || enabled === undefined) {
+            return res.status(400).json({ success: false, message: 'serviceType, network, and enabled are required' });
+        }
+
+        const serviceControlService = require('../services/serviceControlService');
+        const updated = await serviceControlService.toggleService(serviceType, network, enabled, req.user);
+        const statuses = await serviceControlService.getAllServiceStatuses();
+
+        res.json({
+            success: true,
+            message: `${updated.network.toUpperCase()} ${updated.serviceType} switch set to ${updated.enabled ? 'ON' : 'OFF'}`,
+            updated,
+            statuses
+        });
+    } catch (error) {
+        logger.error('[Admin] Error toggling service switch:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to toggle service switch' });
+    }
+};
+
 module.exports = {
+    getServiceControlStatuses,
+    toggleServiceControl,
     getAdminStats,
     updateUser,
     toggleBlockUser,

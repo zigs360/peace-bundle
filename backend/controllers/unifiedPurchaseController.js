@@ -51,24 +51,15 @@ const purchaseUnified = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Check Service Availability Toggles
-    const SystemSetting = require('../models/SystemSetting');
-    if (serviceType === 'data') {
-      const dataEnabled = await SystemSetting.get('data_purchase_enabled', true);
-      if ((dataEnabled === false || dataEnabled === 'false') && user?.role !== 'admin') {
-        return res.status(403).json({
-          success: false,
-          message: 'Data purchases are currently disabled by the Administrator. Please try again later.'
-        });
-      }
-    } else if (serviceType === 'airtime') {
-      const airtimeEnabled = await SystemSetting.get('airtime_purchase_enabled', true);
-      if ((airtimeEnabled === false || airtimeEnabled === 'false') && user?.role !== 'admin') {
-        return res.status(403).json({
-          success: false,
-          message: 'Airtime purchases are currently disabled by the Administrator. Please try again later.'
-        });
-      }
+    // Check Service Availability Toggles (Master + Network specific)
+    const serviceControlService = require('../services/serviceControlService');
+    try {
+      await serviceControlService.assertServiceAvailable(serviceType, network, user);
+    } catch (serviceErr) {
+      return res.status(serviceErr.statusCode || 403).json({
+        success: false,
+        message: serviceErr.message,
+      });
     }
 
     // Check Transaction Limits

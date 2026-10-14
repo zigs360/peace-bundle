@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import SurfaceCard from './SurfaceCard';
 
 interface StatCardProps {
-  title: string;
+  title: ReactNode;
   value: string | number;
   meta?: string;
   icon: ReactNode;

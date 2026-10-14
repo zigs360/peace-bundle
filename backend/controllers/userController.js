@@ -5,6 +5,8 @@ const ReferralClick = require('../models/ReferralClick');
 const Commission = require('../models/Commission');
 const Wallet = require('../models/Wallet');
 const ApiKey = require('../models/ApiKey');
+const Transaction = require('../models/Transaction');
+const sequelize = require('../config/database');
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 
@@ -12,6 +14,21 @@ const virtualAccountService = require('../services/virtualAccountService');
 const dualVirtualAccountService = require('../services/dualVirtualAccountService');
 const referralService = require('../services/referralService');
 const logger = require('../utils/logger');
+
+const maskUserName = (name) => {
+    if (!name || typeof name !== 'string') return 'Valued User';
+    const trimmed = name.trim();
+    if (!trimmed) return 'Valued User';
+    const parts = trimmed.split(/\s+/);
+    if (parts.length === 1) {
+        const single = parts[0];
+        if (single.length <= 2) return `${single}*`;
+        return `${single.slice(0, 2)}***${single.slice(-1)}`;
+    }
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    return `${first} ${last[0].toUpperCase()}.`;
+};
 
 const maskAccountNumber = (accountNumber) => {
     const raw = String(accountNumber || '').trim();
@@ -523,14 +540,14 @@ const getAffiliateStats = async (req, res) => {
         const recentReferrals = referrals.map(ref => ({
             name: ref.ReferredUser ? ref.ReferredUser.name : 'Unknown',
             date: ref.createdAt,
-            status: ref.ReferredUser && ref.ReferredUser.kyc_status === 'verified' ? 'Active' : 'Inactive',
+            status: ref.status || (ref.referrer_signup_bonus_awarded_at ? 'rewarded' : 'pending'),
+            isRewarded: Boolean(ref.referrer_signup_bonus_awarded_at),
+            qualifyingDepositAmount: ref.qualifying_deposit_amount || 0,
+            qualifyingDepositAt: ref.qualifying_deposit_at || null,
             commission: ref.total_commissions_earned,
+            referrerReward: ref.referrer_signup_bonus_amount || 0,
             refereeReward: ref.referee_signup_bonus_amount || 0,
         }));
-
-        // #region debug-point E:user-affiliate-stats
-        (()=>{const fs=require('fs');let u='http://127.0.0.1:7777/event',s='referral-workflow';for(const p of ['.dbg/referral-workflow.env','../.dbg/referral-workflow.env','../../.dbg/referral-workflow.env']){try{const e=fs.readFileSync(p,'utf8');u=e.match(/DEBUG_SERVER_URL=(.+)/)?.[1]||u;s=e.match(/DEBUG_SESSION_ID=(.+)/)?.[1]||s;break}catch{}}fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:s,runId:'post-fix',hypothesisId:'E',location:'userController.js:getAffiliateStats',msg:'[DEBUG] User affiliate stats resolved',data:{userId,userReferralCode:user?.referral_code||null,referralsCount:referrals.length,totalEarnings,totalClicks,totalConvertedClicks,conversionRate,totalRefereeRewardsIssued,totalRecentReferrals:recentReferrals.length},ts:Date.now()})}).catch(()=>{})})();
-        // #endregion
 
         res.json({
             referralCode: user.referral_code,
@@ -754,6 +771,195 @@ const getWalletSummary = async (req, res) => {
     }
 };
 
+// @desc    Get dynamic leaderboard of top users (privacy-safe)
+// @route   GET /api/users/leaderboard
+// @access  Private
+const getLeaderboard = async (req, res) => {
+    try {
+        const period = String(req.query.period || 'all_time').toLowerCase();
+        const category = String(req.query.category || 'volume').toLowerCase();
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 5), 50);
+        const currentUserId = req.user?.id;
+
+        let startDate = null;
+        const now = new Date();
+        if (period === 'week') {
+            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        } else if (period === 'month') {
+            startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        }
+
+        if (category === 'referrals') {
+            const whereRef = {
+                status: { [Op.in]: ['qualified', 'rewarded'] }
+            };
+            if (startDate) {
+                whereRef.createdAt = { [Op.gte]: startDate };
+            }
+
+            const referralAgg = await Referral.findAll({
+                attributes: [
+                    'referrerId',
+                    [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+                ],
+                where: whereRef,
+                group: ['referrerId'],
+                order: [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']],
+                raw: true,
+            });
+
+            const topUserIds = referralAgg.map(r => r.referrerId).filter(Boolean);
+            const users = await User.findAll({
+                where: {
+                    id: { [Op.in]: topUserIds },
+                    role: { [Op.in]: ['user', 'reseller'] }
+                },
+                attributes: ['id', 'name', 'avatar'],
+                raw: true,
+            });
+            const userMap = new Map(users.map(u => [String(u.id), u]));
+
+            const leaderboard = [];
+            let myRank = null;
+            let rankCounter = 1;
+
+            for (const item of referralAgg) {
+                const u = userMap.get(String(item.referrerId));
+                if (!u) continue;
+
+                const count = parseInt(item.count, 10) || 0;
+                const isCurrentUser = currentUserId && String(u.id) === String(currentUserId);
+                if (isCurrentUser) {
+                    myRank = rankCounter;
+                }
+
+                if (leaderboard.length < limit) {
+                    leaderboard.push({
+                        rank: rankCounter,
+                        displayName: maskUserName(u.name),
+                        avatar: u.avatar || null,
+                        score: count,
+                        qualifiedReferrals: count,
+                        isCurrentUser: Boolean(isCurrentUser)
+                    });
+                }
+                rankCounter++;
+            }
+
+            let myScore = 0;
+            if (currentUserId) {
+                const myAgg = referralAgg.find(r => String(r.referrerId) === String(currentUserId));
+                if (myAgg) myScore = parseInt(myAgg.count, 10) || 0;
+            }
+
+            return res.json({
+                success: true,
+                period,
+                category,
+                leaderboard,
+                myStats: {
+                    rank: myRank || '-',
+                    score: myScore,
+                    qualifiedReferrals: myScore,
+                    category
+                }
+            });
+        }
+
+        // 'volume' or 'transactions'
+        const whereTxn = {
+            status: 'completed',
+            type: 'debit',
+            source: { [Op.ne]: 'refund' }
+        };
+        if (startDate) {
+            whereTxn.createdAt = { [Op.gte]: startDate };
+        }
+
+        const txnAgg = await Transaction.findAll({
+            attributes: [
+                'userId',
+                [sequelize.fn('SUM', sequelize.col('amount')), 'totalVolume'],
+                [sequelize.fn('COUNT', sequelize.col('id')), 'transactionCount'],
+            ],
+            where: whereTxn,
+            group: ['userId'],
+            order: category === 'transactions'
+                ? [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']]
+                : [[sequelize.fn('SUM', sequelize.col('amount')), 'DESC']],
+            raw: true,
+        });
+
+        const userIds = txnAgg.map(t => t.userId).filter(Boolean);
+        const users = await User.findAll({
+            where: {
+                id: { [Op.in]: userIds },
+                role: { [Op.in]: ['user', 'reseller'] }
+            },
+            attributes: ['id', 'name', 'avatar'],
+            raw: true,
+        });
+        const userMap = new Map(users.map(u => [String(u.id), u]));
+
+        const leaderboard = [];
+        let myRank = null;
+        let rankCounter = 1;
+
+        for (const item of txnAgg) {
+            const u = userMap.get(String(item.userId));
+            if (!u) continue;
+
+            const volume = parseFloat(item.totalVolume) || 0;
+            const count = parseInt(item.transactionCount, 10) || 0;
+            const score = category === 'transactions' ? count : volume;
+            const isCurrentUser = currentUserId && String(u.id) === String(currentUserId);
+            if (isCurrentUser) {
+                myRank = rankCounter;
+            }
+
+            if (leaderboard.length < limit) {
+                leaderboard.push({
+                    rank: rankCounter,
+                    displayName: maskUserName(u.name),
+                    avatar: u.avatar || null,
+                    score,
+                    volume,
+                    transactionCount: count,
+                    isCurrentUser: Boolean(isCurrentUser)
+                });
+            }
+            rankCounter++;
+        }
+
+        let myVolume = 0;
+        let myCount = 0;
+        if (currentUserId) {
+            const myTxn = txnAgg.find(t => String(t.userId) === String(currentUserId));
+            if (myTxn) {
+                myVolume = parseFloat(myTxn.totalVolume) || 0;
+                myCount = parseInt(myTxn.transactionCount, 10) || 0;
+            }
+        }
+
+        return res.json({
+            success: true,
+            period,
+            category,
+            leaderboard,
+            myStats: {
+                rank: myRank || '-',
+                score: category === 'transactions' ? myCount : myVolume,
+                volume: myVolume,
+                transactionCount: myCount,
+                category
+            }
+        });
+    } catch (error) {
+        logger.error(`[Leaderboard] Failed to fetch leaderboard: ${error.message}`);
+        return res.status(500).json({ success: false, message: 'Failed to load leaderboard' });
+    }
+};
+
 module.exports = {
     getBeneficiaries,
     addBeneficiary,
@@ -768,6 +974,7 @@ module.exports = {
     fetchDualVirtualAccounts,
     getDualVirtualAccountsSnapshot,
     updateFcmToken,
-    getWalletSummary
+    getWalletSummary,
+    getLeaderboard
 };
 

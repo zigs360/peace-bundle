@@ -51,15 +51,6 @@ class DataPurchaseController {
         const user = req.user;
 
         try {
-            const SystemSetting = require('../models/SystemSetting');
-            const dataEnabled = await SystemSetting.get('data_purchase_enabled', true);
-            if ((dataEnabled === false || dataEnabled === 'false') && user?.role !== 'admin') {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Data purchases are currently disabled by the Administrator. Please try again later.'
-                });
-            }
-
             const limitCheck = await transactionLimitService.canTransact(user);
             if (!limitCheck.allowed) {
                 return res.status(403).json({ 
@@ -82,6 +73,17 @@ class DataPurchaseController {
                 return res.status(404).json({ 
                     success: false, 
                     message: 'The selected data plan no longer exists' 
+                });
+            }
+
+            // Check Service Availability Toggles (Master + Network specific)
+            const serviceControlService = require('../services/serviceControlService');
+            try {
+                await serviceControlService.assertServiceAvailable('data', plan.provider, user);
+            } catch (serviceErr) {
+                return res.status(serviceErr.statusCode || 403).json({
+                    success: false,
+                    message: serviceErr.message,
                 });
             }
 

@@ -327,6 +327,17 @@ const buyData = async (req, res) => {
             });
         }
 
+        // Check Service Availability Toggles (Master + Network specific)
+        const serviceControlService = require('../services/serviceControlService');
+        try {
+            await serviceControlService.assertServiceAvailable('data', network, user);
+        } catch (serviceErr) {
+            return res.status(serviceErr.statusCode || 403).json({
+                success: false,
+                message: serviceErr.message,
+            });
+        }
+
         t = await sequelize.transaction();
 
         // Fetch Data Plan
@@ -581,6 +592,17 @@ const buyAirtime = async (req, res) => {
                 success: false,
                 message: limitCheck.reason,
                 details: limitCheck 
+            });
+        }
+
+        // Check Service Availability Toggles (Master + Network specific)
+        const serviceControlService = require('../services/serviceControlService');
+        try {
+            await serviceControlService.assertServiceAvailable('airtime', network, user);
+        } catch (serviceErr) {
+            return res.status(serviceErr.statusCode || 403).json({
+                success: false,
+                message: serviceErr.message,
             });
         }
 
