@@ -233,13 +233,14 @@ class WalletService {
 
       if (isMockUser && Number.isFinite(amountNum) && amountNum > 0) {
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const [count24h, sumAll] = await Promise.all([
-          Transaction.count({
-            where: { userId: user.id, type: 'credit', source: 'funding', createdAt: { [Op.gte]: since } },
-            transaction: transaction
-          }),
-          Transaction.sum('amount', { where: { userId: user.id, type: 'credit', source: 'funding', status: 'completed' }, transaction: transaction })
-        ]);
+        const count24h = await Transaction.count({
+          where: { userId: user.id, type: 'credit', source: 'funding', createdAt: { [Op.gte]: since } },
+          transaction: transaction
+        });
+        const sumAll = await Transaction.sum('amount', {
+          where: { userId: user.id, type: 'credit', source: 'funding', status: 'completed' },
+          transaction: transaction
+        });
 
         const fundedTotal = parseFloat(sumAll || 0);
         const exceedsVelocity = Number.isFinite(count24h) && count24h >= maxEvents;

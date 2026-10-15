@@ -40,6 +40,12 @@ if (globalThis.__peacebundle_sequelize) {
       dialect: 'sqlite',
       storage: process.env.NODE_ENV === 'test' ? ':memory:' : path.join(__dirname, '../dev.sqlite'),
       logging: false,
+      pool: {
+        max: 1,
+        min: 1,
+        idle: 10000,
+        acquire: 30000,
+      },
     });
   } else {
     // Render internal hostnames (dpg-*) usually do not require SSL

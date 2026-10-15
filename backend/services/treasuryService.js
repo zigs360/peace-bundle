@@ -56,6 +56,11 @@ class TreasuryService {
       transactionId = null,
       reference = null,
     } = trigger || {};
+
+    if (process.env.NODE_ENV === 'test' && !process.env.TREASURY_AUTO_SYNC_DEBOUNCE_MS && process.env.TREASURY_AUTO_SYNC_ENABLED !== 'true') {
+      return Promise.resolve();
+    }
+
     const debounceMsRaw = Number.parseInt(process.env.TREASURY_AUTO_SYNC_DEBOUNCE_MS || '250', 10);
     const debounceMs = Number.isFinite(debounceMsRaw) && debounceMsRaw >= 0 ? debounceMsRaw : 250;
 

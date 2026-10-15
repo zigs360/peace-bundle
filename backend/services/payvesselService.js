@@ -318,13 +318,15 @@ class PayVesselService {
      * Verify PayVessel Webhook Signature
      * @param {Object} payload - The request body
      * @param {string} signature - The HTTP_PAYVESSEL_HTTP_SIGNATURE header
+     * @param {string} [secretOverride] - Optional override key
      * @returns {boolean}
      */
-    verifySignature(payload, signature) {
-        if (!signature || !this.secretKey) return false;
+    verifySignature(payload, signature, secretOverride = null) {
+        const effectiveSecret = String(secretOverride || this.secretKey || process.env.PAYVESSEL_SECRET_KEY || '').trim();
+        if (!signature || !effectiveSecret) return false;
         const incoming = String(signature).trim().toLowerCase();
         const body = Buffer.isBuffer(payload) ? payload : Buffer.from(JSON.stringify(payload));
-        const rawSecret = String(this.secretKey).trim();
+        const rawSecret = effectiveSecret;
         const cleanSecret = rawSecret.replace(/^Bearer\s+/i, '');
 
         const candidateKeys = Array.from(new Set([rawSecret, cleanSecret])).filter(Boolean);

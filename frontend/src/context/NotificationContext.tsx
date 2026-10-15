@@ -184,8 +184,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     fetchNotifications();
 
     const socketUrl = (import.meta as any).env.VITE_SOCKET_URL || window.location.origin;
+    const token = localStorage.getItem('token') || '';
     const newSocket = io(socketUrl, {
       withCredentials: true,
+      auth: token ? { token } : undefined,
+      query: token ? { token } : undefined,
       // Remove explicit transport: ['websocket'] to allow fallback to polling, 
       // which is more reliable in production environments behind proxies.
     });
@@ -263,9 +266,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         const netAmount = typeof payload?.netAmount === 'number' ? payload.netAmount : Number(payload?.netAmount);
         const gateway = payload?.gateway;
         if (Number.isFinite(grossAmount) && Number.isFinite(feeAmount) && feeAmount > 0 && Number.isFinite(netAmount)) {
-          toast.success(`Received ₦${grossAmount.toLocaleString()} - Fee ₦${feeAmount.toLocaleString()} = Credited ₦${netAmount.toLocaleString()}${gateway ? ` (${String(gateway)})` : ''}`);
+          toast.success(`Received ₦${grossAmount.toLocaleString()} - Fee ₦${feeAmount.toLocaleString()} = Credited ₦${netAmount.toLocaleString()}`);
         } else if (Number.isFinite(amount)) {
-          toast.success(`Wallet funded ₦${Number(amount).toLocaleString()}${gateway ? ` (${String(gateway)})` : ''}`);
+          toast.success(`Wallet funded with ₦${Number(amount).toLocaleString()}`);
         }
 
         const userId = getStoredUser<any>()?.id || null;

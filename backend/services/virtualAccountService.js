@@ -414,82 +414,115 @@ class VirtualAccountService {
         const raw = String(accountNumber || '').trim();
         if (!raw) return null;
         const acc = raw.replace(/\D/g, ''); // Digits only
+        const candidates = Array.from(new Set([
+            raw,
+            acc,
+            acc.length === 9 ? acc.padStart(10, '0') : null,
+            acc.length === 10 && acc.startsWith('0') ? acc.replace(/^0+/, '') : null,
+        ].filter(Boolean)));
 
-        // 1. Direct match on virtual_account_number column
-        let direct = await User.findOne({ where: { virtual_account_number: raw } });
+        // 1. Direct match on virtual_account_number column with candidates
+        let direct = await User.findOne({ where: { virtual_account_number: { [Op.in]: candidates } } });
         if (direct) return direct;
-        if (acc && acc !== raw) {
-            direct = await User.findOne({ where: { virtual_account_number: acc } });
-            if (direct) return direct;
-        }
 
-        // 2. In-memory fallback (SQLite or fallback)
+        const checkUserMeta = (u) => {
+            if (!u || !u.metadata) return false;
+            const meta = u.metadata;
+            // Check dual virtual accounts dynamically across all provider keys
+            const dualAccounts = meta?.dual_virtual_accounts?.accounts || {};
+            for (const key of Object.keys(dualAccounts)) {
+                const rec = dualAccounts[key];
+                if (!rec) continue;
+                const recAcc = String(rec.accountNumber || rec.account_number || rec.accountNo || rec.number || '').trim();
+                const recClean = recAcc.replace(/\D/g, '');
+                if (candidates.includes(recAcc) || (recClean && candidates.includes(recClean))) {
+                    return true;
+                }
+            }
+            const singleAccs = [
+                meta?.virtual_account?.account_number,
+                meta?.virtual_account?.accountNumber,
+                meta?.billstack?.account_number,
+                meta?.billstack?.accountNumber,
+                meta?.payvessel?.account_number,
+                meta?.payvessel?.accountNumber,
+                meta?.old_safehaven_account?.accountNumber,
+                meta?.old_safehaven_account?.number,
+                meta?.safehaven?.account_number,
+                meta?.safehaven?.accountNumber,
+                meta?.safehaven_reference,
+            ];
+            for (const s of singleAccs) {
+                if (!s) continue;
+                const str = String(s).trim();
+                const clean = str.replace(/\D/g, '');
+                if (candidates.includes(str) || (clean && candidates.includes(clean))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // 2. In-memory check (SQLite or fallback)
         if (sequelize.getDialect && sequelize.getDialect() === 'sqlite') {
             const users = await User.findAll({ where: { metadata: { [Op.ne]: null } } });
             for (const u of users) {
-                const bAcc = u?.metadata?.dual_virtual_accounts?.accounts?.billstack?.accountNumber ||
-                             u?.metadata?.dual_virtual_accounts?.accounts?.billstack?.account_number ||
-                             u?.metadata?.virtual_account?.account_number ||
-                             u?.metadata?.billstack?.account_number;
-                const pAcc = u?.metadata?.dual_virtual_accounts?.accounts?.payvessel?.accountNumber ||
-                             u?.metadata?.dual_virtual_accounts?.accounts?.payvessel?.account_number ||
-                             u?.metadata?.payvessel?.account_number;
-                const sAcc = u?.metadata?.old_safehaven_account?.accountNumber ||
-                             u?.metadata?.old_safehaven_account?.number ||
-                             u?.metadata?.safehaven?.account_number ||
-                             u?.metadata?.safehaven?.accountNumber;
-                const sRef = u?.metadata?.safehaven_reference;
-                const bClean = String(bAcc || '').replace(/\D/g, '');
-                const pClean = String(pAcc || '').replace(/\D/g, '');
-                const sClean = String(sAcc || '').replace(/\D/g, '');
-                if (bClean === acc || pClean === acc || sClean === acc ||
-                    String(bAcc || '').trim() === raw || String(pAcc || '').trim() === raw || String(sAcc || '').trim() === raw ||
-                    String(sRef || '').trim() === raw) {
-                    return u;
-                }
+                if (checkUserMeta(u)) return u;
             }
             return null;
         }
 
-        // 3. PostgreSQL JSONB query matching camelCase and snake_case paths including legacy SafeHaven
-        const sql = `
-            SELECT *
-            FROM "Users"
-            WHERE ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,billstack,accountNumber}') = :raw
-               OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,billstack,account_number}') = :raw
-               OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,payvessel,accountNumber}') = :raw
-               OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,payvessel,account_number}') = :raw
-               OR ("metadata"::jsonb #>> '{virtual_account,account_number}') = :raw
-               OR ("metadata"::jsonb #>> '{billstack,account_number}') = :raw
-               OR ("metadata"::jsonb #>> '{payvessel,account_number}') = :raw
-               OR ("metadata"::jsonb #>> '{old_safehaven_account,accountNumber}') = :raw
-               OR ("metadata"::jsonb #>> '{old_safehaven_account,number}') = :raw
-               OR ("metadata"::jsonb #>> '{safehaven,account_number}') = :raw
-               OR ("metadata"::jsonb #>> '{safehaven,accountNumber}') = :raw
-               OR ("metadata"::jsonb #>> '{safehaven_reference}') = :raw
-               OR ("virtual_account_number" = :raw)
-            LIMIT 1
-        `;
+        // 3. PostgreSQL JSONB query matching camelCase and snake_case paths across all supported providers
+        try {
+            const sql = `
+                SELECT *
+                FROM "Users"
+                WHERE "virtual_account_number" IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,billstack,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,billstack,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,payvessel,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,payvessel,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,palmpay,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,palmpay,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,9psb,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,9psb,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,ninepsb,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,ninepsb,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,providus,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,providus,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,monnify,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{dual_virtual_accounts,accounts,monnify,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{virtual_account,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{virtual_account,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{billstack,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{billstack,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{payvessel,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{payvessel,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{old_safehaven_account,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{old_safehaven_account,number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{safehaven,account_number}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{safehaven,accountNumber}') IN (:candidates)
+                   OR ("metadata"::jsonb #>> '{safehaven_reference}') IN (:candidates)
+                LIMIT 1
+            `;
 
-        const userFromMeta = await sequelize.query(sql, {
-            replacements: { raw },
-            model: User,
-            mapToModel: true,
-            plain: true,
-            type: QueryTypes.SELECT,
-        });
-
-        if (userFromMeta) return userFromMeta;
-
-        // If acc differs from raw (e.g. whitespace or formatting stripped), retry with digits
-        if (acc && acc !== raw) {
-            return await sequelize.query(sql, {
-                replacements: { raw: acc },
+            const userFromMeta = await sequelize.query(sql, {
+                replacements: { candidates },
                 model: User,
                 mapToModel: true,
                 plain: true,
                 type: QueryTypes.SELECT,
             });
+
+            if (userFromMeta) return userFromMeta;
+        } catch (sqlErr) {
+            logger.warn(`[VirtualAccount] Raw SQL lookup failed, falling back to in-memory check: ${sqlErr.message}`);
+        }
+
+        // 4. Safe fallback in case JSON structure differs or raw query failed
+        const usersWithMeta = await User.findAll({ where: { metadata: { [Op.ne]: null } } });
+        for (const u of usersWithMeta) {
+            if (checkUserMeta(u)) return u;
         }
 
         return null;

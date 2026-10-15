@@ -29,6 +29,10 @@ export default function FundWallet() {
   useEffect(() => {
     if (!user?.id) return;
     void refreshBalance(user.id);
+    const interval = setInterval(() => {
+      void refreshBalance(user.id);
+    }, 6000);
+    return () => clearInterval(interval);
   }, [walletVersion, user?.id]);
 
   useEffect(() => {
@@ -76,7 +80,12 @@ export default function FundWallet() {
       const res = await api.get(`/transactions/stats/${encodeURIComponent(String(userId))}`);
       const b = res.data?.balance;
       const bn = typeof b === 'number' ? b : Number(b);
-      if (Number.isFinite(bn)) setLastKnownBalance(bn);
+      if (Number.isFinite(bn)) {
+        if (lastKnownBalance !== null && bn > lastKnownBalance) {
+          toast.success(t('fundWalletPage.balanceUpdated'));
+        }
+        setLastKnownBalance(bn);
+      }
     } catch (e) {
       void e;
     }
