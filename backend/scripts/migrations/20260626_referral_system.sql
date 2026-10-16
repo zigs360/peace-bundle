@@ -21,6 +21,10 @@ ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_amount" 
 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_awarded_at" TIMESTAMPTZ;
 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_awarded_at" TIMESTAMPTZ;
+ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "status" VARCHAR(255) NOT NULL DEFAULT 'pending';
+ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_amount" DECIMAL(15, 2);
+ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_at" TIMESTAMPTZ;
+ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_id" VARCHAR(255);
 
 -- 3. Create indexes
 CREATE UNIQUE INDEX IF NOT EXISTS "referral_clicks_code_token_unique" 

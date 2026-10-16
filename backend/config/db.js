@@ -261,6 +261,10 @@ const ensureReferralSystemMigrationApplied = async () => {
     'referrer_signup_bonus_awarded_at',
     'referee_signup_bonus_amount',
     'referee_signup_bonus_awarded_at',
+    'status',
+    'qualifying_deposit_amount',
+    'qualifying_deposit_at',
+    'qualifying_transaction_id',
   ];
 
   const missingColumns = requiredColumns.filter(
@@ -278,6 +282,64 @@ const ensureReferralSystemMigrationApplied = async () => {
   } catch (error) {
     console.error(`[DB] Failed to apply referral system migration: ${error.message}`);
     throw error;
+  }
+
+  const descAfter = await qi.describeTable('referrals');
+  const stillMissingColumns = requiredColumns.filter(
+    (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
+  );
+  if (stillMissingColumns.length) {
+    throw new Error(`Referrals table is missing columns after migration: ${stillMissingColumns.join(', ')}`);
+  }
+};
+
+const ensureReferralQualifyingDepositMigrationApplied = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+
+  const qi = sequelize.getQueryInterface();
+  let desc;
+  try {
+    desc = await qi.describeTable('referrals');
+  } catch (error) {
+    if (!desc) return;
+  }
+
+  const requiredColumns = [
+    'status',
+    'qualifying_deposit_amount',
+    'qualifying_deposit_at',
+    'qualifying_transaction_id',
+  ];
+
+  const missingColumns = requiredColumns.filter(
+    (columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName),
+  );
+
+  if (!missingColumns.length) return;
+
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20261016_referral_qualifying_deposit_status.sql');
+  try {
+    const result = await applySqlMigrationFile({ id: '20261016_referral_qualifying_deposit_status', filePath: migrationFilePath });
+    if (result.applied) {
+      console.log(`[DB] Applied SQL migration: ${result.id}`);
+    }
+  } catch (error) {
+    console.error(`[DB] Failed to apply referral qualifying deposit migration: ${error.message}`);
+    try {
+      await sequelize.query(`
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "status" VARCHAR(255) NOT NULL DEFAULT 'pending';
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_amount" DECIMAL(15, 2);
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_at" TIMESTAMPTZ;
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_id" VARCHAR(255);
+        CREATE INDEX IF NOT EXISTS "referrals_status_idx" ON "referrals" ("status");
+        CREATE INDEX IF NOT EXISTS "referrals_referred_user_id_idx" ON "referrals" ("referredUserId");
+        CREATE INDEX IF NOT EXISTS "referrals_referrer_id_idx" ON "referrals" ("referrerId");
+      `);
+      console.log('[DB] Applied direct fallback ALTER TABLE for referrals columns');
+    } catch (fallbackErr) {
+      console.error(`[DB] Direct fallback ALTER TABLE for referrals failed: ${fallbackErr.message}`);
+      throw error;
+    }
   }
 
   const descAfter = await qi.describeTable('referrals');
@@ -576,6 +638,7 @@ const connectDB = async () => {
       await ensureTransactionIntegrityMigrationApplied();
       await ensureCallSubscriptionModuleMigrationApplied();
       await ensureReferralSystemMigrationApplied();
+      await ensureReferralQualifyingDepositMigrationApplied();
       await ensureAccountDeletionMigrationApplied();
       await ensureSafeHavenDeprecationMigrationApplied();
       await ensureTransactionsDashboardIndexes();
@@ -751,6 +814,10 @@ const connectDB = async () => {
           ensureColumn(referralsTable, 'referrer_signup_bonus_awarded_at', { type: DataTypes.DATE, allowNull: true }),
           ensureColumn(referralsTable, 'referee_signup_bonus_amount', { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 }),
           ensureColumn(referralsTable, 'referee_signup_bonus_awarded_at', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(referralsTable, 'status', { type: DataTypes.STRING, allowNull: false, defaultValue: 'pending' }),
+          ensureColumn(referralsTable, 'qualifying_deposit_amount', { type: DataTypes.DECIMAL(15, 2), allowNull: true }),
+          ensureColumn(referralsTable, 'qualifying_deposit_at', { type: DataTypes.DATE, allowNull: true }),
+          ensureColumn(referralsTable, 'qualifying_transaction_id', { type: DataTypes.STRING, allowNull: true }),
         ]);
       const ensureReferralClicksTable = async () => {
         const exists = await tableExists(referralClicksTable);

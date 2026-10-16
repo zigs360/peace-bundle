@@ -16,6 +16,31 @@ const hashValue = (value) => {
 
 class ReferralService {
     /**
+     * Auto-heal referrals table schema in PostgreSQL if missing columns are encountered
+     */
+    async _ensureSchemaCompatibility() {
+        if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+        try {
+            await sequelize.query(`
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "status" VARCHAR(255) NOT NULL DEFAULT 'pending';
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_amount" DECIMAL(15, 2);
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_at" TIMESTAMPTZ;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_id" VARCHAR(255);
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_awarded_at" TIMESTAMPTZ;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_awarded_at" TIMESTAMPTZ;
+                CREATE INDEX IF NOT EXISTS "referrals_status_idx" ON "referrals" ("status");
+                CREATE INDEX IF NOT EXISTS "referrals_referred_user_id_idx" ON "referrals" ("referredUserId");
+                CREATE INDEX IF NOT EXISTS "referrals_referrer_id_idx" ON "referrals" ("referrerId");
+            `);
+            logger.info('[Referral] Auto-healed referrals table schema columns in PostgreSQL');
+        } catch (err) {
+            logger.warn(`[Referral] Failed to auto-heal schema: ${err.message}`);
+        }
+    }
+
+    /**
      * Generate a cryptographically secure referral code.
      * Format: 3 letters from name + 4 secure random hex characters
      * @param {string} name - User's name
@@ -185,6 +210,11 @@ class ReferralService {
             return { recorded: true, referralId: referralRecord.id, status: 'pending' };
         } catch (error) {
             await t.rollback();
+            if (/column.*(status|qualifying_deposit).*does not exist/i.test(error.message) && !options._retried) {
+                logger.warn('[Referral] Detected missing columns in referrals table during signup, attempting runtime auto-heal...');
+                await this._ensureSchemaCompatibility();
+                return await this.recordReferralSignup(referrer, referredUser, { ...options, _retried: true });
+            }
             logger.error(`[Referral] Failed to record referral signup: ${error.message}`);
             throw error;
         }
@@ -362,10 +392,22 @@ class ReferralService {
             };
         };
 
-        if (externalTransaction) {
-            return await work(externalTransaction);
+        try {
+            if (externalTransaction) {
+                return await work(externalTransaction);
+            }
+            return await sequelize.transaction(work);
+        } catch (error) {
+            if (/column.*(status|qualifying_deposit).*does not exist/i.test(error.message)) {
+                logger.warn('[Referral] Detected missing columns in referrals table during qualifying deposit check, attempting runtime auto-heal...');
+                await this._ensureSchemaCompatibility();
+                if (externalTransaction) {
+                    return await work(externalTransaction);
+                }
+                return await sequelize.transaction(work);
+            }
+            throw error;
         }
-        return await sequelize.transaction(work);
     }
 }
 
