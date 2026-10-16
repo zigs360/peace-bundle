@@ -74,10 +74,21 @@ const processBillstackFunding = async ({
         data?.virtual_account_number ||
         data?.virtual_account?.account_number ||
         data?.virtual_account?.accountNumber ||
+        data?.virtual_account_no ||
+        data?.virtualAccountNo ||
+        data?.cr_account_no ||
+        data?.cr_account ||
+        data?.crAccountNo ||
+        data?.beneficiary_account_number ||
+        data?.destination_account ||
+        data?.account_details?.account_number ||
+        data?.account_details?.virtual_account_number ||
         data?.reserved_account?.account_number ||
         data?.destination_account_number ||
         data?.account_no ||
         data?.accountNo ||
+        payload?.virtual_account_no ||
+        payload?.cr_account_no ||
         payload?.account_number ||
         payload?.accountNumber;
 
@@ -172,7 +183,7 @@ const processBillstackFunding = async ({
             const result = await walletService.creditFundingWithFraudChecks(
                 user,
                 amount,
-                `BillStack Funding: ${providerReference}`,
+                `Bank Transfer: ${providerReference}`,
                 {
                     reference: providerReference,
                     gateway: 'billstack',
@@ -389,14 +400,28 @@ const handlePayvesselWebhook = async (req, res) => {
         const allowedIps = [...defaultAllowedIps, ...envAllowedIps];
         const skipIpCheck = String(process.env.PAYVESSEL_STRICT_IP_CHECK || '').toLowerCase() === 'false' || process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
 
-        const reference = payload?.transaction?.reference || payload?.order?.reference || null;
-        const amountParsed = payload?.order?.settlement_amount || payload?.order?.amount || null;
+        const root = payload?.data || payload;
+        const { order, transaction, customer } = root || {};
+        const reference = transaction?.reference ||
+                          order?.reference ||
+                          payload?.transaction?.reference ||
+                          payload?.order?.reference ||
+                          payload?.reference ||
+                          root?.reference ||
+                          null;
+        const amountParsed = order?.settlement_amount ||
+                             order?.amount ||
+                             transaction?.amount ||
+                             payload?.order?.settlement_amount ||
+                             payload?.order?.amount ||
+                             payload?.amount ||
+                             null;
         const amount = amountParsed !== null ? Number(amountParsed) : null;
         const webhookEvent = await webhookEventService.recordReceived({
             provider: 'payvessel',
             reference,
             amount: Number.isFinite(amount) ? amount : null,
-            currency: payload?.order?.currency || null,
+            currency: order?.currency || payload?.order?.currency || null,
             payload,
             req
         });
@@ -411,19 +436,25 @@ const handlePayvesselWebhook = async (req, res) => {
             }
         }
 
-        const { order, transaction, customer } = payload || {};
         const settlementAccount = order?.settlement_account ||
+                                  order?.settlementAccount ||
                                   order?.account_number ||
                                   order?.accountNumber ||
-                                  order?.settlementAccount ||
                                   order?.virtual_account_number ||
                                   order?.virtualAccountNumber ||
                                   transaction?.account_number ||
                                   transaction?.accountNumber ||
                                   transaction?.account_no ||
+                                  transaction?.destination_account ||
                                   payload?.virtual_account_number ||
                                   payload?.account_number ||
                                   payload?.accountNumber ||
+                                  payload?.settlement_account ||
+                                  payload?.settlementAccount ||
+                                  root?.virtual_account_number ||
+                                  root?.account_number ||
+                                  root?.accountNumber ||
+                                  root?.settlement_account ||
                                   customer?.account_number ||
                                   customer?.accountNumber;
 
@@ -530,7 +561,7 @@ const handlePayvesselWebhook = async (req, res) => {
                 const result = await walletService.creditFundingWithFraudChecks(
                     user,
                     amount,
-                    `PayVessel Funding: ${reference}`,
+                    `Bank Transfer: ${reference}`,
                     { 
                         reference, 
                         gateway: 'payvessel',
@@ -672,7 +703,7 @@ const handleMonnifyWebhook = async (req, res) => {
                         const result = await walletService.creditFundingWithFraudChecks(
                             user,
                             amountPaid,
-                            `Monnify Funding: ${transactionReference}`,
+                            `Bank Transfer: ${transactionReference}`,
                             { reference: transactionReference, gateway: 'monnify' },
                             t
                         );
@@ -962,6 +993,16 @@ const handleBillstackWebhook = async (req, res) => {
                               data?.virtual_account_number ||
                               data?.virtual_account?.account_number ||
                               data?.virtual_account?.accountNumber ||
+                              data?.virtual_account_no ||
+                              data?.virtualAccountNo ||
+                              data?.cr_account_no ||
+                              data?.cr_account ||
+                              data?.crAccountNo ||
+                              data?.beneficiary_account_number ||
+                              data?.destination_account ||
+                              data?.account_details?.account_number ||
+                              data?.account_details?.accountNumber ||
+                              data?.account_details?.virtual_account_number ||
                               data?.reserved_account?.account_number ||
                               data?.reserved_account?.accountNumber ||
                               data?.reserved_account_number ||
@@ -972,6 +1013,14 @@ const handleBillstackWebhook = async (req, res) => {
                               data?.account_no ||
                               data?.accountNo ||
                               data?.account?.number ||
+                              payload?.virtual_account_no ||
+                              payload?.virtualAccountNo ||
+                              payload?.cr_account_no ||
+                              payload?.cr_account ||
+                              payload?.beneficiary_account_number ||
+                              payload?.destination_account ||
+                              payload?.account_details?.account_number ||
+                              payload?.account_details?.accountNumber ||
                               payload?.account?.account_number ||
                               payload?.account?.accountNumber ||
                               payload?.account_number ||
@@ -993,8 +1042,8 @@ const handleBillstackWebhook = async (req, res) => {
 
         logger.info(`[Webhook] BillStack received: ${eventName}`, { reference: providerReference });
 
-        // Resolve matched user by account number or customer email
-        const merchantRef = String(data?.merchant_reference || '').trim();
+        // Resolve matched user by account number, merchant reference, customer email or phone
+        const merchantRef = String(data?.merchant_reference || payload?.merchant_reference || '').trim();
         const isPBRef = merchantRef.startsWith('PB-');
         const virtualAccountService = require('../services/virtualAccountService');
         let matchedUser = null;
@@ -1005,14 +1054,53 @@ const handleBillstackWebhook = async (req, res) => {
                 logger.warn('[Webhook] BillStack findUserByAccountNumber error', { error: err.message });
             }
         }
+        if (!matchedUser && isPBRef) {
+            const pbUserId = merchantRef.slice(3).trim();
+            if (/^[0-9a-fA-F-]{36}$/.test(pbUserId)) {
+                try {
+                    const User = require('../models/User');
+                    matchedUser = await User.findByPk(pbUserId);
+                } catch (err) {
+                    logger.warn('[Webhook] BillStack findUserByMerchantRef error', { error: err.message });
+                }
+            }
+        }
+        if (!matchedUser && merchantRef && merchantRef.length >= 6) {
+            try {
+                const User = require('../models/User');
+                matchedUser = await User.findOne({
+                    where: sequelize.where(
+                        sequelize.cast(sequelize.col('metadata'), 'text'),
+                        { [require('sequelize').Op.like]: `%${merchantRef}%` }
+                    )
+                });
+            } catch (err) {
+                logger.warn('[Webhook] BillStack findUserByMetaRef error', { error: err.message });
+            }
+        }
         if (!matchedUser) {
-            const customerEmail = String(data?.customer?.email || payload?.customer?.email || '').trim().toLowerCase();
+            const customerEmail = String(data?.customer?.email || payload?.customer?.email || data?.payer?.email || payload?.email || data?.email || '').trim().toLowerCase();
             if (customerEmail) {
                 try {
                     const User = require('../models/User');
-                    matchedUser = await User.findOne({ where: { email: customerEmail } });
+                    matchedUser = await User.findOne({
+                        where: sequelize.where(sequelize.fn('LOWER', sequelize.col('email')), customerEmail)
+                    });
                 } catch (err) {
                     logger.warn('[Webhook] BillStack findUserByEmail error', { error: err.message });
+                }
+            }
+        }
+        if (!matchedUser) {
+            const rawPhone = String(data?.customer?.phone || data?.payer?.phone || payload?.phone || data?.phone || '').replace(/\D/g, '');
+            if (rawPhone.length >= 10) {
+                try {
+                    const User = require('../models/User');
+                    matchedUser = await User.findOne({
+                        where: { phone: { [require('sequelize').Op.like]: `%${rawPhone.slice(-10)}%` } }
+                    });
+                } catch (err) {
+                    logger.warn('[Webhook] BillStack findUserByPhone error', { error: err.message });
                 }
             }
         }
@@ -1106,16 +1194,19 @@ const handleBillstackWebhook = async (req, res) => {
             return res.status(200).json({ success: true, message: 'Event ignored' });
         }
 
-        if (!providerReference || !accountNumber || Number.isNaN(amount)) {
+        const effectiveAccountNumber = accountNumber || matchedUser?.virtual_account_number || matchedUser?.metadata?.virtual_account?.account_number || matchedUser?.metadata?.billstack?.account_number || null;
+        const effectiveReference = providerReference || billstackReference || data?.id || data?.session_id || payload?.id || (matchedUser ? `BS-${matchedUser.id.slice(0, 8)}-${Date.now()}` : null);
+
+        if (!effectiveReference || (!effectiveAccountNumber && !matchedUser) || Number.isNaN(amount)) {
             const missing = [];
-            if (!providerReference) missing.push('reference');
-            if (!accountNumber) missing.push('accountNumber');
+            if (!effectiveReference) missing.push('reference');
+            if (!effectiveAccountNumber && !matchedUser) missing.push('accountNumber');
             if (Number.isNaN(amount)) missing.push('amount');
             
             logger.warn(`[Webhook] BillStack: Invalid payload (Missing: ${missing.join(', ')})`, { 
                 event: eventName,
-                providerReference,
-                accountNumber,
+                providerReference: effectiveReference,
+                accountNumber: effectiveAccountNumber,
                 amount,
                 payload: JSON.stringify(payload)
             });
@@ -1127,9 +1218,9 @@ const handleBillstackWebhook = async (req, res) => {
             webhookEventId: webhookEvent.id,
             payload,
             data,
-            providerReference,
+            providerReference: effectiveReference,
             amount,
-            accountNumber,
+            accountNumber: effectiveAccountNumber || 'UNKNOWN',
             billstackReference,
             matchedUser
         };
@@ -1308,7 +1399,7 @@ const handleSafehavenWebhook = async (req, res) => {
             const creditResult = await walletService.creditFundingWithFraudChecks(
                 user,
                 amount,
-                `SafeHaven Legacy Funding: ${reference}`,
+                `Bank Transfer: ${reference}`,
                 {
                     reference,
                     gateway: 'safehaven',

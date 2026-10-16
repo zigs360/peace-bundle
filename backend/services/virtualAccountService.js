@@ -419,23 +419,49 @@ class VirtualAccountService {
             acc,
             acc.length === 9 ? acc.padStart(10, '0') : null,
             acc.length === 10 && acc.startsWith('0') ? acc.replace(/^0+/, '') : null,
+            acc.length === 11 && acc.startsWith('0') ? acc.slice(1) : null,
+            acc.length === 11 ? acc.slice(-10) : null,
+            acc.length === 10 ? '0' + acc : null,
+            acc.length >= 9 ? acc.slice(-9) : null,
         ].filter(Boolean)));
 
         // 1. Direct match on virtual_account_number column with candidates
         let direct = await User.findOne({ where: { virtual_account_number: { [Op.in]: candidates } } });
         if (direct) return direct;
 
+        // 1b. Direct match by last 9 digits on virtual_account_number
+        if (acc.length >= 9) {
+            direct = await User.findOne({
+                where: {
+                    virtual_account_number: { [Op.like]: `%${acc.slice(-9)}%` }
+                }
+            });
+            if (direct) return direct;
+        }
+
         const checkUserMeta = (u) => {
             if (!u || !u.metadata) return false;
             const meta = u.metadata;
+            const matchesCandidate = (val) => {
+                if (!val) return false;
+                const str = String(val).trim();
+                if (candidates.includes(str)) return true;
+                const clean = str.replace(/\D/g, '');
+                if (!clean) return false;
+                if (candidates.includes(clean)) return true;
+                if (clean.length >= 9 && acc.length >= 9 && (clean.endsWith(acc) || acc.endsWith(clean) || clean.slice(-9) === acc.slice(-9))) {
+                    return true;
+                }
+                return false;
+            };
+
             // Check dual virtual accounts dynamically across all provider keys
             const dualAccounts = meta?.dual_virtual_accounts?.accounts || {};
             for (const key of Object.keys(dualAccounts)) {
                 const rec = dualAccounts[key];
                 if (!rec) continue;
-                const recAcc = String(rec.accountNumber || rec.account_number || rec.accountNo || rec.number || '').trim();
-                const recClean = recAcc.replace(/\D/g, '');
-                if (candidates.includes(recAcc) || (recClean && candidates.includes(recClean))) {
+                const recAcc = rec.accountNumber || rec.account_number || rec.accountNo || rec.number;
+                if (matchesCandidate(recAcc)) {
                     return true;
                 }
             }
@@ -453,10 +479,7 @@ class VirtualAccountService {
                 meta?.safehaven_reference,
             ];
             for (const s of singleAccs) {
-                if (!s) continue;
-                const str = String(s).trim();
-                const clean = str.replace(/\D/g, '');
-                if (candidates.includes(str) || (clean && candidates.includes(clean))) {
+                if (matchesCandidate(s)) {
                     return true;
                 }
             }

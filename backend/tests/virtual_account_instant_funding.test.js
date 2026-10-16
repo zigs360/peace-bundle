@@ -233,4 +233,125 @@ describe('Virtual Account Instant Funding & NUBAN Variations', () => {
     const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
     expect(parseFloat(walletAfter.balance)).toBe(initialBalance + 2000);
   });
+
+  it('credits wallet via direct /webhooks/billstack (omitting /api) with virtual_account_no key', async () => {
+    const accNum = `66${Math.floor(10000000 + Math.random() * 90000000)}`;
+    const user = await User.create({
+      name: 'Direct Route User',
+      email: `direct_route_${Date.now()}@test.com`,
+      phone: `080${Math.floor(10000000 + Math.random() * 90000000)}`,
+      password: 'password123',
+      virtual_account_number: accNum,
+      virtual_account_bank: 'PALMPAY',
+      virtual_account_name: 'Direct Route User',
+    });
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    const initialBalance = parseFloat(wallet.balance);
+
+    const reference = `BS-DIRECT-${Date.now()}`;
+    const payload = {
+      event: 'PAYMENT_NOTIFICATION',
+      data: {
+        reference,
+        amount: 3500,
+        wiaxy_ref: `WIAXY-DIR-${Date.now()}`,
+        virtual_account_no: accNum,
+      },
+    };
+
+    const signature = crypto.createHash('md5').update('test_billstack_secret').digest('hex');
+
+    // POST to /webhooks/billstack without /api
+    const res = await request(app)
+      .post('/webhooks/billstack')
+      .set('x-billstack-signature', signature)
+      .send(payload);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter.balance)).toBe(initialBalance + 3500);
+
+    const txn = await Transaction.findOne({ where: { reference: payload.data.wiaxy_ref } });
+    expect(txn).toBeTruthy();
+    expect(txn.description).toContain('Bank Transfer');
+  });
+
+  it('credits wallet via BillStack webhook when account number is omitted but merchant_reference is PB-<userId>', async () => {
+    const user = await User.create({
+      name: 'Ref Match User',
+      email: `ref_match_${Date.now()}@test.com`,
+      phone: `080${Math.floor(10000000 + Math.random() * 90000000)}`,
+      password: 'password123',
+      virtual_account_number: `77${Math.floor(10000000 + Math.random() * 90000000)}`,
+      virtual_account_bank: '9PSB',
+      virtual_account_name: 'Ref Match User',
+    });
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    const initialBalance = parseFloat(wallet.balance);
+
+    const reference = `BS-REF-${Date.now()}`;
+    const payload = {
+      event: 'COLLECTION.SUCCESSFUL',
+      data: {
+        reference,
+        amount: 5000,
+        merchant_reference: `PB-${user.id}`,
+        // notice: no account number provided at all!
+      },
+    };
+
+    const res = await request(app)
+      .post('/webhooks/billstack')
+      .send(payload);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter.balance)).toBe(initialBalance + 5000);
+  });
+
+  it('credits wallet via direct /webhooks/payvessel when payload is wrapped in data', async () => {
+    const accNum = `88${Math.floor(10000000 + Math.random() * 90000000)}`;
+    const user = await User.create({
+      name: 'PV Wrapped User',
+      email: `pv_wrap_${Date.now()}@test.com`,
+      phone: `080${Math.floor(10000000 + Math.random() * 90000000)}`,
+      password: 'password123',
+      virtual_account_number: accNum,
+      virtual_account_bank: '9PSB',
+      virtual_account_name: 'PV Wrapped User',
+    });
+
+    const wallet = await Wallet.findOne({ where: { userId: user.id } });
+    const initialBalance = parseFloat(wallet.balance);
+
+    const reference = `PV-WRAP-${Date.now()}`;
+    const payload = {
+      data: {
+        order: {
+          reference,
+          amount: 4000,
+          settlement_amount: 4000,
+          settlement_account: accNum,
+        },
+        customer: {
+          email: user.email,
+        },
+      },
+    };
+
+    const res = await request(app)
+      .post('/webhooks/payvessel')
+      .send(payload);
+
+    expect(res.statusCode).toBe(200);
+
+    const walletAfter = await Wallet.findOne({ where: { userId: user.id } });
+    expect(parseFloat(walletAfter.balance)).toBe(initialBalance + 4000);
+  });
 });

@@ -110,7 +110,8 @@ app.use(
   express.json({
     limit: '10mb',
     verify: (req, res, buf) => {
-      if (req.originalUrl && req.originalUrl.startsWith('/api/webhooks')) {
+      const url = req.originalUrl || req.url || '';
+      if (url.startsWith('/api/webhooks') || url.startsWith('/webhooks') || url.startsWith('/api/webhook') || url.startsWith('/webhook')) {
         req.rawBody = buf;
       }
     },
@@ -273,7 +274,12 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   validate: { xForwardedForHeader: false },
   keyGenerator: (req) => getClientIp(req),
-  skip: (req) => req.path.startsWith('/admin'),
+  skip: (req) => {
+    const url = req.originalUrl || req.url || '';
+    return req.path.startsWith('/admin') ||
+           url.includes('/webhook') ||
+           url.includes('/webhooks');
+  },
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again after 15 minutes',
@@ -346,7 +352,7 @@ app.use('/api/users', userRoutes);
 const { protect: protectAuth } = require('./middleware/authMiddleware');
 const { getWalletSummary: getWalletSummaryHandler } = require('./controllers/userController');
 app.get('/api/wallet', protectAuth, getWalletSummaryHandler);
-app.use('/api/webhooks', webhookRoutes);
+app.use(['/api/webhooks', '/webhooks', '/api/webhook', '/webhook'], webhookRoutes);
 app.use('/api/plans', dataPlanRoutes);
 app.use('/api/callplans', callPlanRoutes);
 app.use('/api/reports', reportRoutes);
