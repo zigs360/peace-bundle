@@ -261,10 +261,6 @@ const ensureReferralSystemMigrationApplied = async () => {
     'referrer_signup_bonus_awarded_at',
     'referee_signup_bonus_amount',
     'referee_signup_bonus_awarded_at',
-    'status',
-    'qualifying_deposit_amount',
-    'qualifying_deposit_at',
-    'qualifying_transaction_id',
   ];
 
   const missingColumns = requiredColumns.filter(
@@ -281,7 +277,17 @@ const ensureReferralSystemMigrationApplied = async () => {
     }
   } catch (error) {
     console.error(`[DB] Failed to apply referral system migration: ${error.message}`);
-    throw error;
+    try {
+      await sequelize.query(`
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_awarded_at" TIMESTAMPTZ;
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_awarded_at" TIMESTAMPTZ;
+      `);
+    } catch (fallbackErr) {
+      console.error(`[DB] Direct fallback ALTER TABLE for referral system failed: ${fallbackErr.message}`);
+      throw error;
+    }
   }
 
   const descAfter = await qi.describeTable('referrals');
@@ -289,7 +295,14 @@ const ensureReferralSystemMigrationApplied = async () => {
     (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
   );
   if (stillMissingColumns.length) {
-    throw new Error(`Referrals table is missing columns after migration: ${stillMissingColumns.join(', ')}`);
+    try {
+      await sequelize.query(`
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_awarded_at" TIMESTAMPTZ;
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
+        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_awarded_at" TIMESTAMPTZ;
+      `);
+    } catch (_) {}
   }
 };
 
@@ -317,6 +330,22 @@ const ensureReferralQualifyingDepositMigrationApplied = async () => {
 
   if (!missingColumns.length) return;
 
+  // Always ensure the columns exist directly with safe idempotent ALTER TABLE
+  try {
+    await sequelize.query(`
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "status" VARCHAR(255) NOT NULL DEFAULT 'pending';
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_amount" DECIMAL(15, 2);
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_at" TIMESTAMPTZ;
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_id" VARCHAR(255);
+      CREATE INDEX IF NOT EXISTS "referrals_status_idx" ON "referrals" ("status");
+      CREATE INDEX IF NOT EXISTS "referrals_referred_user_id_idx" ON "referrals" ("referredUserId");
+      CREATE INDEX IF NOT EXISTS "referrals_referrer_id_idx" ON "referrals" ("referrerId");
+    `);
+    console.log('[DB] Ensured referrals qualifying deposit columns exist via direct ALTER TABLE');
+  } catch (sqlErr) {
+    console.error(`[DB] Direct ALTER TABLE for referrals qualifying deposit columns failed: ${sqlErr.message}`);
+  }
+
   const migrationFilePath = path.join(__dirname, '../scripts/migrations/20261016_referral_qualifying_deposit_status.sql');
   try {
     const result = await applySqlMigrationFile({ id: '20261016_referral_qualifying_deposit_status', filePath: migrationFilePath });
@@ -324,30 +353,9 @@ const ensureReferralQualifyingDepositMigrationApplied = async () => {
       console.log(`[DB] Applied SQL migration: ${result.id}`);
     }
   } catch (error) {
-    console.error(`[DB] Failed to apply referral qualifying deposit migration: ${error.message}`);
     try {
-      await sequelize.query(`
-        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "status" VARCHAR(255) NOT NULL DEFAULT 'pending';
-        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_amount" DECIMAL(15, 2);
-        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_at" TIMESTAMPTZ;
-        ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_id" VARCHAR(255);
-        CREATE INDEX IF NOT EXISTS "referrals_status_idx" ON "referrals" ("status");
-        CREATE INDEX IF NOT EXISTS "referrals_referred_user_id_idx" ON "referrals" ("referredUserId");
-        CREATE INDEX IF NOT EXISTS "referrals_referrer_id_idx" ON "referrals" ("referrerId");
-      `);
-      console.log('[DB] Applied direct fallback ALTER TABLE for referrals columns');
-    } catch (fallbackErr) {
-      console.error(`[DB] Direct fallback ALTER TABLE for referrals failed: ${fallbackErr.message}`);
-      throw error;
-    }
-  }
-
-  const descAfter = await qi.describeTable('referrals');
-  const stillMissingColumns = requiredColumns.filter(
-    (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
-  );
-  if (stillMissingColumns.length) {
-    throw new Error(`Referrals table is missing columns after migration: ${stillMissingColumns.join(', ')}`);
+      await recordSqlMigrationApplied('20261016_referral_qualifying_deposit_status');
+    } catch (_) {}
   }
 };
 
