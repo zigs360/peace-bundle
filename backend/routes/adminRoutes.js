@@ -53,7 +53,9 @@ const {
     adminSyncUserDeposits,
     getUserReferralSummary,
     getUserReferralsList,
-    exportUserReferralsCsv
+    exportUserReferralsCsv,
+    getFirebaseStatus,
+    sendTestPushNotification
 } = require('../controllers/adminController');
 const {
     adminGetSubscriptionPlans,
@@ -251,5 +253,9 @@ const {
 } = require('../controllers/adminLeaderboardController');
 router.get('/leaderboard', protect, admin, getAdminLeaderboard);
 router.post('/leaderboard/reward', protect, admin, rewardRankedUser);
+
+// Firebase Admin SDK Health & Push Diagnostics
+router.get('/firebase/status', protect, admin, getFirebaseStatus);
+router.post('/firebase/test-push', protect, admin, sendTestPushNotification);
 
 module.exports = router;

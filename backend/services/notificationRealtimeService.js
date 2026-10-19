@@ -139,6 +139,12 @@ class NotificationService {
         logger.info('Broadcast notification sent to all online users');
       }
 
+      // Trigger Firebase push notification broadcast (non-blocking)
+      const pushNotificationService = require('./pushNotificationService');
+      pushNotificationService.broadcastPush(title, message, { type, priority }).catch(err => {
+        logger.error(`[PushNotification] Failed to trigger broadcast push: ${err.message}`);
+      });
+
       return notification;
     } catch (error) {
       logger.error(`Failed to broadcast notification: ${error.message}`);

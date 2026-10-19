@@ -38,6 +38,12 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-peacebundlle_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-peacebundlle}
       DB_SSL: "false"
       FRONTEND_URL: ${FRONTEND_URL:-https://${DOMAIN_NAME:-peacebundlle.com}}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:-}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
+      FIREBASE_SERVICE_ACCOUNT_BASE64: ${FIREBASE_SERVICE_ACCOUNT_BASE64:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - uploads_data:/app/uploads
       - secure_uploads_data:/app/secure_uploads

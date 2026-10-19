@@ -2616,7 +2616,77 @@ const toggleServiceControl = async (req, res) => {
     }
 };
 
+// @desc    Get Firebase Admin SDK and Push Notification Diagnostics
+// @route   GET /api/admin/firebase/status
+// @access  Private (Admin)
+const getFirebaseStatus = async (req, res) => {
+    try {
+        const pushNotificationService = require('../services/pushNotificationService');
+        const diagnostics = pushNotificationService.getDiagnostics();
+        res.json({
+            success: true,
+            data: diagnostics
+        });
+    } catch (error) {
+        logger.error(`[Admin] getFirebaseStatus error: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve Firebase diagnostics'
+        });
+    }
+};
+
+// @desc    Send test push notification (Admin)
+// @route   POST /api/admin/firebase/test-push
+// @access  Private (Admin)
+const sendTestPushNotification = async (req, res) => {
+    try {
+        const { userId, fcmToken, title, message, dryRun } = req.body;
+        const pushNotificationService = require('../services/pushNotificationService');
+
+        if (!userId && !fcmToken) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide either userId or fcmToken for test push'
+            });
+        }
+
+        const pushTitle = title || 'Test Push Notification';
+        const pushBody = message || 'This is a test notification from Peace Bundle administrative diagnostics';
+
+        if (fcmToken) {
+            const isDryRun = dryRun !== false;
+            const result = await pushNotificationService.testTokenDelivery(fcmToken, isDryRun);
+            return res.json({
+                success: result.success,
+                mode: isDryRun ? 'dry_run' : 'real_send',
+                result,
+                diagnostics: pushNotificationService.getDiagnostics()
+            });
+        }
+
+        const sent = await pushNotificationService.sendPushToUser(userId, pushTitle, pushBody, {
+            type: 'admin_test',
+            timestamp: new Date().toISOString()
+        });
+
+        res.json({
+            success: sent,
+            message: sent ? 'Push notification accepted for delivery' : 'Push notification delivery failed or simulated',
+            diagnostics: pushNotificationService.getDiagnostics()
+        });
+    } catch (error) {
+        logger.error(`[Admin] sendTestPushNotification error: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to send test push notification'
+        });
+    }
+};
+
 module.exports = {
+    getFirebaseStatus,
+    sendTestPushNotification,
     getServiceControlStatuses,
     toggleServiceControl,
     getAdminStats,

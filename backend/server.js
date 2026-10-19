@@ -47,6 +47,13 @@ try {
   process.exit(1);
 }
 
+// Initialize Firebase Admin SDK early during startup
+try {
+  require('./config/firebase');
+} catch (firebaseInitErr) {
+  logger.error(`Firebase startup error: ${firebaseInitErr.message}`);
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 // Trust reverse proxies (host nginx, docker network, cloudflare)
@@ -230,11 +237,19 @@ app.get('/api/env', (req, res) => {
 app.get('/api/health', async (req, res) => {
   const includeSchema = String(req.query.schema || '').toLowerCase() === 'true';
   const diagnostics = await databaseDiagnosticsService.getDiagnostics({ includeSchema });
+  const pushNotificationService = require('./services/pushNotificationService');
+  const firebaseDiag = pushNotificationService.getDiagnostics();
   const ok = diagnostics.status === 'up';
   res.status(ok ? 200 : 503).json({
     success: ok,
     service: 'peace-bundle-backend',
     diagnostics,
+    firebase: {
+      isInitialized: firebaseDiag.isInitialized,
+      mode: firebaseDiag.mode,
+      projectId: firebaseDiag.projectId,
+      source: firebaseDiag.source
+    }
   });
 });
 

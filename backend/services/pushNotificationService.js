@@ -1,95 +1,29 @@
-const fs = require('fs');
-const path = require('path');
-let admin = null;
-let getMessaging = null;
-try {
-    admin = require('firebase-admin');
-    getMessaging = require('firebase-admin/messaging').getMessaging;
-} catch (_) {
-    // firebase-admin is optional or operates in simulation mode
-}
 const logger = require('../utils/logger');
 const User = require('../models/User');
+const firebaseManager = require('../config/firebase');
 
 class PushNotificationService {
     constructor() {
-        this.firebaseApp = null;
-        this.messaging = null;
-        this.isInitialized = false;
-        this._initFirebase();
+        this.firebase = firebaseManager;
+    }
+
+    get isInitialized() {
+        return this.firebase.isInitialized;
+    }
+
+    get messaging() {
+        return this.firebase.messaging;
+    }
+
+    get mode() {
+        return this.firebase.mode;
     }
 
     /**
-     * Initializes Firebase Admin SDK from service account credentials
+     * Get diagnostic health data for administrative monitoring
      */
-    _initFirebase() {
-        try {
-            if (!admin) {
-                logger.warn('[PushNotification] Firebase Admin SDK is not installed. Operating in simulation mode.');
-                return;
-            }
-            const existingApps = admin.getApps ? admin.getApps() : (admin.apps || []);
-            if (existingApps.length > 0) {
-                this.firebaseApp = existingApps[0];
-                this.messaging = getMessaging ? getMessaging(this.firebaseApp) : null;
-                this.isInitialized = true;
-                return;
-            }
-
-            let serviceAccount = null;
-
-            // 1. Try environment variable as JSON string or file path
-            if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-                const envVal = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
-                try {
-                    serviceAccount = JSON.parse(envVal);
-                } catch {
-                    const candidatePaths = [
-                        envVal,
-                        path.resolve(process.cwd(), envVal),
-                        path.resolve(__dirname, '..', envVal)
-                    ];
-                    for (const cp of candidatePaths) {
-                        if (fs.existsSync(cp)) {
-                            try {
-                                serviceAccount = JSON.parse(fs.readFileSync(cp, 'utf8'));
-                                break;
-                            } catch {
-                                // continue
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2. Try default config file path
-            if (!serviceAccount) {
-                const configPath = path.join(__dirname, '..', 'config', 'firebase-service-account.json');
-                if (fs.existsSync(configPath)) {
-                    try {
-                        serviceAccount = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                    } catch (parseErr) {
-                        logger.error(`[PushNotification] Failed to parse config file: ${parseErr.message}`);
-                    }
-                }
-            }
-
-            if (serviceAccount && serviceAccount.project_id && serviceAccount.private_key) {
-                if (typeof serviceAccount.private_key === 'string' && serviceAccount.private_key.includes('\\n')) {
-                    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
-                }
-                this.firebaseApp = admin.initializeApp({
-                    credential: admin.cert(serviceAccount)
-                });
-                this.messaging = getMessaging(this.firebaseApp);
-                this.isInitialized = true;
-                logger.info(`[PushNotification] Firebase Admin initialized successfully for project: ${serviceAccount.project_id}`);
-            } else {
-                logger.warn('[PushNotification] No valid Firebase service account found. Push notifications will operate in simulation mode.');
-            }
-        } catch (error) {
-            logger.error(`[PushNotification] Firebase Admin initialization failed: ${error.message}`);
-        }
+    getDiagnostics() {
+        return this.firebase.getDiagnostics();
     }
 
     /**
@@ -98,8 +32,11 @@ class PushNotificationService {
      * @param {string} title 
      * @param {string} body 
      * @param {Object} [data] 
+     * @returns {Promise<boolean>}
      */
     async sendPushToUser(userId, title, body, data = {}) {
+        const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
         try {
             const user = await User.findByPk(userId);
             if (!user) {
@@ -111,31 +48,45 @@ class PushNotificationService {
             const fcmToken = userMeta.fcmToken;
 
             if (!fcmToken) {
-                logger.info(`[PushNotification] User ${userId} has no registered push token. Skipping FCM push.`);
+                logger.info(`[PushNotification] User ${userId} (${user.email}) has no registered push token. Skipping FCM push.`);
                 return false;
             }
 
-            logger.info(`[PushNotification] Sending push to user ${userId} (${user.email}): "${title}"`);
+            // Case A: Firebase Admin SDK is initialized
+            if (this.firebase.isInitialized && this.firebase.messaging) {
+                // If token is a test/mock token
+                if (fcmToken.startsWith('mock_fcm_token_')) {
+                    if (isProd) {
+                        logger.warn(`[PushNotification] Refusing to send real push: user ${userId} has mock FCM token "${fcmToken}".`);
+                        this.firebase.recordDelivery('failed');
+                        return false;
+                    } else {
+                        logger.info(`[PushNotification] [SIMULATED] Mock token for user ${userId}: Title="${title}", Body="${body}"`);
+                        this.firebase.recordDelivery('simulated');
+                        return true;
+                    }
+                }
 
-            // If Firebase is initialized and token is not a mock token, send real FCM message
-            if (this.isInitialized && !fcmToken.startsWith('mock_fcm_token_')) {
-                // Ensure all data values are strings for FCM payload compatibility
+                logger.info(`[PushNotification] Sending real FCM push to user ${userId} (${user.email}): "${title}"`);
+
+                // Ensure all data payload values are strings (FCM protocol requirement)
                 const stringData = {};
                 for (const [key, val] of Object.entries(data)) {
+                    if (val === null || val === undefined) continue;
                     stringData[key] = typeof val === 'object' ? JSON.stringify(val) : String(val);
                 }
 
                 const message = {
                     token: fcmToken,
                     notification: {
-                        title,
-                        body
+                        title: String(title),
+                        body: String(body)
                     },
                     data: stringData,
                     android: {
                         priority: 'high',
                         notification: {
-                            channelId: 'peacebundle_payments',
+                            channelId: data.channelId || 'peacebundle_payments',
                             sound: 'default',
                             priority: 'max',
                             defaultSound: true,
@@ -152,20 +103,34 @@ class PushNotificationService {
                     }
                 };
 
-                const response = await this.messaging.send(message);
-                logger.info(`[PushNotification] FCM message delivered to user ${userId}. Message ID: ${response}`);
+                const response = await this.firebase.messaging.send(message);
+                this.firebase.recordDelivery('sent');
+                logger.info(`[PushNotification] FCM message accepted by Firebase for user ${userId}. Message ID: ${response}`);
                 return true;
+            }
+
+            // Case B: Firebase is NOT initialized
+            if (isProd) {
+                logger.error(
+                    `[PushNotification] Push failed for user ${userId}: Firebase is unavailable in production (${this.firebase.lastInitError}). Real push disabled.`
+                );
+                this.firebase.recordDelivery('failed');
+                return false;
             } else {
-                logger.info(`[PushNotification] [SIMULATED] Sent to user ${userId}: Token=${fcmToken}, Title=${title}, Body=${body}`);
+                // Simulation mode in development or test environments
+                logger.info(`[PushNotification] [SIMULATED] Development push for user ${userId}: Token=${fcmToken}, Title="${title}", Body="${body}"`);
+                this.firebase.recordDelivery('simulated');
                 return true;
             }
         } catch (error) {
-            // Handle stale or unregistered token
+            this.firebase.recordDelivery('failed');
+
+            // Handle stale or invalid token cleanup automatically
             if (
                 error.code === 'messaging/registration-token-not-registered' ||
                 error.code === 'messaging/invalid-registration-token'
             ) {
-                logger.warn(`[PushNotification] Removing expired/invalid FCM token for user ${userId}`);
+                logger.warn(`[PushNotification] Invalid or expired FCM token detected for user ${userId}. Cleaning up user metadata.`);
                 try {
                     const user = await User.findByPk(userId);
                     if (user && user.metadata && user.metadata.fcmToken) {
@@ -177,9 +142,12 @@ class PushNotificationService {
                 } catch (cleanupErr) {
                     logger.error(`[PushNotification] Failed to clean up invalid token: ${cleanupErr.message}`);
                 }
+            } else if (error.code === 'messaging/authentication-error') {
+                logger.error(`[PushNotification] Firebase authentication error: ${error.message}. Please check service account permissions.`);
             } else {
-                logger.error(`[PushNotification] Failed to send push to user ${userId}: ${error.message}`);
+                logger.error(`[PushNotification] FCM send error for user ${userId}: [${error.code || 'UNKNOWN'}] ${error.message}`);
             }
+
             return false;
         }
     }
@@ -189,22 +157,26 @@ class PushNotificationService {
      * @param {string} title 
      * @param {string} body 
      * @param {Object} [data] 
+     * @returns {Promise<boolean>}
      */
     async broadcastPush(title, body, data = {}) {
+        const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
         try {
             logger.info(`[PushNotification] Broadcasting push: "${title}" - "${body}"`);
 
-            if (this.isInitialized) {
+            if (this.firebase.isInitialized && this.firebase.messaging) {
                 const stringData = {};
                 for (const [key, val] of Object.entries(data)) {
+                    if (val === null || val === undefined) continue;
                     stringData[key] = typeof val === 'object' ? JSON.stringify(val) : String(val);
                 }
 
                 const message = {
                     topic: 'peacebundle_announcements',
                     notification: {
-                        title,
-                        body
+                        title: String(title),
+                        body: String(body)
                     },
                     data: stringData,
                     android: {
@@ -216,15 +188,67 @@ class PushNotificationService {
                     }
                 };
 
-                const response = await this.messaging.send(message);
-                logger.info(`[PushNotification] Topic broadcast sent. Message ID: ${response}`);
+                const response = await this.firebase.messaging.send(message);
+                this.firebase.recordDelivery('sent');
+                logger.info(`[PushNotification] Topic broadcast accepted by Firebase. Message ID: ${response}`);
                 return true;
             }
 
-            return true;
+            if (isProd) {
+                logger.error(`[PushNotification] Broadcast push skipped: Firebase is unavailable in production (${this.firebase.lastInitError}).`);
+                this.firebase.recordDelivery('failed');
+                return false;
+            } else {
+                logger.info(`[PushNotification] [SIMULATED] Topic broadcast simulated for ${process.env.NODE_ENV || 'dev'}`);
+                this.firebase.recordDelivery('simulated');
+                return true;
+            }
         } catch (error) {
+            this.firebase.recordDelivery('failed');
             logger.error(`[PushNotification] Broadcast push failed: ${error.message}`);
             return false;
+        }
+    }
+
+    /**
+     * Dry run or test verification for admin diagnostic console
+     * @param {string} token 
+     * @param {boolean} dryRun 
+     */
+    async testTokenDelivery(token, dryRun = true) {
+        if (!this.firebase.isInitialized || !this.firebase.messaging) {
+            return {
+                success: false,
+                error: `Firebase Admin SDK is not initialized: ${this.firebase.lastInitError || 'Missing credentials'}`
+            };
+        }
+
+        try {
+            const message = {
+                token,
+                notification: {
+                    title: 'Peace Bundle Diagnostic Test',
+                    body: 'Verification message from Peace Bundle administrative diagnostics'
+                },
+                data: {
+                    type: 'system_diagnostic',
+                    timestamp: new Date().toISOString()
+                }
+            };
+
+            const response = await this.firebase.messaging.send(message, dryRun);
+            return {
+                success: true,
+                dryRun,
+                response,
+                projectId: this.firebase.projectId
+            };
+        } catch (error) {
+            return {
+                success: false,
+                code: error.code || 'UNKNOWN',
+                message: error.message
+            };
         }
     }
 }
