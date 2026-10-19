@@ -113,7 +113,7 @@ const getJwtSecret = () => process.env.JWT_SECRET || (process.env.NODE_ENV === '
 
 const generateToken = (id) => {
     return jwt.sign({ id }, getJwtSecret(), {
-        expiresIn: '15m',
+        expiresIn: '1h',
     });
 };
 
