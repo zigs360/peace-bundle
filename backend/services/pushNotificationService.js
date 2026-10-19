@@ -2,6 +2,17 @@ const logger = require('../utils/logger');
 const User = require('../models/User');
 const firebaseManager = require('../config/firebase');
 
+/**
+ * Masks sensitive FCM token for safe logging
+ * @param {string} token 
+ * @returns {string}
+ */
+function maskToken(token) {
+    if (!token || typeof token !== 'string') return 'N/A';
+    if (token.length <= 10) return '***';
+    return `${token.slice(0, 6)}...${token.slice(-4)}`;
+}
+
 class PushNotificationService {
     constructor() {
         this.firebase = firebaseManager;
@@ -57,7 +68,7 @@ class PushNotificationService {
                 // If token is a test/mock token
                 if (fcmToken.startsWith('mock_fcm_token_')) {
                     if (isProd) {
-                        logger.warn(`[PushNotification] Refusing to send real push: user ${userId} has mock FCM token "${fcmToken}".`);
+                        logger.warn(`[PushNotification] Refusing to send real push: user ${userId} has mock FCM token "${maskToken(fcmToken)}".`);
                         this.firebase.recordDelivery('failed');
                         return false;
                     } else {
@@ -118,7 +129,7 @@ class PushNotificationService {
                 return false;
             } else {
                 // Simulation mode in development or test environments
-                logger.info(`[PushNotification] [SIMULATED] Development push for user ${userId}: Token=${fcmToken}, Title="${title}", Body="${body}"`);
+                logger.info(`[PushNotification] [SIMULATED] Development push for user ${userId}: Token=${maskToken(fcmToken)}, Title="${title}", Body="${body}"`);
                 this.firebase.recordDelivery('simulated');
                 return true;
             }
@@ -130,7 +141,7 @@ class PushNotificationService {
                 error.code === 'messaging/registration-token-not-registered' ||
                 error.code === 'messaging/invalid-registration-token'
             ) {
-                logger.warn(`[PushNotification] Invalid or expired FCM token detected for user ${userId}. Cleaning up user metadata.`);
+                logger.warn(`[PushNotification] Invalid or expired FCM token detected for user ${userId} (${maskToken(fcmToken)}). Cleaning up user metadata.`);
                 try {
                     const user = await User.findByPk(userId);
                     if (user && user.metadata && user.metadata.fcmToken) {
@@ -145,7 +156,7 @@ class PushNotificationService {
             } else if (error.code === 'messaging/authentication-error') {
                 logger.error(`[PushNotification] Firebase authentication error: ${error.message}. Please check service account permissions.`);
             } else {
-                logger.error(`[PushNotification] FCM send error for user ${userId}: [${error.code || 'UNKNOWN'}] ${error.message}`);
+                logger.error(`[PushNotification] FCM send error for user ${userId} (token: ${maskToken(fcmToken)}): [${error.code || 'UNKNOWN'}] ${error.message}`);
             }
 
             return false;

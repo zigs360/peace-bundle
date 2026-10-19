@@ -265,7 +265,7 @@ describe('Firebase Admin SDK Configuration and Push Notification Module', () => 
     });
   });
 
-  describe('Edge-case Handling for Docker and PM2 Environments', () => {
+  describe('Edge-case Handling for Docker, DigitalOcean, and PM2 Environments', () => {
     it('should purge empty string environment variables and not fail resolution', () => {
       const firebaseManager = require('../config/firebase');
       const origProj = process.env.FIREBASE_PROJECT_ID;
@@ -280,6 +280,79 @@ describe('Firebase Admin SDK Configuration and Push Notification Module', () => 
       } finally {
         if (origProj) process.env.FIREBASE_PROJECT_ID = origProj; else delete process.env.FIREBASE_PROJECT_ID;
       }
+    });
+
+    it('should correctly decode and resolve valid FIREBASE_SERVICE_ACCOUNT_BASE64', () => {
+      if (!serviceAccountData) return;
+
+      const firebaseManager = require('../config/firebase');
+      const origB64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+
+      try {
+        const b64 = Buffer.from(JSON.stringify(serviceAccountData)).toString('base64');
+        // Test with wrapping quotation marks as common in .env files
+        process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 = `"${b64}"`;
+
+        const resolved = firebaseManager.resolveCredentials();
+        expect(resolved).toBeDefined();
+        expect(resolved.source).toBe('firebase_service_account_base64');
+        expect(resolved.projectId).toBe('peace-bundle');
+        expect(resolved.clientEmail).toBe(serviceAccountData.client_email);
+      } finally {
+        if (origB64) process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 = origB64; else delete process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+      }
+    });
+
+    it('should safely handle malformed Base64 without crashing or uncaught exceptions', () => {
+      const firebaseManager = require('../config/firebase');
+      const origB64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+
+      try {
+        process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 = '!!!invalid-base64-json-corrupt@@@';
+        expect(() => {
+          const resolved = firebaseManager.resolveCredentials();
+          // Should not throw, should fall through
+          if (resolved) {
+            expect(resolved.source).not.toBe('firebase_service_account_base64');
+          }
+        }).not.toThrow();
+      } finally {
+        if (origB64) process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 = origB64; else delete process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+      }
+    });
+
+    it('should reject credentials with incorrect project identity (project_id mismatch)', () => {
+      const firebaseManager = require('../config/firebase');
+      const origB64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+
+      try {
+        const wrongProjectSA = {
+          project_id: 'other-unrelated-project-id',
+          client_email: 'service-account@other-unrelated-project-id.iam.gserviceaccount.com',
+          private_key: '-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n'
+        };
+        process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 = Buffer.from(JSON.stringify(wrongProjectSA)).toString('base64');
+
+        const resolved = firebaseManager.resolveCredentials();
+        // The credentials with wrong project ID must be rejected
+        if (resolved) {
+          expect(resolved.projectId).toBe('peace-bundle');
+          expect(resolved.projectId).not.toBe('other-unrelated-project-id');
+        }
+      } finally {
+        if (origB64) process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 = origB64; else delete process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+      }
+    });
+
+    it('should initialize exactly once and safely reuse the existing app instance', () => {
+      const firebaseManager = require('../config/firebase');
+      const initialApp = firebaseManager.app;
+
+      // Call _initialize again
+      firebaseManager._initialize();
+
+      expect(firebaseManager.app).toBe(initialApp);
+      expect(firebaseManager.isInitialized).toBe(true);
     });
   });
 });

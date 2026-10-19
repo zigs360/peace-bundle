@@ -12,6 +12,8 @@ try {
     logger.warn(`[Firebase] firebase-admin package not loaded: ${loadErr.message}`);
 }
 
+const EXPECTED_PROJECT_ID = (process.env.EXPECTED_FIREBASE_PROJECT_ID || 'peace-bundle').trim();
+
 class FirebaseManager {
     constructor() {
         this.app = null;
@@ -25,6 +27,7 @@ class FirebaseManager {
         this.lastDeliveryAt = null;
         this._checkedEnvFiles = [];
         this._checkedServiceAccountFiles = [];
+        this._isInitializing = false;
         this.stats = {
             sent: 0,
             failed: 0,
@@ -64,7 +67,7 @@ class FirebaseManager {
     }
 
     /**
-     * Attempts to parse JSON or base64 encoded JSON
+     * Attempts to parse JSON or base64 encoded JSON safely
      */
     parseJsonOrBase64(str) {
         if (!str || typeof str !== 'string') return null;
@@ -179,26 +182,33 @@ class FirebaseManager {
     resolveCredentials() {
         this._ensureEnvLoaded();
 
+        const expectedProject = (process.env.EXPECTED_FIREBASE_PROJECT_ID || 'peace-bundle').trim();
+
         // --- SOURCE 1: Individual Environment Variables ---
         const envProjectId = (process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECTID || '').trim();
         const envClientEmail = (process.env.FIREBASE_CLIENT_EMAIL || process.env.FIREBASE_CLIENTEMAIL || '').trim();
         const envPrivateKey = (process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_PRIVATEKEY || '').trim();
 
         if (envProjectId && envClientEmail && envPrivateKey) {
-            const sanitizedKey = this.sanitizePrivateKey(envPrivateKey);
-            if (sanitizedKey && sanitizedKey.includes('BEGIN PRIVATE KEY')) {
-                return {
-                    credentials: {
-                        projectId: envProjectId,
-                        clientEmail: envClientEmail,
-                        privateKey: sanitizedKey
-                    },
-                    source: 'env_vars',
-                    projectId: envProjectId,
-                    clientEmail: envClientEmail
-                };
+            if (envProjectId !== expectedProject) {
+                logger.warn(`[Firebase] env_vars project ID mismatch: expected "${expectedProject}", got "${envProjectId}". Rejecting.`);
+                this.lastInitError = `Project ID mismatch: expected "${expectedProject}", got "${envProjectId}"`;
             } else {
-                logger.warn('[Firebase] FIREBASE_PRIVATE_KEY is present in env but lacks a valid PEM private key format.');
+                const sanitizedKey = this.sanitizePrivateKey(envPrivateKey);
+                if (sanitizedKey && sanitizedKey.includes('BEGIN PRIVATE KEY')) {
+                    return {
+                        credentials: {
+                            projectId: envProjectId,
+                            clientEmail: envClientEmail,
+                            privateKey: sanitizedKey
+                        },
+                        source: 'env_vars',
+                        projectId: envProjectId,
+                        clientEmail: envClientEmail
+                    };
+                } else {
+                    logger.warn('[Firebase] FIREBASE_PRIVATE_KEY is present in env but lacks a valid PEM private key format.');
+                }
             }
         }
 
@@ -214,25 +224,43 @@ class FirebaseManager {
             const val = process.env[key];
             if (!val || typeof val !== 'string' || !val.trim()) continue;
 
+            let cleanVal = val.trim();
+            // Strip surrounding wrapping quotes
+            if ((cleanVal.startsWith('"') && cleanVal.endsWith('"')) ||
+                (cleanVal.startsWith("'") && cleanVal.endsWith("'"))) {
+                cleanVal = cleanVal.slice(1, -1).trim();
+            }
+
             let parsed = null;
             if (isBase64Only) {
                 try {
-                    const dec = Buffer.from(val.trim(), 'base64').toString('utf8');
+                    const dec = Buffer.from(cleanVal, 'base64').toString('utf8');
                     parsed = JSON.parse(dec);
                 } catch (e) {
-                    logger.warn(`[Firebase] Failed to decode base64 in ${key}: ${e.message}`);
+                    logger.warn(`[Firebase] Malformed Base64 or invalid JSON in ${key}: ${e.message}`);
                 }
             } else {
-                parsed = this.parseJsonOrBase64(val);
+                parsed = this.parseJsonOrBase64(cleanVal);
             }
 
-            if (parsed && (parsed.project_id || parsed.projectId)) {
+            if (parsed) {
                 const pId = (parsed.project_id || parsed.projectId || '').trim();
                 const cEmail = (parsed.client_email || parsed.clientEmail || '').trim();
                 const rawKey = parsed.private_key || parsed.privateKey;
                 const sanitizedKey = this.sanitizePrivateKey(rawKey);
 
-                if (pId && cEmail && sanitizedKey && sanitizedKey.includes('BEGIN PRIVATE KEY')) {
+                if (!pId || !cEmail || !sanitizedKey) {
+                    logger.warn(`[Firebase] ${key} is missing required fields (project_id, client_email, or private_key).`);
+                    continue;
+                }
+
+                if (pId !== expectedProject) {
+                    logger.warn(`[Firebase] ${key} project ID mismatch: expected "${expectedProject}", got "${pId}". Rejecting.`);
+                    this.lastInitError = `Project ID mismatch: expected "${expectedProject}", got "${pId}"`;
+                    continue;
+                }
+
+                if (sanitizedKey.includes('BEGIN PRIVATE KEY')) {
                     parsed.private_key = sanitizedKey;
                     parsed.project_id = pId;
                     parsed.client_email = cEmail;
@@ -242,6 +270,8 @@ class FirebaseManager {
                         projectId: pId,
                         clientEmail: cEmail
                     };
+                } else {
+                    logger.warn(`[Firebase] ${key} private_key lacks a valid PEM private key format.`);
                 }
             }
         }
@@ -263,6 +293,12 @@ class FirebaseManager {
                         if (stats.isFile()) {
                             const fileContent = fs.readFileSync(cand, 'utf8');
                             const parsed = JSON.parse(fileContent);
+                            const pId = (parsed.project_id || '').trim();
+                            if (pId && pId !== expectedProject) {
+                                logger.warn(`[Firebase] GOOGLE_APPLICATION_CREDENTIALS at ${cand} project ID mismatch: expected "${expectedProject}", got "${pId}". Rejecting.`);
+                                this.lastInitError = `Project ID mismatch: expected "${expectedProject}", got "${pId}"`;
+                                continue;
+                            }
                             if (parsed.project_id && parsed.client_email && parsed.private_key) {
                                 parsed.private_key = this.sanitizePrivateKey(parsed.private_key);
                                 return {
@@ -340,6 +376,12 @@ class FirebaseManager {
                         this._checkedServiceAccountFiles.push({ path: resolved, found: true });
                         const content = fs.readFileSync(resolved, 'utf8');
                         const parsed = JSON.parse(content);
+                        const pId = (parsed.project_id || '').trim();
+                        if (pId && pId !== expectedProject) {
+                            logger.warn(`[Firebase] Service account file at ${resolved} project ID mismatch: expected "${expectedProject}", got "${pId}". Rejecting.`);
+                            this.lastInitError = `Project ID mismatch: expected "${expectedProject}", got "${pId}"`;
+                            continue;
+                        }
                         if (parsed.project_id && parsed.client_email && parsed.private_key) {
                             parsed.private_key = this.sanitizePrivateKey(parsed.private_key);
                             return {
@@ -364,8 +406,14 @@ class FirebaseManager {
 
     /**
      * Initializes the Firebase Admin SDK once per process
+     * Guards against duplicate and concurrent initialization
      */
     _initialize() {
+        if (this._isInitializing) {
+            return;
+        }
+        this._isInitializing = true;
+
         try {
             if (!admin) {
                 this.isInitialized = false;
@@ -375,6 +423,8 @@ class FirebaseManager {
                 return;
             }
 
+            const expectedProject = (process.env.EXPECTED_FIREBASE_PROJECT_ID || 'peace-bundle').trim();
+
             // Reuse existing default app if already initialized
             const existingApps = admin.getApps ? admin.getApps() : (admin.apps || []);
             if (existingApps.length > 0) {
@@ -382,7 +432,7 @@ class FirebaseManager {
                 this.messaging = getMessaging ? getMessaging(this.app) : null;
                 this.isInitialized = true;
                 this.mode = 'real';
-                this.projectId = this.app.options?.projectId || 'configured_app';
+                this.projectId = this.app.options?.projectId || expectedProject;
                 this.source = 'existing_instance';
                 logger.info(`[Firebase] Reusing existing initialized Firebase App for project: ${this.projectId}`);
                 return;
@@ -407,7 +457,7 @@ class FirebaseManager {
             } else {
                 this.isInitialized = false;
                 const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-                this.lastInitError = 'No valid Firebase credentials found across environment variables or service account files.';
+                this.lastInitError = this.lastInitError || 'No valid Firebase credentials found across environment variables or service account files.';
 
                 if (isProd) {
                     this.mode = 'unavailable';
@@ -417,19 +467,18 @@ class FirebaseManager {
                     logger.error(
                         `[Firebase] CONFIGURATION ERROR in production: ${this.lastInitError}\n` +
                         `  Current Working Directory: ${process.cwd()}\n` +
+                        `  Expected Project ID: ${expectedProject}\n` +
                         `  Environment Variables Status:\n` +
+                        `    FIREBASE_SERVICE_ACCOUNT_BASE64: ${process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 ? 'SET' : (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 === '' ? 'EMPTY' : 'NOT SET')}\n` +
                         `    FIREBASE_PROJECT_ID: ${process.env.FIREBASE_PROJECT_ID ? 'SET' : (process.env.FIREBASE_PROJECT_ID === '' ? 'EMPTY' : 'NOT SET')}\n` +
                         `    FIREBASE_CLIENT_EMAIL: ${process.env.FIREBASE_CLIENT_EMAIL ? 'SET' : (process.env.FIREBASE_CLIENT_EMAIL === '' ? 'EMPTY' : 'NOT SET')}\n` +
                         `    FIREBASE_PRIVATE_KEY: ${process.env.FIREBASE_PRIVATE_KEY ? `SET (${process.env.FIREBASE_PRIVATE_KEY.length} chars)` : (process.env.FIREBASE_PRIVATE_KEY === '' ? 'EMPTY' : 'NOT SET')}\n` +
                         `    FIREBASE_SERVICE_ACCOUNT: ${process.env.FIREBASE_SERVICE_ACCOUNT ? `SET (${process.env.FIREBASE_SERVICE_ACCOUNT.length} chars)` : (process.env.FIREBASE_SERVICE_ACCOUNT === '' ? 'EMPTY' : 'NOT SET')}\n` +
-                        `    FIREBASE_SERVICE_ACCOUNT_BASE64: ${process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 ? 'SET' : (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 === '' ? 'EMPTY' : 'NOT SET')}\n` +
                         `    GOOGLE_APPLICATION_CREDENTIALS: ${process.env.GOOGLE_APPLICATION_CREDENTIALS ? `SET (${process.env.GOOGLE_APPLICATION_CREDENTIALS})` : 'NOT SET'}\n` +
                         `  .env files found on disk: ${foundEnvFiles.length ? foundEnvFiles.join(', ') : 'None'}\n` +
                         `  Service account JSON files found on disk: ${foundKeyFiles.length ? foundKeyFiles.join(', ') : 'None'}\n` +
-                        `Real push notifications are DISABLED. To enable, configure one of the following:\n` +
-                        `  1. FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY in .env\n` +
-                        `  2. FIREBASE_SERVICE_ACCOUNT (single line JSON string or base64) in .env\n` +
-                        `  3. config/firebase-service-account.json in the backend directory.`
+                        `Real push notifications are DISABLED. To enable in DigitalOcean / Docker, set:\n` +
+                        `  FIREBASE_SERVICE_ACCOUNT_BASE64 in DigitalOcean environment settings or .env`
                     );
                 } else {
                     this.mode = 'simulation';
@@ -441,6 +490,8 @@ class FirebaseManager {
             this.mode = 'unavailable';
             this.lastInitError = error.message;
             logger.error(`[Firebase] Initialization failed with error: ${error.message}`);
+        } finally {
+            this._isInitializing = false;
         }
     }
 
@@ -478,11 +529,13 @@ class FirebaseManager {
     getDiagnostics() {
         const foundEnvFiles = (this._checkedEnvFiles || []).filter(f => f.found).map(f => f.path);
         const foundKeyFiles = (this._checkedServiceAccountFiles || []).filter(f => f.found).map(f => f.path);
+        const expectedProject = (process.env.EXPECTED_FIREBASE_PROJECT_ID || 'peace-bundle').trim();
 
         return {
             isInitialized: this.isInitialized,
             mode: this.mode,
             projectId: this.projectId,
+            expectedProjectId: expectedProject,
             clientEmail: this.clientEmail,
             source: this.source,
             lastInitError: this.lastInitError,
