@@ -962,6 +962,30 @@ const getLeaderboard = async (req, res) => {
     }
 };
 
+// @desc    Self-healing check and sync for user deposits
+// @route   POST /api/wallet/sync-deposits or /api/users/sync-deposits
+// @access  Private
+const syncUserDeposits = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const virtualAccountReconciliationService = require('../services/virtualAccountReconciliationService');
+        const result = await virtualAccountReconciliationService.reconcileUserDeposits(userId);
+        return res.status(200).json({
+            success: true,
+            message: result.newlyCreditedCount > 0
+                ? `Successfully verified and credited ₦${result.totalCreditedAmount.toLocaleString()} to your wallet.`
+                : 'No pending bank transfer deposits found. If you recently transferred funds, please allow 1-2 minutes for bank network confirmation.',
+            data: result
+        });
+    } catch (error) {
+        logger.error(`[UserController] syncUserDeposits error for user ${userId}:`, error.message);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to sync deposits'
+        });
+    }
+};
+
 module.exports = {
     getBeneficiaries,
     addBeneficiary,
@@ -977,6 +1001,7 @@ module.exports = {
     getDualVirtualAccountsSnapshot,
     updateFcmToken,
     getWalletSummary,
-    getLeaderboard
+    getLeaderboard,
+    syncUserDeposits
 };
 

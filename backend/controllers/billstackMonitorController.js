@@ -336,9 +336,37 @@ const reprocessWebhookEvent = async (req, res) => {
     }
 };
 
+/**
+ * Reconcile & Credit all uncredited virtual account events across all providers (BillStack, PayVessel, Monnify, etc.)
+ */
+const reconcileAllVirtualAccounts = async (req, res) => {
+    try {
+        const virtualAccountReconciliationService = require('../services/virtualAccountReconciliationService');
+        const limit = parseInt(req.body?.limit || req.query?.limit || '200', 10);
+        const hours = parseInt(req.body?.hours || req.query?.hours || '72', 10);
+        const provider = req.body?.provider || req.query?.provider || 'all';
+
+        const result = await virtualAccountReconciliationService.reconcileUncreditedEvents({
+            limit,
+            hours,
+            provider
+        });
+
+        return res.json({
+            success: true,
+            message: `Virtual account reconciliation completed: ${result.creditedCount} newly credited, ${result.duplicateCount} already credited, ${result.failedCount} unresolved out of ${result.scanned} scanned events.`,
+            data: result
+        });
+    } catch (error) {
+        logger.error('[BillstackMonitor] reconcileAllVirtualAccounts Error:', error.message);
+        return res.status(500).json({ success: false, message: error.message || 'Server error' });
+    }
+};
+
 module.exports = {
     getOverview,
     getEvents,
     reconcileAll,
+    reconcileAllVirtualAccounts,
     reprocessWebhookEvent
 };

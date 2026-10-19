@@ -15,6 +15,7 @@ const { startVirtualAccountProvisioningJob } = require('./jobs/virtualAccountPro
 const { startAirtimeReconcileJob } = require('./jobs/airtimeReconcileJob');
 const { startWebhookAlertJob } = require('./jobs/webhookAlertJob');
 const { startWalletReconciliationJob } = require('./jobs/walletReconciliationJob');
+const { startVirtualAccountFundingReconcileJob } = require('./jobs/virtualAccountFundingReconcileJob');
 const { startTransactionIntegrityJob } = require('./jobs/transactionIntegrityJob');
 const { startDatabaseHealthMonitorJob } = require('./jobs/databaseHealthMonitorJob');
 const databaseDiagnosticsService = require('./services/databaseDiagnosticsService');
@@ -350,8 +351,9 @@ app.use('/api/admin/providers', apiProviderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/users', userRoutes);
 const { protect: protectAuth } = require('./middleware/authMiddleware');
-const { getWalletSummary: getWalletSummaryHandler } = require('./controllers/userController');
+const { getWalletSummary: getWalletSummaryHandler, syncUserDeposits } = require('./controllers/userController');
 app.get('/api/wallet', protectAuth, getWalletSummaryHandler);
+app.post('/api/wallet/sync-deposits', protectAuth, syncUserDeposits);
 app.use(['/api/webhooks', '/webhooks', '/api/webhook', '/webhook'], webhookRoutes);
 app.use('/api/plans', dataPlanRoutes);
 app.use('/api/callplans', callPlanRoutes);
@@ -390,6 +392,7 @@ if (require.main === module) {
       startAirtimeReconcileJob();
       startWebhookAlertJob();
       startWalletReconciliationJob();
+      startVirtualAccountFundingReconcileJob();
       startTransactionIntegrityJob();
       startDatabaseHealthMonitorJob();
       try {

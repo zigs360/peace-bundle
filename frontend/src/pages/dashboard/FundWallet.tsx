@@ -21,6 +21,7 @@ export default function FundWallet() {
   const { walletVersion } = useNotifications();
   const [pendingReference, setPendingReference] = useState<string | null>(null);
   const [lastKnownBalance, setLastKnownBalance] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     fetchUserProfile();
@@ -107,6 +108,34 @@ export default function FundWallet() {
       toast.error(t('fundWalletPage.loadAccountFailed'));
     } finally {
       setFetchingUser(false);
+    }
+  };
+
+  const handleSyncDeposits = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const res = await api.post('/wallet/sync-deposits');
+      const data = res.data?.data;
+      if (res.data?.success && data?.newlyCreditedCount > 0) {
+        toast.success(`Verified & Credited ₦${Number(data.totalCreditedAmount || 0).toLocaleString()} to your wallet!`);
+        if (user?.id) {
+          await refreshBalance(user.id);
+          await fetchUserProfile();
+        }
+      } else {
+        toast(res.data?.message || 'No pending transfers found. If you just made a transfer, please allow 1-2 minutes for bank network confirmation.', {
+          icon: 'ℹ️',
+          duration: 4000
+        });
+        if (user?.id) {
+          await refreshBalance(user.id);
+        }
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to sync transfer. Please try again or contact support.');
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -220,6 +249,29 @@ export default function FundWallet() {
             </div>
 
             <VirtualAccountWidget state={va} onReveal={revealVa} onCopy={auditCopy} onRetry={refreshVa} onRequest={requestVa} variant="fund" />
+
+            {va.status === 'ready' && (
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 p-5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/70 rounded-3xl shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-emerald-600 text-white rounded-2xl shadow-sm shrink-0">
+                    <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-gray-900 text-sm">Transferred money already?</h4>
+                    <p className="text-xs text-gray-600">If your transfer hasn't reflected in your balance, tap here to verify and auto-credit your wallet instantly.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={syncing}
+                  onClick={handleSyncDeposits}
+                  className="w-full sm:w-auto px-5 py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-60 text-white text-xs font-bold rounded-2xl shadow-md shadow-emerald-600/20 transition-all whitespace-nowrap flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing ? 'Checking transfer...' : 'I Have Transferred / Sync Balance'}
+                </button>
+              </div>
+            )}
 
             {va.status === 'ready' && (
               <div className="mt-6 p-6 bg-amber-50 rounded-3xl border border-amber-100 flex items-start">

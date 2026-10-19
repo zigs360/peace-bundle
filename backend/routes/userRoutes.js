@@ -15,7 +15,8 @@ const {
     getDualVirtualAccountsSnapshot,
     updateFcmToken,
     getWalletSummary,
-    getLeaderboard
+    getLeaderboard,
+    syncUserDeposits
 } = require('../controllers/userController');
 const {
     getAccountDeletionStatus,
@@ -62,6 +63,10 @@ router.post(
 );
 router.post('/virtual-accounts/dual', protect, fetchDualVirtualAccounts);
 router.get('/virtual-accounts/dual', protect, getDualVirtualAccountsSnapshot);
+router.post('/virtual-account/sync-deposits', protect, syncUserDeposits);
+router.post('/virtual-accounts/sync-deposits', protect, syncUserDeposits);
+router.post('/sync-deposits', protect, syncUserDeposits);
+router.post('/wallet/sync-deposits', protect, syncUserDeposits);
 router.get('/apikey', protect, getApiKey);
 router.post('/apikey/regenerate', protect, regenerateApiKey);
 router.get('/beneficiaries/:userId', protect, getBeneficiaries);

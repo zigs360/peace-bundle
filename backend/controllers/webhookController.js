@@ -227,7 +227,7 @@ const processBillstackFunding = async ({
         } catch (e) {
             void e;
         }
-        return { ok: true, userId: user.id, balance: creditedTxn?.balance_after ?? null };
+        return { ok: true, userId: user.id, amount: netAmount, balance: creditedTxn?.balance_after ?? null };
     } catch (error) {
         if (t && !t.finished) await t.rollback();
         logger.error(`[Webhook] BillStack processing error: ${error.message}`, { reference: providerReference });
@@ -370,6 +370,126 @@ const handlePaystackWebhook = async (req, res) => {
     } catch (error) {
         logger.error(`[Webhook] Paystack error: ${error.message}`);
         res.sendStatus(500);
+    }
+};
+
+const processPayvesselFunding = async ({
+    webhookEventId,
+    payload,
+    data,
+    reference,
+    amount,
+    settlementAccount,
+    matchedUser = null,
+    order = null,
+    customer = null
+}) => {
+    const walletService = require('../services/walletService');
+    const virtualAccountService = require('../services/virtualAccountService');
+    const { User, Transaction } = require('../models');
+
+    let user = matchedUser;
+    if (!user && settlementAccount) {
+        user = await virtualAccountService.findUserByAccountNumber(settlementAccount);
+    }
+    if (!user && customer?.email) {
+        const cleanEmail = String(customer.email).trim().toLowerCase();
+        user = await User.findOne({
+            where: sequelize.where(sequelize.fn('LOWER', sequelize.col('email')), cleanEmail)
+        });
+    }
+    if (!user && customer?.phone) {
+        const cleanPhone = String(customer.phone).trim();
+        user = await User.findOne({
+            where: {
+                phone: cleanPhone
+            }
+        });
+    }
+
+    if (!user) {
+        logger.error(`[Webhook] PayVessel: User not found for email: ${customer?.email}, account: ${maskAccountNumber(settlementAccount)}`);
+        if (webhookEventId) {
+            await webhookEventService.markFailed(webhookEventId, { error: 'User not found', userId: null });
+        }
+        return { ok: false, reason: 'user_not_found' };
+    }
+
+    const t = await sequelize.transaction();
+    try {
+        // Check duplicate reference in DB
+        const existingTxn = await Transaction.findOne({
+            where: { reference },
+            transaction: t
+        });
+        if (existingTxn) {
+            await t.rollback();
+            logger.info(`[Webhook] PayVessel: Duplicate transaction ignored ${reference}`);
+            if (webhookEventId) {
+                await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+            }
+            return { ok: true, duplicate: true, userId: user.id };
+        }
+
+        let creditedTxn = null;
+        try {
+            const result = await walletService.creditFundingWithFraudChecks(
+                user,
+                amount,
+                `Bank Transfer: ${reference}`,
+                { 
+                    reference, 
+                    gateway: 'payvessel',
+                    fee: order?.fee,
+                    description: order?.description
+                },
+                t
+            );
+            if (result.status === 'pending_review') {
+                await t.commit();
+                logger.warn(`[Webhook] PayVessel: Funding held for review ${reference}`, { userId: user.id });
+                if (webhookEventId) {
+                    await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+                }
+                return { ok: true, pending_review: true, userId: user.id };
+            }
+            creditedTxn = result.transaction || null;
+        } catch (error) {
+            if (error?.name === 'SequelizeUniqueConstraintError') {
+                await t.rollback();
+                logger.info(`[Webhook] PayVessel: Duplicate transaction ignored ${reference}`);
+                if (webhookEventId) {
+                    await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+                }
+                return { ok: true, duplicate: true, userId: user.id };
+            }
+            throw error;
+        }
+
+        await t.commit();
+        logger.info(`[Webhook] PayVessel: Wallet funded successfully for ${user.email} - ₦${amount}`);
+        if (webhookEventId) {
+            await webhookEventService.markProcessed(webhookEventId, { userId: user.id });
+        }
+        const feeAmount = parseFloat(creditedTxn?.metadata?.fee_amount || 0);
+        const grossAmount = parseFloat(creditedTxn?.metadata?.gross_amount || amount);
+        const netAmount = parseFloat(creditedTxn?.amount || 0);
+        notifyFundingSuccess(user, { reference, amount: netAmount, grossAmount, feeAmount, netAmount, gateway: 'bank_transfer', balance: creditedTxn?.balance_after ?? null });
+        try {
+            const { sendTransactionNotification } = require('../services/notificationService');
+            const txnForNotify = creditedTxn || (await Transaction.findOne({ where: { reference } }));
+            if (txnForNotify) setImmediate(() => { void sendTransactionNotification(user, txnForNotify); });
+        } catch (e) {
+            void e;
+        }
+        return { ok: true, userId: user.id, balance: creditedTxn?.balance_after ?? null, transaction: creditedTxn };
+    } catch (error) {
+        if (t && !t.finished) await t.rollback();
+        logger.error(`[Webhook] PayVessel processing error: ${error.message}`, { reference });
+        if (webhookEventId) {
+            await webhookEventService.markFailed(webhookEventId, { error: error.message });
+        }
+        return { ok: false, reason: 'processing_failed', error: error.message };
     }
 };
 
@@ -517,91 +637,31 @@ const handlePayvesselWebhook = async (req, res) => {
             logger.warn(`[Webhook] PayVessel: IP ${ipHeader} not in whitelist, but verification passed. Continuing.`);
         }
 
-        let user = matchedUser;
-        if (!user && settlementAccount) {
-            user = await virtualAccountService.findUserByAccountNumber(settlementAccount);
-        }
-        if (!user && customer?.email) {
-            const cleanEmail = String(customer.email).trim().toLowerCase();
-            user = await User.findOne({
-                where: sequelize.where(sequelize.fn('LOWER', sequelize.col('email')), cleanEmail)
-            });
-        }
-        if (!user && customer?.phone) {
-            const cleanPhone = String(customer.phone).trim();
-            user = await User.findOne({
-                where: {
-                    phone: cleanPhone
-                }
-            });
-        }
+        const result = await processPayvesselFunding({
+            webhookEventId: webhookEvent.id,
+            payload,
+            data: root,
+            reference,
+            amount,
+            settlementAccount,
+            matchedUser,
+            order,
+            customer
+        });
 
-        if (!user) {
-            logger.error(`[Webhook] PayVessel: User not found for email: ${customer?.email}, account: ${maskAccountNumber(settlementAccount)}`);
-            await webhookEventService.markFailed(webhookEvent.id, { error: 'User not found', userId: null });
+        if (result.ok && result.duplicate) {
+            return res.status(200).json({ success: true, message: 'transaction already exist' });
+        }
+        if (result.ok && result.pending_review) {
+            return res.status(200).json({ success: true, message: 'pending_review' });
+        }
+        if (result.ok) {
+            return res.status(200).json({ success: true, message: 'success' });
+        }
+        if (result.reason === 'user_not_found') {
             return res.status(404).json({ success: false, message: 'user not found' });
         }
-
-        const t = await sequelize.transaction();
-        try {
-            // Check duplicate reference in DB
-            const existingTxn = await Transaction.findOne({
-                where: { reference },
-                transaction: t
-            });
-            if (existingTxn) {
-                await t.rollback();
-                logger.info(`[Webhook] PayVessel: Duplicate transaction ignored ${reference}`);
-                await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                return res.status(200).json({ success: true, message: 'transaction already exist' });
-            }
-
-            let creditedTxn = null;
-            try {
-                const result = await walletService.creditFundingWithFraudChecks(
-                    user,
-                    amount,
-                    `Bank Transfer: ${reference}`,
-                    { 
-                        reference, 
-                        gateway: 'payvessel',
-                        fee: order?.fee,
-                        description: order?.description
-                    },
-                    t
-                );
-                if (result.status === 'pending_review') {
-                    await t.commit();
-                    logger.warn(`[Webhook] PayVessel: Funding held for review ${reference}`, { userId: user.id });
-                    await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                    return res.status(200).json({ success: true, message: 'pending_review' });
-                }
-                creditedTxn = result.transaction || null;
-            } catch (error) {
-                if (error?.name === 'SequelizeUniqueConstraintError') {
-                    await t.rollback();
-                    logger.info(`[Webhook] PayVessel: Duplicate transaction ignored ${reference}`);
-                    await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-                    return res.status(200).json({ success: true, message: 'transaction already exist' });
-                }
-                throw error;
-            }
-
-            await t.commit();
-            logger.info(`[Webhook] PayVessel: Wallet funded successfully for ${user.email} - ₦${amount}`);
-            await webhookEventService.markProcessed(webhookEvent.id, { userId: user.id });
-            const feeAmount = parseFloat(creditedTxn?.metadata?.fee_amount || 0);
-            const grossAmount = parseFloat(creditedTxn?.metadata?.gross_amount || amount);
-            const netAmount = parseFloat(creditedTxn?.amount || 0);
-            notifyFundingSuccess(user, { reference, amount: netAmount, grossAmount, feeAmount, netAmount, gateway: 'bank_transfer', balance: creditedTxn?.balance_after ?? null });
-            res.status(200).json({ success: true, message: 'success' });
-
-        } catch (error) {
-            if (t && !t.finished) await t.rollback();
-            logger.error(`[Webhook] PayVessel processing error: ${error.message}`, { reference });
-            await webhookEventService.markFailed(webhookEvent.id, { error: error.message });
-            res.status(500).json({ success: false, message: 'Internal server error during processing' });
-        }
+        return res.status(500).json({ success: false, message: 'Internal server error during processing' });
 
     } catch (error) {
         logger.error(`[Webhook] PayVessel error: ${error.message}`);
@@ -1490,6 +1550,8 @@ module.exports = {
     handleOgdamsWebhook,
     handleBillstackWebhook,
     handleSafehavenWebhook,
-    processBillstackFunding
+    processBillstackFunding,
+    processPayvesselFunding,
+    notifyFundingSuccess
 };
 
