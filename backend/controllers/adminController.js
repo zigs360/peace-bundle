@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { decrypt } = require('../utils/cryptoUtils');
 const { getReadableTransactionAttributes } = require('../services/transactionSchemaCompatibilityService');
+const { sanitizeTransactionForClient } = require('../utils/clientPayloadSanitizers');
 const logger = require('../utils/logger');
 
 const withSafeTransactionReadOptions = async (options = {}) => {
@@ -465,6 +466,116 @@ const getUsers = async (req, res) => {
     } catch (error) {
         logger.error('Admin Get Users Error:', { error: error.message });
         res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
+// @desc    Get User Transactions (Admin)
+// @route   GET /api/admin/users/:id/transactions
+// @access  Private (Admin)
+const getUserTransactions = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { page = 1, limit = 50, search, status, type, source } = req.query;
+        const pageNum = Math.max(1, parseInt(page, 10));
+        const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10)));
+        const offset = (pageNum - 1) * limitNum;
+
+        const user = await User.findByPk(id, {
+            include: [{ model: Wallet, as: 'wallet' }],
+            attributes: { exclude: ['password', 'two_factor_secret'] }
+        });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const walletId = user.wallet?.id;
+        const orConditions = [{ userId: user.id }];
+        if (walletId) {
+            orConditions.push({ walletId });
+        }
+
+        const where = {
+            [Op.or]: orConditions
+        };
+
+        if (status && status !== 'all') {
+            where.status = String(status).toLowerCase();
+        }
+        if (type && type !== 'all') {
+            where.type = String(type).toLowerCase();
+        }
+        if (source && source !== 'all') {
+            where.source = String(source).toLowerCase();
+        }
+        if (search && String(search).trim()) {
+            const q = String(search).trim();
+            where[Op.and] = [
+                {
+                    [Op.or]: [
+                        { reference: { [Op.like]: `%${q}%` } },
+                        { description: { [Op.like]: `%${q}%` } },
+                        { recipient_phone: { [Op.like]: `%${q}%` } }
+                    ]
+                }
+            ];
+        }
+
+        const queryOptions = await withSafeTransactionReadOptions({
+            where,
+            limit: limitNum,
+            offset,
+            order: [['createdAt', 'DESC']]
+        });
+
+        const { count, rows } = await Transaction.findAndCountAll(queryOptions);
+
+        return res.json({
+            success: true,
+            user: {
+                id: user.id,
+                name: user.name || user.fullName,
+                email: user.email,
+                phone: user.phone,
+                role: user.role,
+                account_status: user.account_status,
+                wallet: user.wallet,
+                virtual_account_number: user.virtual_account_number,
+                virtual_account_bank: user.virtual_account_bank,
+                metadata: user.metadata
+            },
+            data: {
+                total: count,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(count / limitNum),
+                transactions: (rows || []).map(r => sanitizeTransactionForClient(r, { isAdmin: true }))
+            }
+        });
+    } catch (error) {
+        logger.error('[Admin] getUserTransactions error:', error);
+        return res.status(500).json({ success: false, message: error.message || 'Server error' });
+    }
+};
+
+// @desc    Admin Sync & Reconcile User Deposits
+// @route   POST /api/admin/users/:id/sync-deposits
+// @access  Private (Admin)
+const adminSyncUserDeposits = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const virtualAccountReconciliationService = require('../services/virtualAccountReconciliationService');
+        const result = await virtualAccountReconciliationService.reconcileUserDeposits(id);
+        return res.json({
+            success: true,
+            message: result.newlyCreditedCount > 0
+                ? `Reconciled & credited ₦${result.totalCreditedAmount.toLocaleString()} to user wallet.`
+                : 'No uncredited deposits found for this user.',
+            data: result
+        });
+    } catch (error) {
+        logger.error('[Admin] adminSyncUserDeposits error:', error);
+        return res.status(500).json({ success: false, message: error.message || 'Server error' });
     }
 };
 
@@ -2369,6 +2480,8 @@ module.exports = {
     rejectPendingFundingReview,
     sendUserPasswordResetLink,
     getPublicSettings,
-    migrateSafeHavenAccounts
+    migrateSafeHavenAccounts,
+    getUserTransactions,
+    adminSyncUserDeposits
 };
 
