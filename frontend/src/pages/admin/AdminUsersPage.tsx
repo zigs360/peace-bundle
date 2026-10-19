@@ -952,7 +952,7 @@ export default function AdminUsersPage() {
                     { id: 'completed', label: 'Completed' },
                     { id: 'pending', label: 'Pending' },
                     { id: 'failed', label: 'Failed' },
-                    { id: 'reversed', label: 'Reversed' }
+                    { id: 'reversed', label: 'Refunded / Reversed' }
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -1055,7 +1055,7 @@ export default function AdminUsersPage() {
                     const isFailed = String(tx.status || '').toLowerCase() === 'failed';
                     const isCompleted = String(tx.status || '').toLowerCase() === 'completed';
                     const isPending = String(tx.status || '').toLowerCase() === 'pending';
-                    const isReversed = String(tx.status || '').toLowerCase() === 'reversed';
+                    const isReversed = String(tx.status || '').toLowerCase() === 'reversed' || String(tx.status || '').toLowerCase() === 'refunded' || String(tx.source || '').toLowerCase() === 'refund';
                     const isExpanded = expandedTxnId === tx.id;
 
                     return (
@@ -1089,13 +1089,13 @@ export default function AdminUsersPage() {
                                     ? 'bg-green-100 text-green-800'
                                     : isPending
                                     ? 'bg-amber-100 text-amber-800'
-                                    : isFailed
-                                    ? 'bg-red-100 text-red-800'
                                     : isReversed
                                     ? 'bg-purple-100 text-purple-800'
+                                    : isFailed
+                                    ? 'bg-red-100 text-red-800'
                                     : 'bg-gray-100 text-gray-800'
                                 }`}>
-                                  {tx.status || 'unknown'}
+                                  {isReversed ? 'refunded' : tx.status || 'unknown'}
                                 </span>
                                 {tx.type && (
                                   <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded uppercase font-semibold">

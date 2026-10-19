@@ -499,26 +499,119 @@ const getUserTransactions = async (req, res) => {
             [Op.or]: orConditions
         };
 
+        const andConditions = [];
+
         if (status && status !== 'all') {
-            where.status = String(status).toLowerCase();
+            const normalizedStatus = String(status).toLowerCase().trim();
+            if (normalizedStatus === 'reversed' || normalizedStatus === 'refunded') {
+                andConditions.push({
+                    [Op.or]: [
+                        { status: 'refunded' },
+                        { source: 'refund' }
+                    ]
+                });
+            } else if (['pending', 'processing', 'completed', 'failed', 'queued'].includes(normalizedStatus)) {
+                where.status = normalizedStatus;
+            } else {
+                andConditions.push({ id: null });
+            }
         }
+
         if (type && type !== 'all') {
-            where.type = String(type).toLowerCase();
+            const normalizedType = String(type).toLowerCase().trim();
+            if (['credit', 'debit'].includes(normalizedType)) {
+                where.type = normalizedType;
+            } else if (normalizedType === 'deposit' || normalizedType === 'funding') {
+                andConditions.push({
+                    [Op.or]: [
+                        { type: 'credit' },
+                        { source: 'funding' }
+                    ]
+                });
+            } else if (normalizedType === 'data' || normalizedType === 'data_purchase') {
+                andConditions.push({
+                    [Op.or]: [
+                        { source: 'data_purchase' },
+                        {
+                            [Op.and]: [
+                                { description: { [Op.like]: '%data%' } },
+                                { source: { [Op.ne]: 'refund' } }
+                            ]
+                        }
+                    ]
+                });
+            } else if (normalizedType === 'airtime' || normalizedType === 'airtime_purchase') {
+                andConditions.push({
+                    [Op.or]: [
+                        { source: 'airtime_purchase' },
+                        {
+                            [Op.and]: [
+                                { description: { [Op.like]: '%airtime%' } },
+                                { source: { [Op.ne]: 'refund' } }
+                            ]
+                        }
+                    ]
+                });
+            } else if (normalizedType === 'cable') {
+                andConditions.push({
+                    [Op.or]: [
+                        { source: 'bill_payment' },
+                        { description: { [Op.like]: '%cable%' } },
+                        { description: { [Op.like]: '%dstv%' } },
+                        { description: { [Op.like]: '%gotv%' } },
+                        { description: { [Op.like]: '%startimes%' } }
+                    ]
+                });
+            } else if (normalizedType === 'electricity') {
+                andConditions.push({
+                    [Op.or]: [
+                        { source: 'bill_payment' },
+                        { description: { [Op.like]: '%electric%' } },
+                        { description: { [Op.like]: '%meter%' } }
+                    ]
+                });
+            } else if (normalizedType === 'transfer') {
+                andConditions.push({
+                    [Op.or]: [
+                        { source: 'transfer' },
+                        { source: 'withdrawal' }
+                    ]
+                });
+            } else if (normalizedType === 'refund') {
+                andConditions.push({
+                    [Op.or]: [
+                        { source: 'refund' },
+                        { status: 'refunded' }
+                    ]
+                });
+            }
         }
+
         if (source && source !== 'all') {
-            where.source = String(source).toLowerCase();
+            const normalizedSource = String(source).toLowerCase().trim();
+            const VALID_SOURCES = [
+                'funding', 'data_purchase', 'airtime_purchase', 'bill_payment',
+                'exam_payment', 'bulk_sms_payment', 'refund', 'withdrawal',
+                'commission', 'bonus', 'transfer'
+            ];
+            if (VALID_SOURCES.includes(normalizedSource)) {
+                where.source = normalizedSource;
+            }
         }
+
         if (search && String(search).trim()) {
             const q = String(search).trim();
-            where[Op.and] = [
-                {
-                    [Op.or]: [
-                        { reference: { [Op.like]: `%${q}%` } },
-                        { description: { [Op.like]: `%${q}%` } },
-                        { recipient_phone: { [Op.like]: `%${q}%` } }
-                    ]
-                }
-            ];
+            andConditions.push({
+                [Op.or]: [
+                    { reference: { [Op.like]: `%${q}%` } },
+                    { description: { [Op.like]: `%${q}%` } },
+                    { recipient_phone: { [Op.like]: `%${q}%` } }
+                ]
+            });
+        }
+
+        if (andConditions.length > 0) {
+            where[Op.and] = andConditions;
         }
 
         const queryOptions = await withSafeTransactionReadOptions({
@@ -613,8 +706,16 @@ const getTransactions = async (req, res) => {
         const where = {};
 
         // Filters
-        if (status) {
-            where.status = status;
+        if (status && status !== 'all') {
+            const normalizedStatus = String(status).toLowerCase().trim();
+            if (normalizedStatus === 'reversed' || normalizedStatus === 'refunded') {
+                where[Op.or] = [
+                    { status: 'refunded' },
+                    { source: 'refund' }
+                ];
+            } else if (['pending', 'processing', 'completed', 'failed', 'queued'].includes(normalizedStatus)) {
+                where.status = normalizedStatus;
+            }
         }
 
         if (provider) {

@@ -83,12 +83,26 @@ describe('Admin User Transactions and Reconciliation', () => {
       status: 'failed',
       description: 'MTN 1GB Data Purchase',
       recipient_phone: '08123456789',
-      source: 'wallet',
+      source: 'data_purchase',
       provider: 'ogdams',
       balance_before: 10000,
       balance_after: 10000,
       failure_reason: 'Provider timeout: ogdams 504 gateway timeout',
       metadata: { sku: 'MTN-1GB-SME' },
+    });
+
+    tx3 = await Transaction.create({
+      userId: targetUser.id,
+      walletId: targetWallet.id,
+      reference: `REF_${timestamp}_3`,
+      type: 'credit',
+      amount: 1500,
+      fee: 0,
+      status: 'refunded',
+      description: 'Auto-reversal for failed data purchase',
+      source: 'refund',
+      balance_before: 8500,
+      balance_after: 10000,
     });
 
     // Other user transaction
@@ -119,8 +133,8 @@ describe('Admin User Transactions and Reconciliation', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.user).toBeDefined();
     expect(res.body.user.id).toBe(targetUser.id);
-    expect(res.body.data.total).toBe(2);
-    expect(res.body.data.transactions.length).toBe(2);
+    expect(res.body.data.total).toBe(3);
+    expect(res.body.data.transactions.length).toBe(3);
 
     const failedTx = res.body.data.transactions.find(t => t.id === tx2.id);
     expect(failedTx).toBeDefined();
@@ -134,6 +148,39 @@ describe('Admin User Transactions and Reconciliation', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.statusCode).toBe(200);
+    expect(res.body.data.total).toBe(1);
+    expect(res.body.data.transactions[0].id).toBe(tx2.id);
+  });
+
+  it('supports filtering transactions by status=reversed without database enum error', async () => {
+    const res = await request(app)
+      .get(`/api/admin/users/${targetUser.id}/transactions?status=reversed`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.total).toBe(1);
+    expect(res.body.data.transactions[0].id).toBe(tx3.id);
+  });
+
+  it('supports filtering transactions by status=refunded without database enum error', async () => {
+    const res = await request(app)
+      .get(`/api/admin/users/${targetUser.id}/transactions?status=refunded`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.total).toBe(1);
+    expect(res.body.data.transactions[0].id).toBe(tx3.id);
+  });
+
+  it('supports filtering transactions by type=data without database enum error', async () => {
+    const res = await request(app)
+      .get(`/api/admin/users/${targetUser.id}/transactions?type=data`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
     expect(res.body.data.total).toBe(1);
     expect(res.body.data.transactions[0].id).toBe(tx2.id);
   });

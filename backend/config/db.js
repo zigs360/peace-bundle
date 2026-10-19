@@ -90,6 +90,15 @@ const ensureTransactionsDashboardIndexes = async () => {
   }
 };
 
+const ensureTransactionsStatusEnum = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+  try {
+    await sequelize.query(`ALTER TYPE "enum_transactions_status" ADD VALUE IF NOT EXISTS 'reversed';`);
+  } catch (e) {
+    void e;
+  }
+};
+
 const ensureUsersOperationalIndexes = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
   try {
@@ -650,6 +659,7 @@ const connectDB = async () => {
       await ensureAccountDeletionMigrationApplied();
       await ensureSafeHavenDeprecationMigrationApplied();
       await ensureTransactionsDashboardIndexes();
+      await ensureTransactionsStatusEnum();
       await ensureUsersOperationalIndexes();
       await ensureAdminWalletDeductionIndexes();
       await ApiProvider.sync().catch((err) => console.error('[DB] ApiProvider table sync error:', err.message));
