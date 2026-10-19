@@ -243,5 +243,44 @@ describe('Firebase Admin SDK Configuration and Push Notification Module', () => 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
+
+    it('should support admin reloading Firebase credentials via POST /api/admin/firebase/reload', async () => {
+      const res = await request(app)
+        .post('/api/admin/firebase/reload')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toBeDefined();
+      expect(res.body.data.isInitialized).toBe(true);
+      expect(res.body.data.mode).toBe('real');
+    });
+
+    it('should reject non-admin from POST /api/admin/firebase/reload', async () => {
+      const res = await request(app)
+        .post('/api/admin/firebase/reload')
+        .set('Authorization', `Bearer ${regularToken}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('Edge-case Handling for Docker and PM2 Environments', () => {
+    it('should purge empty string environment variables and not fail resolution', () => {
+      const firebaseManager = require('../config/firebase');
+      const origProj = process.env.FIREBASE_PROJECT_ID;
+
+      try {
+        process.env.FIREBASE_PROJECT_ID = '   ';
+        const resolved = firebaseManager.resolveCredentials();
+        // Since project_id was whitespace, it should not resolve as env_vars with empty id
+        if (resolved && resolved.source === 'env_vars') {
+          expect(resolved.projectId.trim().length).toBeGreaterThan(0);
+        }
+      } finally {
+        if (origProj) process.env.FIREBASE_PROJECT_ID = origProj; else delete process.env.FIREBASE_PROJECT_ID;
+      }
+    });
   });
 });
+

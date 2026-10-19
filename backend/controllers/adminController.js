@@ -2684,9 +2684,33 @@ const sendTestPushNotification = async (req, res) => {
     }
 };
 
+// @desc    Reload Firebase Admin SDK credentials at runtime (Admin)
+// @route   POST /api/admin/firebase/reload
+// @access  Private (Admin)
+const reloadFirebaseCredentials = async (req, res) => {
+    try {
+        const pushNotificationService = require('../services/pushNotificationService');
+        const diagnostics = await pushNotificationService.firebase.reload();
+        res.json({
+            success: true,
+            message: diagnostics.isInitialized
+                ? `Firebase Admin SDK reinitialized successfully via ${diagnostics.source} for project: ${diagnostics.projectId}`
+                : `Firebase reloaded, but initialization remains unconfigured: ${diagnostics.lastInitError || 'No valid credentials'}`,
+            data: diagnostics
+        });
+    } catch (error) {
+        logger.error(`[Admin] reloadFirebaseCredentials error: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to reload Firebase Admin SDK credentials'
+        });
+    }
+};
+
 module.exports = {
     getFirebaseStatus,
     sendTestPushNotification,
+    reloadFirebaseCredentials,
     getServiceControlStatuses,
     toggleServiceControl,
     getAdminStats,

@@ -22,8 +22,53 @@ const databaseDiagnosticsService = require('./services/databaseDiagnosticsServic
 
 const path = require('path');
 const fs = require('fs');
+// Purge empty string placeholders from process.env that Docker Compose or shell might have injected
+const emptyKeysToPurge = [
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_CLIENT_EMAIL',
+  'FIREBASE_PRIVATE_KEY',
+  'FIREBASE_SERVICE_ACCOUNT',
+  'FIREBASE_SERVICE_ACCOUNT_BASE64',
+  'FIREBASE_SERVICE_ACCOUNT_PATH',
+  'GOOGLE_APPLICATION_CREDENTIALS'
+];
+for (const k of emptyKeysToPurge) {
+  if (typeof process.env[k] === 'string' && process.env[k].trim() === '') {
+    delete process.env[k];
+  }
+}
 
-dotenv.config({ quiet: true });
+// Ensure .env is loaded across monorepo root, container layouts, or direct backend execution
+const candidateEnvPaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(__dirname, '.env'),
+  path.resolve(__dirname, '..', '.env'),
+  path.resolve(process.cwd(), '..', '.env'),
+  '/app/.env',
+  '/root/peace-bundle/.env'
+];
+
+for (const envPath of candidateEnvPaths) {
+  if (fs.existsSync(envPath)) {
+    try {
+      const stats = fs.statSync(envPath);
+      if (stats.isFile()) {
+        dotenv.config({ path: envPath, override: false });
+        if (dotenv.parse) {
+          const raw = fs.readFileSync(envPath, 'utf8');
+          const parsed = dotenv.parse(raw);
+          for (const k of emptyKeysToPurge) {
+            if (!process.env[k] && parsed[k] && parsed[k].trim().length > 0) {
+              process.env[k] = parsed[k].trim();
+            }
+          }
+        }
+      }
+    } catch {
+      // Continue next candidate
+    }
+  }
+}
 
 // Create uploads directory if not exists
 const uploadDir = path.join(__dirname, 'uploads');
