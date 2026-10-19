@@ -50,7 +50,10 @@ const {
     getServiceControlStatuses,
     toggleServiceControl,
     getUserTransactions,
-    adminSyncUserDeposits
+    adminSyncUserDeposits,
+    getUserReferralSummary,
+    getUserReferralsList,
+    exportUserReferralsCsv
 } = require('../controllers/adminController');
 const {
     adminGetSubscriptionPlans,
@@ -205,8 +208,11 @@ router.get('/wallet/deductions', protect, admin, adminWalletDeductionController.
 router.post('/wallet/deductions', protect, admin, adminWalletDeductionController.createWalletDeduction);
 router.post('/wallet/deductions/:reference/reverse', protect, admin, adminWalletDeductionController.reverseWalletDeduction);
 
-// Referral Analytics Route
+// Referral Analytics Routes
 router.get('/referrals/analytics', protect, admin, getReferralAnalytics);
+router.get('/referrals/user/:userId/summary', protect, admin, getUserReferralSummary);
+router.get('/referrals/user/:userId/list', protect, admin, getUserReferralsList);
+router.get('/referrals/user/:userId/export', protect, admin, exportUserReferralsCsv);
 router.get('/virtual-accounts/health', protect, admin, getVirtualAccountHealth);
 router.post('/virtual-accounts/circuits/reset', protect, admin, resetVirtualAccountCircuits);
 router.get('/funding/pending-review', protect, admin, listPendingFundingReviews);

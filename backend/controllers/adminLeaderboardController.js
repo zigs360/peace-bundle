@@ -24,76 +24,25 @@ const getAdminLeaderboard = async (req, res) => {
         }
 
         if (category === 'referrals') {
-            const whereRef = {
-                status: { [Op.in]: ['qualified', 'rewarded'] }
-            };
-            if (startDate) {
-                whereRef.createdAt = { [Op.gte]: startDate };
-            }
+            const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+            const sortBy = String(req.query.sort || req.query.sortBy || 'total_referrals').toLowerCase();
+            const sortOrder = String(req.query.order || req.query.sortOrder || 'DESC').toUpperCase();
+            const inactivityDays = parseInt(req.query.inactivityDays, 10) || 30;
 
-            const referralAgg = await Referral.findAll({
-                attributes: [
-                    'referrerId',
-                    [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
-                ],
-                where: whereRef,
-                group: ['referrerId'],
-                order: [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']],
-                raw: true,
+            const result = await adminReferralAnalyticsService.getReferralLeaderboard({
+                period,
+                limit,
+                inactivityDays,
+                sortBy,
+                sortOrder
             });
-
-            const topUserIds = referralAgg.map(r => r.referrerId).filter(Boolean);
-            const users = await User.findAll({
-                where: {
-                    id: { [Op.in]: topUserIds },
-                },
-                attributes: ['id', 'name', 'email', 'phone', 'role', 'avatar', 'account_status'],
-                include: [{
-                    model: Wallet,
-                    as: 'wallet',
-                    attributes: ['balance']
-                }]
-            });
-            const userMap = new Map(users.map(u => [String(u.id), u]));
-
-            const leaderboard = [];
-            let rankCounter = 1;
-
-            for (const item of referralAgg) {
-                const u = userMap.get(String(item.referrerId));
-                if (!u) continue;
-
-                const count = parseInt(item.count, 10) || 0;
-                if (leaderboard.length < limit) {
-                    leaderboard.push({
-                        rank: rankCounter,
-                        id: u.id,
-                        name: u.name,
-                        email: u.email,
-                        phone: u.phone,
-                        role: u.role,
-                        avatar: u.avatar || null,
-                        accountStatus: u.account_status || 'active',
-                        walletBalance: parseFloat(u.wallet?.balance || 0),
-                        score: count,
-                        qualifiedReferrals: count,
-                    });
-                }
-                rankCounter++;
-            }
-
-            const totalReferrals = referralAgg.reduce((acc, cur) => acc + (parseInt(cur.count, 10) || 0), 0);
 
             return res.json({
                 success: true,
                 period,
                 category,
-                summary: {
-                    totalRankedUsers: leaderboard.length,
-                    totalReferrals,
-                    topPerformer: leaderboard[0] || null,
-                },
-                leaderboard,
+                summary: result.summary,
+                leaderboard: result.leaderboard
             });
         }
 
@@ -126,7 +75,7 @@ const getAdminLeaderboard = async (req, res) => {
             where: {
                 id: { [Op.in]: userIds },
             },
-            attributes: ['id', 'name', 'email', 'phone', 'role', 'avatar', 'account_status'],
+            attributes: ['id', 'name', 'email', 'phone', 'role', 'avatar', 'account_status', 'referral_code', 'createdAt'],
             include: [{
                 model: Wallet,
                 as: 'wallet',
@@ -134,6 +83,18 @@ const getAdminLeaderboard = async (req, res) => {
             }]
         });
         const userMap = new Map(users.map(u => [String(u.id), u]));
+
+        // Fetch referral counts for these users
+        const referralCounts = await Referral.findAll({
+            where: { referrerId: { [Op.in]: userIds } },
+            attributes: [
+                'referrerId',
+                [sequelize.fn('COUNT', sequelize.col('id')), 'refCount']
+            ],
+            group: ['referrerId'],
+            raw: true
+        });
+        const refCountMap = new Map(referralCounts.map(r => [String(r.referrerId), parseInt(r.refCount, 10) || 0]));
 
         const leaderboard = [];
         let rankCounter = 1;
@@ -159,10 +120,13 @@ const getAdminLeaderboard = async (req, res) => {
                     role: u.role,
                     avatar: u.avatar || null,
                     accountStatus: u.account_status || 'active',
+                    referralCode: u.referral_code || null,
+                    createdAt: u.createdAt,
                     walletBalance: parseFloat(u.wallet?.balance || 0),
                     score: category === 'transactions' ? count : volume,
                     totalVolume: volume,
                     transactionCount: count,
+                    totalReferrals: refCountMap.get(String(u.id)) || 0
                 });
             }
             rankCounter++;

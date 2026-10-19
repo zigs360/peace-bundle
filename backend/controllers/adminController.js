@@ -1850,6 +1850,89 @@ const getReferralAnalytics = async (req, res) => {
     }
 };
 
+// @desc    Get Detailed Referral Performance for a specific user (Admin)
+// @route   GET /api/admin/referrals/user/:userId/summary
+// @access  Private (Admin)
+const getUserReferralSummary = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const inactivityDays = parseInt(req.query.inactivityDays, 10) || 30;
+        const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+        const summary = await adminReferralAnalyticsService.getUserReferralSummary(userId, { inactivityDays });
+        res.json({ success: true, data: summary, ...summary });
+    } catch (error) {
+        logger.error(`[Admin] getUserReferralSummary error for user ${req.params.userId}: ${error.message}`);
+        res.status(error.message === 'User not found' ? 404 : 500).json({
+            success: false,
+            message: error.message || 'Failed to fetch referral summary'
+        });
+    }
+};
+
+// @desc    Get Paginated List of Direct Referrals for a specific user (Admin)
+// @route   GET /api/admin/referrals/user/:userId/list
+// @access  Private (Admin)
+const getUserReferralsList = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const {
+            page = 1,
+            limit = 10,
+            search = '',
+            status = 'all',
+            inactivityDays = 30,
+            sortBy = 'registered_at',
+            sortOrder = 'DESC'
+        } = req.query;
+
+        const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+        const result = await adminReferralAnalyticsService.getUserReferralsList(userId, {
+            page,
+            limit,
+            search,
+            status,
+            inactivityDays,
+            sortBy,
+            sortOrder
+        });
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error(`[Admin] getUserReferralsList error for user ${req.params.userId}: ${error.message}`);
+        res.status(error.message === 'User not found' ? 404 : 500).json({
+            success: false,
+            message: error.message || 'Failed to fetch referral list'
+        });
+    }
+};
+
+// @desc    Export Direct Referrals to CSV (Admin)
+// @route   GET /api/admin/referrals/user/:userId/export
+// @access  Private (Admin)
+const exportUserReferralsCsv = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { search, status, inactivityDays } = req.query;
+
+        const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+        const csv = await adminReferralAnalyticsService.exportUserReferralsCsv(userId, {
+            search,
+            status,
+            inactivityDays
+        });
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="referrals-${userId}-${Date.now()}.csv"`);
+        return res.send(csv);
+    } catch (error) {
+        logger.error(`[Admin] exportUserReferralsCsv error for user ${req.params.userId}: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to export referrals CSV'
+        });
+    }
+};
+
 // @desc    View KYC Document (Secure)
 // @route   GET /api/admin/users/kyc-document/:filename
 // @access  Private (Admin)
@@ -2583,6 +2666,9 @@ module.exports = {
     getPublicSettings,
     migrateSafeHavenAccounts,
     getUserTransactions,
-    adminSyncUserDeposits
+    adminSyncUserDeposits,
+    getUserReferralSummary,
+    getUserReferralsList,
+    exportUserReferralsCsv
 };
 
