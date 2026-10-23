@@ -129,7 +129,7 @@ class FirebaseManager {
             }
         }
 
-        const candidateEnvPaths = [
+        const candidateEnvPaths = Array.from(new Set([
             path.resolve(process.cwd(), '.env'),
             path.resolve(__dirname, '.env'),
             path.resolve(__dirname, '..', '.env'),
@@ -138,7 +138,7 @@ class FirebaseManager {
             path.resolve(process.cwd(), 'backend', '.env'),
             '/app/.env',
             '/root/peace-bundle/.env'
-        ];
+        ]));
 
         this._checkedEnvFiles = [];
         let dotenv = null;
