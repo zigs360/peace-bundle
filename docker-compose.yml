@@ -41,6 +41,7 @@ services:
     volumes:
       - uploads_data:/app/uploads
       - secure_uploads_data:/app/secure_uploads
+      - ./.env:/app/.env:ro
     networks:
       - peacebundle_net
 
