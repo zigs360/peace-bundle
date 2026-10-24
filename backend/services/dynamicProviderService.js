@@ -214,6 +214,68 @@ class DynamicProviderService {
   }
 
   /**
+   * Resolve provider for a specific service and network (e.g. glo_data, mtn_airtime)
+   * Falls back to getPrimaryProvider(serviceType) if no granular route is set.
+   * @param {string} serviceType - 'data', 'vtu_data', 'airtime', 'vtu_airtime', 'voice', 'call_sub'
+   * @param {string} network - 'mtn', 'airtel', 'glo', '9mobile'
+   */
+  async getProviderForServiceAndNetwork(serviceType, network) {
+    await this.ensureDefaultProviders();
+
+    const cleanService = String(serviceType || '').trim().toLowerCase();
+    const serviceKey = cleanService.includes('airtime')
+      ? 'airtime'
+      : cleanService.includes('voice') || cleanService.includes('call')
+      ? 'voice'
+      : 'data';
+
+    const net = String(network || '').trim().toLowerCase();
+    const networkKey = net.includes('mtn')
+      ? 'mtn'
+      : net.includes('glo')
+      ? 'glo'
+      : net.includes('airtel')
+      ? 'airtel'
+      : net.includes('9mobile') || net.includes('etisalat') || net.includes('t2')
+      ? '9mobile'
+      : net;
+
+    const routeKey = `${networkKey}_${serviceKey}`; // e.g. 'glo_data', 'mtn_airtime'
+
+    // 1. Check granular environment variable override, e.g. PROVIDER_ROUTE_GLO_DATA=legitdataway
+    const envVar = `PROVIDER_ROUTE_${networkKey.toUpperCase()}_${serviceKey.toUpperCase()}`;
+    const envOverride = (process.env[envVar] || '').trim().toLowerCase();
+    if (envOverride) {
+      const provider = await ApiProvider.findOne({ where: { slug: envOverride, is_active: true } });
+      if (provider) {
+        logger.info(`[DynamicProvider] Granular route hit via env ${envVar}: ${routeKey} -> ${provider.name} (${provider.slug})`);
+        return provider;
+      }
+    }
+
+    // 2. Check granular routes stored in SystemSetting ('provider_network_routes')
+    try {
+      const SystemSetting = require('../models/SystemSetting');
+      const routes = await SystemSetting.get('provider_network_routes', {});
+      if (routes && typeof routes === 'object') {
+        const targetSlug = routes[routeKey] || routes[`${networkKey}_${cleanService}`];
+        if (targetSlug && targetSlug !== 'default' && targetSlug !== 'primary') {
+          const provider = await ApiProvider.findOne({ where: { slug: String(targetSlug).toLowerCase().trim(), is_active: true } });
+          if (provider) {
+            logger.info(`[DynamicProvider] Granular route hit via SystemSetting: ${routeKey} -> ${provider.name} (${provider.slug})`);
+            return provider;
+          }
+        }
+      }
+    } catch (e) {
+      logger.warn(`[DynamicProvider] Could not load provider_network_routes from SystemSetting: ${e.message}`);
+    }
+
+    // 3. Fall back to standard primary provider resolution for the service type
+    return await this.getPrimaryProvider(cleanService);
+  }
+
+  /**
    * Get current primary active provider, respecting service capability if serviceType is given
    */
   async getPrimaryProvider(serviceType = null) {
@@ -351,7 +413,17 @@ class DynamicProviderService {
     const cleanSecretKey = sanitizeHeader(provider.secret_key);
 
     if (cleanApiKey) {
-      if (String(provider.slug || '').toLowerCase() === 'quicklysim' || String(provider.base_url || '').toLowerCase().includes('quicklysim')) {
+      const slugLower = String(provider.slug || '').toLowerCase();
+      const urlLower = String(provider.base_url || '').toLowerCase();
+      const authHeaderPref = String(provider.metadata?.auth_header_format || '').toLowerCase();
+
+      if (
+        slugLower === 'quicklysim' || 
+        slugLower === 'legitdataway' ||
+        urlLower.includes('quicklysim') || 
+        urlLower.includes('legitdataway') ||
+        authHeaderPref === 'token'
+      ) {
         headers['Authorization'] = `Token ${cleanApiKey}`;
       } else {
         headers['Authorization'] = `Bearer ${cleanApiKey}`;
@@ -588,11 +660,11 @@ class DynamicProviderService {
     }
 
     let provider = null;
-    if (targetProviderSlug) {
+    if (targetProviderSlug && targetProviderSlug !== 'default' && targetProviderSlug !== 'primary') {
       provider = await ApiProvider.findOne({ where: { slug: targetProviderSlug } });
     }
     if (!provider) {
-      provider = await this.getActiveProvider('data');
+      provider = await this.getProviderForServiceAndNetwork('data', network);
     }
     if (!provider) {
       throw new Error(`No active provider configured for ${targetProviderSlug || 'data purchase'}`);
@@ -694,31 +766,85 @@ class DynamicProviderService {
       };
     }
 
-    // Generic Provider Data Purchase
-    const path = provider.endpoint_map?.data_purchase || '/data';
+    // Generic / Legitdataway Provider Data Purchase
+    const isLegitdataway = String(provider.slug || '').toLowerCase() === 'legitdataway' || String(provider.base_url || '').toLowerCase().includes('legitdataway');
+    const netId = this.mapNetworkToQuicklysim(network);
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    let path = provider.endpoint_map?.data_purchase || '/data';
+    if (isLegitdataway && (!provider.endpoint_map?.data_purchase || provider.endpoint_map?.data_purchase === '/data')) {
+      path = '/api/data';
+    }
+
     const payload = {
-      plan_id: planId,
-      phone,
-      network: String(network).toLowerCase(),
+      plan_id: String(planId),
+      plan: String(planId),
+      data_plan: String(planId),
+      data_plan_id: String(planId),
+      phone: cleanPhone,
+      mobile_number: cleanPhone,
+      phone_number: cleanPhone,
+      network: isLegitdataway ? String(netId) : String(network).toLowerCase(),
+      network_id: parseInt(netId, 10),
+      network_name: String(network).toUpperCase(),
       amount,
+      ref,
       reference: ref,
+      ported_number: true,
     };
 
     logger.info(`[DynamicProvider] Routing Data purchase to ${provider.name} at ${path}`, payload);
     try {
-      const response = await client.post(path, payload);
+      let response;
+      try {
+        response = await client.post(path, payload);
+      } catch (postErr) {
+        const errStatus = postErr.response?.status;
+        const errMsg = String(postErr.response?.data?.message || postErr.message || '');
+        if ((errStatus === 404 || errMsg.toLowerCase().includes('could not be found')) && path !== '/topupmate/api/data' && path !== '/api/data') {
+          const fallbackPath = isLegitdataway ? '/topupmate/api/data' : '/api/data';
+          logger.warn(`[DynamicProvider] ${provider.name} data endpoint ${path} returned 404, retrying at ${fallbackPath}`);
+          response = await client.post(fallbackPath, payload);
+        } else {
+          throw postErr;
+        }
+      }
+
+      const resData = response.data;
+      const isOk =
+        resData?.status === 'success' ||
+        resData?.status === 200 ||
+        resData?.status === 'successful' ||
+        resData?.success === true ||
+        (resData?.message && String(resData.message).toLowerCase().includes('successful'));
+
+      if (!isOk) {
+        const rawErrMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || `${provider.name} data purchase failed`;
+        logger.warn(`[DynamicProvider] ${provider.name} data purchase failed: ${rawErrMsg}`, { status: response?.status, data: resData });
+        const errMsg = sanitizeUserFacingErrorMessage(rawErrMsg, 'Data purchase failed on Peace Bundle and was automatically reversed');
+        return {
+          success: false,
+          provider: provider.name,
+          error: errMsg,
+          data: resData,
+        };
+      }
+
       return {
         success: true,
         provider: provider.name,
-        data: response.data,
-        reference: response.data?.reference || response.data?.data?.reference || ref,
+        data: resData,
+        reference: resData?.reference || resData?.ref || resData?.data?.reference || ref,
       };
     } catch (err) {
+      const errData = err.response?.data;
+      const rawErrMsg = errData?.message || errData?.msg || errData?.error || errData?.desc || err.message;
+      logger.error(`[DynamicProvider] ${provider.name} data purchase exception: ${rawErrMsg}`, { status: err.response?.status, data: errData });
+      const errMsg = sanitizeUserFacingErrorMessage(rawErrMsg, 'Data purchase failed on Peace Bundle and was automatically reversed');
       return {
         success: false,
         provider: provider.name,
-        error: err.response?.data?.message || err.message,
-        data: err.response?.data,
+        error: errMsg,
+        data: errData,
       };
     }
   }
@@ -728,11 +854,11 @@ class DynamicProviderService {
    */
   async purchaseAirtime(network, amount, phone, options = {}) {
     let provider = null;
-    if (options.providerSlug) {
+    if (options.providerSlug && options.providerSlug !== 'default' && options.providerSlug !== 'primary') {
       provider = await ApiProvider.findOne({ where: { slug: options.providerSlug } });
     }
     if (!provider) {
-      provider = await this.getActiveProvider('airtime');
+      provider = await this.getProviderForServiceAndNetwork('airtime', network);
     }
     if (!provider) {
       throw new Error('No active airtime provider configured');
@@ -831,22 +957,84 @@ class DynamicProviderService {
       };
     }
 
-    const path = provider.endpoint_map?.airtime_purchase || '/airtime';
+    // Generic / Legitdataway Provider Airtime Purchase
+    const isLegitdataway = String(provider.slug || '').toLowerCase() === 'legitdataway' || String(provider.base_url || '').toLowerCase().includes('legitdataway');
+    const netId = this.mapNetworkToQuicklysim(network);
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    let path = provider.endpoint_map?.airtime_purchase || '/airtime';
+    if (isLegitdataway && (!provider.endpoint_map?.airtime_purchase || provider.endpoint_map?.airtime_purchase === '/airtime')) {
+      path = '/api/airtime';
+    }
+
     const payload = {
-      network: String(network).toLowerCase(),
-      amount,
-      phone,
+      network: isLegitdataway ? String(netId) : String(network).toLowerCase(),
+      network_id: parseInt(netId, 10),
+      network_name: String(network).toUpperCase(),
+      amount: String(amount),
+      phone: cleanPhone,
+      mobile_number: cleanPhone,
+      phone_number: cleanPhone,
+      airtime_type: 'VTU',
+      ref,
       reference: ref,
+      ported_number: true,
     };
 
-    logger.info(`[DynamicProvider] Routing Airtime purchase to ${provider.name}`, payload);
-    const response = await client.post(path, payload);
-    return {
-      success: true,
-      provider: provider.name,
-      data: response.data,
-      reference: response.data?.reference || response.data?.data?.reference || ref,
-    };
+    logger.info(`[DynamicProvider] Routing Airtime purchase to ${provider.name} at ${path}`, payload);
+    try {
+      let response;
+      try {
+        response = await client.post(path, payload);
+      } catch (postErr) {
+        const errStatus = postErr.response?.status;
+        const errMsg = String(postErr.response?.data?.message || postErr.message || '');
+        if ((errStatus === 404 || errMsg.toLowerCase().includes('could not be found')) && path !== '/topupmate/api/airtime' && path !== '/api/topup') {
+          const fallbackPath = isLegitdataway ? '/topupmate/api/airtime' : '/api/topup';
+          logger.warn(`[DynamicProvider] ${provider.name} airtime endpoint ${path} returned 404, retrying at ${fallbackPath}`);
+          response = await client.post(fallbackPath, payload);
+        } else {
+          throw postErr;
+        }
+      }
+
+      const resData = response.data;
+      const isOk =
+        resData?.status === 'success' ||
+        resData?.status === 200 ||
+        resData?.status === 'successful' ||
+        resData?.success === true ||
+        (resData?.message && String(resData.message).toLowerCase().includes('successful'));
+
+      if (!isOk) {
+        const rawErrMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || `${provider.name} airtime purchase failed`;
+        logger.warn(`[DynamicProvider] ${provider.name} airtime purchase failed: ${rawErrMsg}`, { status: response?.status, data: resData });
+        const errMsg = sanitizeUserFacingErrorMessage(rawErrMsg, 'Airtime purchase failed on Peace Bundle and was automatically reversed');
+        return {
+          success: false,
+          provider: provider.name,
+          error: errMsg,
+          data: resData,
+        };
+      }
+
+      return {
+        success: true,
+        provider: provider.name,
+        data: resData,
+        reference: resData?.reference || resData?.ref || resData?.data?.reference || ref,
+      };
+    } catch (err) {
+      const errData = err.response?.data;
+      const rawErrMsg = errData?.message || errData?.msg || errData?.error || errData?.desc || err.message;
+      logger.error(`[DynamicProvider] ${provider.name} airtime purchase exception: ${rawErrMsg}`, { status: err.response?.status, data: errData });
+      const errMsg = sanitizeUserFacingErrorMessage(rawErrMsg, 'Airtime purchase failed on Peace Bundle and was automatically reversed');
+      return {
+        success: false,
+        provider: provider.name,
+        error: errMsg,
+        data: errData,
+      };
+    }
   }
 }
 

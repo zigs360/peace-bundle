@@ -358,7 +358,7 @@ class DataPurchaseService {
       }, { transaction: t });
 
       const dynamicProviderService = require('./dynamicProviderService');
-      const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
+      const primaryProvider = await dynamicProviderService.getProviderForServiceAndNetwork('vtu_data', transaction.provider);
       const lockedRoute = transactionIntegrityService.selectDataRoute({
         plan,
         preferredSim: sim,
@@ -415,7 +415,7 @@ class DataPurchaseService {
       const allowWalletFallback =
         String(process.env.SIM_POOL_ALLOW_WALLET_FALLBACK || 'false').toLowerCase() === 'true';
       const dynamicProviderService = require('./dynamicProviderService');
-      const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
+      const primaryProvider = await dynamicProviderService.getProviderForServiceAndNetwork('vtu_data', transaction.provider);
 
       const route = transaction.fulfillment_route
         ? {
@@ -562,7 +562,7 @@ class DataPurchaseService {
         let providerName = 'smeplug';
 
         const dynamicProviderService = require('./dynamicProviderService');
-        const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
+        const primaryProvider = await dynamicProviderService.getProviderForServiceAndNetwork('vtu_data', transaction.provider);
 
         if (primaryProvider && primaryProvider.slug !== 'smeplug') {
           logger.info(`[DataPurchase] Dispensing via primary dynamic provider: ${primaryProvider.name} (${primaryProvider.slug})`, {
@@ -683,7 +683,7 @@ class DataPurchaseService {
         let providerName = 'smeplug';
 
         const dynamicProviderService = require('./dynamicProviderService');
-        const primaryProvider = await dynamicProviderService.getPrimaryProvider('vtu_data');
+        const primaryProvider = await dynamicProviderService.getProviderForServiceAndNetwork('vtu_data', transaction.provider);
 
         if (!sim && primaryProvider && primaryProvider.slug !== 'smeplug') {
           const effectivePlanId = plan?.plan_id || smeplugPlanId || plan?.provider_plan_id || '1';
@@ -937,7 +937,7 @@ class DataPurchaseService {
       cleanPhone && cleanPhone.startsWith('0') && cleanPhone.length === 11 ? `234${cleanPhone.slice(1)}` : cleanPhone;
     const vendAmount = Math.round(Number(amount));
     const dynamicProviderService = require('./dynamicProviderService');
-    const primaryProvider = await dynamicProviderService.getPrimaryProvider('airtime');
+    const primaryProvider = await dynamicProviderService.getProviderForServiceAndNetwork('vtu_airtime', cleanNetwork);
     const lockedRoute = transaction.fulfillment_route
       ? {
           fulfillmentRoute: transaction.fulfillment_route,

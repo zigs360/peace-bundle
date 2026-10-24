@@ -8,11 +8,18 @@ const {
   activateProvider,
   deleteProvider,
   syncProviderSims,
+  getProviderRoutes,
+  updateProviderRoutes,
 } = require('../controllers/apiProviderController');
 
 // All provider endpoints require Admin access
 router.get('/', protect, admin, getProviders);
 router.post('/', protect, admin, createProvider);
+
+// Custom granular routing endpoints
+router.get('/routes', protect, admin, getProviderRoutes);
+router.put('/routes', protect, admin, updateProviderRoutes);
+
 router.put('/:id', protect, admin, updateProvider);
 router.post('/:id/activate', protect, admin, activateProvider);
 router.delete('/:id', protect, admin, deleteProvider);

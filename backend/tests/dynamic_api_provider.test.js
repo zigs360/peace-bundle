@@ -239,4 +239,55 @@ describe('Dynamic API Provider Orchestration', () => {
       expect(airtelDataRoute.fulfillmentRoute).toBe('quicklysim_api');
     }
   });
+
+  it('manages granular network and service provider routing (Glo Data -> Legitdataway)', async () => {
+    // 1. Register Legitdataway provider
+    let legit = await ApiProvider.findOne({ where: { slug: 'legitdataway' } });
+    if (!legit) {
+      legit = await ApiProvider.create({
+        name: 'Legitdataway',
+        slug: 'legitdataway',
+        service_type: 'data',
+        base_url: 'https://legitdataway.com/api',
+        api_key: 'test_legit_key',
+        capabilities: ['vtu_data'],
+        is_active: true,
+      });
+    }
+
+    // 2. Update routes via PUT /api/admin/providers/routes
+    const putRes = await request(app)
+      .put('/api/admin/providers/routes')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        routes: {
+          glo_data: 'legitdataway',
+          mtn_airtime: 'quicklysim',
+        },
+      });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.success).toBe(true);
+    expect(putRes.body.routes.glo_data).toBe('legitdataway');
+
+    // 3. Query routes via GET /api/admin/providers/routes
+    const getRes = await request(app)
+      .get('/api/admin/providers/routes')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.success).toBe(true);
+    expect(getRes.body.routes.glo_data).toBe('legitdataway');
+
+    // 4. Verify getProviderForServiceAndNetwork returns Legitdataway for Glo Data
+    const gloDataProvider = await dynamicProviderService.getProviderForServiceAndNetwork('data', 'glo');
+    expect(gloDataProvider).toBeDefined();
+    expect(gloDataProvider.slug).toBe('legitdataway');
+
+    // 5. Verify MTN Data continues using primary provider (QuicklySIM)
+    const mtnDataProvider = await dynamicProviderService.getProviderForServiceAndNetwork('data', 'mtn');
+    expect(mtnDataProvider).toBeDefined();
+    expect(mtnDataProvider.slug).toBe('quicklysim');
+  });
 });
+

@@ -46,7 +46,7 @@ class SimManagementService {
       // Find a default admin user to associate these SIMs with
       let adminUser = await User.findOne({
         where: {
-          role: { [Op.in]: ['admin', 'super_admin'] }
+          role: 'admin'
         }
       });
       if (!adminUser) {
@@ -204,7 +204,7 @@ class SimManagementService {
 
       let adminUser = await User.findOne({
         where: {
-          role: { [Op.in]: ['admin', 'super_admin'] }
+          role: 'admin'
         }
       });
       if (!adminUser) {

@@ -141,6 +141,65 @@ const syncProviderSims = async (req, res) => {
   }
 };
 
+// @desc    Get network and service provider routing map
+// @route   GET /api/admin/providers/routes
+// @access  Private (Admin)
+const getProviderRoutes = async (req, res) => {
+  try {
+    const SystemSetting = require('../models/SystemSetting');
+    const routes = await SystemSetting.get('provider_network_routes', {});
+    const providers = await dynamicProviderService.getAllProviders();
+    const primary = await dynamicProviderService.getPrimaryProvider();
+
+    res.json({
+      success: true,
+      routes: routes || {},
+      providers: (providers || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        is_primary: p.is_primary,
+        is_active: p.is_active,
+        capabilities: p.capabilities,
+      })),
+      primaryProvider: primary ? { id: primary.id, name: primary.name, slug: primary.slug } : null,
+    });
+  } catch (err) {
+    logger.error(`[ApiProvider] Error fetching provider routes: ${err.message}`);
+    res.status(500).json({ success: false, message: 'Failed to fetch provider routes' });
+  }
+};
+
+// @desc    Update network and service provider routing map
+// @route   PUT /api/admin/providers/routes
+// @access  Private (Admin)
+const updateProviderRoutes = async (req, res) => {
+  try {
+    const { routes } = req.body;
+    if (!routes || typeof routes !== 'object') {
+      return res.status(400).json({ success: false, message: 'Valid routes object is required' });
+    }
+
+    const SystemSetting = require('../models/SystemSetting');
+    await SystemSetting.set(
+      'provider_network_routes',
+      routes,
+      'json',
+      'providers',
+      'Granular network and service provider routing overrides'
+    );
+
+    res.json({
+      success: true,
+      message: 'Provider routes updated successfully',
+      routes,
+    });
+  } catch (err) {
+    logger.error(`[ApiProvider] Error updating provider routes: ${err.message}`);
+    res.status(500).json({ success: false, message: 'Failed to update provider routes' });
+  }
+};
+
 module.exports = {
   getProviders,
   createProvider,
@@ -148,4 +207,7 @@ module.exports = {
   activateProvider,
   deleteProvider,
   syncProviderSims,
+  getProviderRoutes,
+  updateProviderRoutes,
 };
+
