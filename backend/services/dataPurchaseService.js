@@ -452,7 +452,7 @@ class DataPurchaseService {
           effectivePlanId,
           transaction.amount,
           targetSlug,
-          { reference: transaction.reference }
+          { reference: transaction.reference, plan }
         );
 
         if (response.success) {
@@ -574,7 +574,7 @@ class DataPurchaseService {
             effectivePlanId,
             transaction.amount,
             primaryProvider.slug,
-            { reference: transaction.reference }
+            { reference: transaction.reference, plan }
           );
           providerName = primaryProvider.slug;
         } else {
@@ -626,7 +626,7 @@ class DataPurchaseService {
           effectivePlanId,
           transaction.amount,
           targetSlug,
-          { reference: transaction.reference }
+          { reference: transaction.reference, plan }
         );
 
         if (response.success) {
@@ -693,7 +693,7 @@ class DataPurchaseService {
             effectivePlanId,
             transaction.amount,
             primaryProvider.slug,
-            { reference: transaction.reference }
+            { reference: transaction.reference, plan }
           );
           providerName = primaryProvider.slug;
         } else {

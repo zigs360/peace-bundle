@@ -223,7 +223,12 @@ class DynamicProviderService {
     const all = await ApiProvider.findAll({
       where: onlyActive ? { is_active: true } : {},
     });
-    return all.find((p) => String(p.slug || '').toLowerCase() === s) || null;
+    return all.find((p) => {
+      const pSlug = String(p.slug || '').trim().toLowerCase();
+      if (pSlug === s) return true;
+      if ((s === 'legit' || s === 'legitdataway') && (pSlug === 'legit' || pSlug === 'legitdataway')) return true;
+      return false;
+    }) || null;
   }
 
   /**
@@ -498,6 +503,136 @@ class DynamicProviderService {
   }
 
   /**
+   * Helper to map network name to Legitdataway (Adex API) numeric network ID
+   * 1 = MTN, 2 = AIRTEL, 3 = GLO, 4 = 9MOBILE
+   */
+  mapNetworkToLegitdataway(network) {
+    const net = String(network || '').trim().toLowerCase();
+    if (net.includes('mtn')) return 1;
+    if (net.includes('airtel')) return 2;
+    if (net.includes('glo')) return 3;
+    if (net.includes('9mobile') || net.includes('etisalat')) return 4;
+    if (net === '1') return 1;
+    if (net === '2') return 2;
+    if (net === '3') return 3;
+    if (net === '4') return 4;
+    return 1;
+  }
+
+  /**
+   * Resolve specific Legitdataway plan ID based on network, plan metadata, size, and amount
+   */
+  async resolveLegitdatawayPlanId(networkKey, planId, planObj = null, amount = null) {
+    const netId = this.mapNetworkToLegitdataway(networkKey);
+    const numericPlanId = Number(planId);
+
+    // Check if planId already matches a known valid Legitdataway plan ID
+    const knownLegitPlans = {
+      1: [36, 37, 38, 39, 40, 41, 46, 47, 48, 49, 50], // MTN
+      2: [233, 235, 238, 240, 241, 244, 245, 247, 248, 249, 250, 251], // AIRTEL
+      3: [70, 71, 72, 73, 74, 75, 76], // GLO
+      4: [85, 86, 87, 88, 89, 90, 91], // 9MOBILE
+    };
+
+    if (knownLegitPlans[netId]?.includes(numericPlanId)) {
+      return numericPlanId;
+    }
+
+    // Attempt to load DataPlan record if planObj not provided or missing size metadata
+    let resolvedPlan = planObj;
+    if ((!resolvedPlan || (!resolvedPlan.size && !resolvedPlan.size_mb)) && planId) {
+      try {
+        const DataPlan = require('../models/DataPlan');
+        resolvedPlan = (await DataPlan.findByPk(planId)) ||
+          (await DataPlan.findOne({ where: { plan_id: String(planId) } })) ||
+          (await DataPlan.findOne({ where: { smeplug_plan_id: String(planId) } }));
+      } catch (_) {}
+    }
+
+    // Extract size in MB
+    let sizeMb = resolvedPlan?.size_mb || null;
+    const sizeStr = String(resolvedPlan?.size || resolvedPlan?.data_size || resolvedPlan?.name || '').toUpperCase();
+
+    if (!sizeMb && sizeStr) {
+      const match = sizeStr.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+      if (match) {
+        const val = parseFloat(match[1]);
+        const unit = match[2].toUpperCase();
+        if (unit === 'GB') sizeMb = Math.round(val * 1024);
+        else if (unit === 'MB') sizeMb = Math.round(val);
+        else if (unit === 'TB') sizeMb = Math.round(val * 1024 * 1024);
+      }
+    }
+
+    // Fallback size estimation from transaction amount if size is still unavailable
+    if (!sizeMb && amount) {
+      const amt = Number(amount);
+      if (netId === 3) { // GLO
+        if (amt >= 70 && amt <= 120) sizeMb = 200;
+        else if (amt > 120 && amt <= 260) sizeMb = 500;
+        else if (amt > 260 && amt <= 450) sizeMb = 1024;
+        else if (amt > 450 && amt <= 850) sizeMb = 2048;
+      } else if (netId === 1) { // MTN
+        if (amt <= 250) sizeMb = 1024;
+        else if (amt <= 350) sizeMb = 500;
+        else if (amt <= 600) sizeMb = 2048;
+      } else if (netId === 2) { // AIRTEL
+        if (amt <= 150) sizeMb = 250;
+        else if (amt <= 350) sizeMb = 1024;
+        else if (amt <= 550) sizeMb = 1536;
+      }
+    }
+
+    // Map sizeMb to network's specific Legitdataway plan ID
+    if (netId === 3) { // GLO
+      if (sizeMb && sizeMb <= 250) return 70; // 200MB
+      if (sizeMb && sizeMb <= 700) return 71; // 500MB
+      if (sizeMb && sizeMb <= 1500) return 72; // 1GB
+      if (sizeMb && sizeMb <= 2500) return 73; // 2GB
+      if (sizeMb && sizeMb <= 3500) return 74; // 3GB
+      if (sizeMb && sizeMb <= 6000) return 75; // 5GB
+      if (sizeMb && sizeMb > 6000) return 76; // 10GB
+      return 71; // Default to Glo 500MB
+    }
+
+    if (netId === 1) { // MTN
+      if (sizeMb && sizeMb <= 700) return 36; // 500MB SME
+      if (sizeMb && sizeMb <= 1500) return 46; // 1GB Corporate Gifting
+      if (sizeMb && sizeMb <= 2500) return 47; // 2GB
+      if (sizeMb && sizeMb <= 3500) return 48; // 3GB
+      if (sizeMb && sizeMb <= 6000) return 49; // 5GB
+      if (sizeMb && sizeMb > 6000) return 50; // 10GB
+      return 46; // Default to MTN 1GB
+    }
+
+    if (netId === 2) { // AIRTEL
+      if (sizeMb && sizeMb <= 300) return 244; // 250MB
+      if (sizeMb && sizeMb <= 550) return 235; // 500MB
+      if (sizeMb && sizeMb <= 800) return 247; // 600MB
+      if (sizeMb && sizeMb <= 1200) return 233; // 1GB
+      if (sizeMb && sizeMb <= 1800) return 238; // 1.5GB
+      if (sizeMb && sizeMb <= 2500) return 245; // 2GB
+      if (sizeMb && sizeMb <= 3500) return 249; // 3GB
+      if (sizeMb && sizeMb <= 6000) return 250; // 5GB
+      if (sizeMb && sizeMb > 6000) return 251; // 10GB
+      return 233; // Default to Airtel 1GB
+    }
+
+    if (netId === 4) { // 9MOBILE
+      if (sizeMb && sizeMb <= 700) return 85; // 500MB
+      if (sizeMb && sizeMb <= 1500) return 86; // 1GB
+      if (sizeMb && sizeMb <= 2500) return 87; // 2GB
+      if (sizeMb && sizeMb <= 3500) return 88; // 3GB
+      if (sizeMb && sizeMb <= 4500) return 89; // 4GB
+      if (sizeMb && sizeMb <= 6000) return 90; // 5GB
+      if (sizeMb && sizeMb > 6000) return 91; // 10GB
+      return 86; // Default to 9Mobile 1GB
+    }
+
+    return numericPlanId || planId;
+  }
+
+  /**
    * SIM MANAGEMENT: Fetch Linked Devices from Provider (QuicklySIM / Smeplug / Custom)
    */
   async getLinkedDevices(providerSlug = null) {
@@ -695,7 +830,7 @@ class DynamicProviderService {
 
     let provider = null;
     if (targetProviderSlug && targetProviderSlug !== 'default' && targetProviderSlug !== 'primary') {
-      provider = await ApiProvider.findOne({ where: { slug: targetProviderSlug } });
+      provider = await this.findProviderBySlug(targetProviderSlug);
     }
     if (!provider) {
       provider = await this.getProviderForServiceAndNetwork('data', network);
@@ -801,8 +936,15 @@ class DynamicProviderService {
     }
 
     // Generic / Legitdataway Provider Data Purchase
-    const isLegitdataway = String(provider.slug || '').toLowerCase() === 'legitdataway' || String(provider.base_url || '').toLowerCase().includes('legitdataway');
-    const netId = this.mapNetworkToQuicklysim(network);
+    const isLegitdataway =
+      String(provider.slug || '').toLowerCase().includes('legit') ||
+      String(provider.name || '').toLowerCase().includes('legit') ||
+      String(provider.base_url || '').toLowerCase().includes('legitdataway');
+
+    const netId = isLegitdataway
+      ? this.mapNetworkToLegitdataway(network)
+      : this.mapNetworkToQuicklysim(network);
+
     const cleanPhone = String(phone).replace(/\D/g, '');
     let path = provider.endpoint_map?.data_purchase || '/data';
     if (isLegitdataway && (!provider.endpoint_map?.data_purchase || provider.endpoint_map?.data_purchase === '/data')) {
@@ -812,16 +954,21 @@ class DynamicProviderService {
     const uniqueDataRequestId = `Data_${Date.now()}_${Math.floor(100000 + Math.random() * 900000)}`;
     const targetRequestId = isLegitdataway ? uniqueDataRequestId : (options.reference || ref || `Data_${Date.now()}`);
 
+    let effectivePlanId = planId;
+    if (isLegitdataway) {
+      effectivePlanId = await this.resolveLegitdatawayPlanId(netId, planId, options.plan, amount);
+    }
+
     const payload = {
       'request-id': targetRequestId,
       request_id: targetRequestId,
       requestId: targetRequestId,
       'Request-Id': targetRequestId,
       ident: targetRequestId,
-      plan_id: String(planId),
-      plan: String(planId),
-      data_plan: isLegitdataway ? (isNaN(planId) ? String(planId) : parseInt(planId, 10)) : String(planId),
-      data_plan_id: String(planId),
+      plan_id: String(effectivePlanId),
+      plan: String(effectivePlanId),
+      data_plan: isLegitdataway ? (isNaN(effectivePlanId) ? String(effectivePlanId) : parseInt(effectivePlanId, 10)) : String(effectivePlanId),
+      data_plan_id: String(effectivePlanId),
       phone: cleanPhone,
       mobile_number: cleanPhone,
       phone_number: cleanPhone,
@@ -911,7 +1058,7 @@ class DynamicProviderService {
   async purchaseAirtime(network, amount, phone, options = {}) {
     let provider = null;
     if (options.providerSlug && options.providerSlug !== 'default' && options.providerSlug !== 'primary') {
-      provider = await ApiProvider.findOne({ where: { slug: options.providerSlug } });
+      provider = await this.findProviderBySlug(options.providerSlug);
     }
     if (!provider) {
       provider = await this.getProviderForServiceAndNetwork('airtime', network);
@@ -1014,12 +1161,19 @@ class DynamicProviderService {
     }
 
     // Generic / Legitdataway Provider Airtime Purchase
-    const isLegitdataway = String(provider.slug || '').toLowerCase() === 'legitdataway' || String(provider.base_url || '').toLowerCase().includes('legitdataway');
-    const netId = this.mapNetworkToQuicklysim(network);
+    const isLegitdataway =
+      String(provider.slug || '').toLowerCase().includes('legit') ||
+      String(provider.name || '').toLowerCase().includes('legit') ||
+      String(provider.base_url || '').toLowerCase().includes('legitdataway');
+
+    const netId = isLegitdataway
+      ? this.mapNetworkToLegitdataway(network)
+      : this.mapNetworkToQuicklysim(network);
+
     const cleanPhone = String(phone).replace(/\D/g, '');
     let path = provider.endpoint_map?.airtime_purchase || '/airtime';
-    if (isLegitdataway && (!provider.endpoint_map?.airtime_purchase || provider.endpoint_map?.airtime_purchase === '/airtime')) {
-      path = '/api/airtime';
+    if (isLegitdataway && (!provider.endpoint_map?.airtime_purchase || provider.endpoint_map?.airtime_purchase === '/airtime' || provider.endpoint_map?.airtime_purchase === '/api/airtime')) {
+      path = '/api/topup';
     }
 
     const uniqueAirtimeRequestId = `Airtime_${Date.now()}_${Math.floor(100000 + Math.random() * 900000)}`;
@@ -1034,11 +1188,12 @@ class DynamicProviderService {
       network: isLegitdataway ? (isNaN(netId) ? String(netId) : parseInt(netId, 10)) : String(network).toLowerCase(),
       network_id: parseInt(netId, 10),
       network_name: String(network).toUpperCase(),
-      amount: String(amount),
+      amount: isLegitdataway ? (isNaN(amount) ? amount : Number(amount)) : String(amount),
       phone: cleanPhone,
       mobile_number: cleanPhone,
       phone_number: cleanPhone,
       airtime_type: 'VTU',
+      plan_type: 'VTU',
       bypass: false,
       ref,
       reference: ref,
@@ -1061,7 +1216,7 @@ class DynamicProviderService {
         const errStatus = postErr.response?.status;
         const errMsg = String(postErr.response?.data?.message || postErr.message || '');
         if ((errStatus === 404 || errMsg.toLowerCase().includes('could not be found')) && path !== '/topupmate/api/airtime' && path !== '/api/topup') {
-          const fallbackPath = isLegitdataway ? '/topupmate/api/airtime' : '/api/topup';
+          const fallbackPath = isLegitdataway ? '/api/topup' : '/topupmate/api/airtime';
           logger.warn(`[DynamicProvider] ${provider.name} airtime endpoint ${path} returned 404, retrying at ${fallbackPath}`);
           response = await client.post(fallbackPath, payload, { headers: postHeaders });
         } else {
@@ -1168,44 +1323,43 @@ class DynamicProviderService {
       }
 
       // 3. Legitdataway test
-      if (slugLower.includes('legitdataway') || urlLower.includes('legitdataway')) {
+      if (slugLower.includes('legit') || urlLower.includes('legitdataway') || String(provider.name || '').toLowerCase().includes('legit')) {
         try {
-          // Adex API provides /api/user/ to check account details & balance
-          const res = await client.get('/api/user/').catch(() => client.get('/api/user'));
-          const uData = res.data?.user || res.data?.data || res.data || {};
-          const bal = uData?.wallet_balance ?? uData?.balance;
-          return {
-            success: true,
-            message: bal !== undefined
-              ? `Connection successful to Legitdataway! Live balance: ₦${Number(bal).toLocaleString()}`
-              : 'Connection successful to Legitdataway! Account verified.',
-            data: res.data,
-          };
-        } catch (apiErr) {
-          // If /api/user is not available, check GET /api/data/ (lists plans safely without creating transactions)
-          if (apiErr.response?.status === 404) {
-            try {
-              const plansRes = await client.get('/api/data/').catch(() => client.get('/api/data'));
-              return {
-                success: true,
-                message: 'Connection successful to Legitdataway! API key verified and plans loaded.',
-                data: plansRes.data,
-              };
-            } catch (_) {}
-          }
-          const errRes = apiErr.response?.data;
-          if (errRes?.status === 'fail' && (
-            String(errRes?.message || '').toLowerCase().includes('invalid api key') ||
-            String(errRes?.message || '').toLowerCase().includes('unauthorized') ||
-            String(errRes?.message || '').toLowerCase().includes('not active')
-          )) {
+          // Probe via /api/topup with test phone to verify API key and retrieve live balance safely
+          const probeRes = await client.post('/api/topup', {
+            network: 3,
+            phone: '08000000000',
+            plan_type: 'VTU',
+            amount: 50,
+            bypass: true,
+            'request-id': `Probe_${Date.now()}`,
+          });
+
+          const pData = probeRes.data || {};
+          const bal = pData?.oldbal ?? pData?.newbal;
+          if (bal !== undefined && bal !== null) {
             return {
-              success: false,
-              message: errRes.message,
-              data: errRes,
+              success: true,
+              message: `Connection successful to Legitdataway! Live balance: ₦${Number(bal).toLocaleString()}`,
+              data: pData,
             };
           }
-          if (apiErr.response?.status === 401 || apiErr.response?.status === 403) {
+
+          if (pData.status === 'success' || probeRes.status === 200 || (pData.status === 'fail' && !String(pData.message || '').toLowerCase().includes('invalid api'))) {
+            return {
+              success: true,
+              message: 'Connection successful to Legitdataway! API key verified.',
+              data: pData,
+            };
+          }
+
+          return {
+            success: false,
+            message: pData.message || 'Authentication failed: Invalid API Key on Legitdataway',
+          };
+        } catch (apiErr) {
+          const errRes = apiErr.response?.data;
+          if (apiErr.response?.status === 401 || apiErr.response?.status === 403 || (errRes?.message && String(errRes.message).toLowerCase().includes('invalid api'))) {
             return {
               success: false,
               message: errRes?.message || 'Unauthorized: API Key rejected by Legitdataway',

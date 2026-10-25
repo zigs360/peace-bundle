@@ -309,10 +309,12 @@ describe('Dynamic API Provider Orchestration', () => {
 
     // Spy on getHttpClient for legitdataway
     const originalGetHttpClient = dynamicProviderService.getHttpClient.bind(dynamicProviderService);
+    let capturedPath = null;
     jest.spyOn(dynamicProviderService, 'getHttpClient').mockImplementation((prov) => {
-      if (String(prov.slug).includes('legitdataway')) {
+      if (String(prov.slug).includes('legit') || String(prov.name).includes('Legit')) {
         return {
           post: async (path, payload, config) => {
+            capturedPath = path;
             capturedPayload = payload;
             capturedHeaders = config?.headers;
             return {
@@ -329,29 +331,35 @@ describe('Dynamic API Provider Orchestration', () => {
       return originalGetHttpClient(prov);
     });
 
-    const res = await dynamicProviderService.purchaseData('glo', '08055551234', '10', 210, 'legitdataway', {
+    const res = await dynamicProviderService.purchaseData('glo', '08055551234', '10', 210, 'legit', {
       reference: 'DATA-TEST-1234',
+      plan: { name: 'Glo 500MB Data', size: '500MB', size_mb: 500, admin_price: 210 },
     });
 
     expect(res.success).toBe(true);
+    expect(capturedPath).toBe('/api/data');
     expect(capturedPayload).toBeDefined();
     expect(capturedPayload['request-id']).toMatch(/^Data_\d+_\d+$/);
     expect(capturedPayload.request_id).toBe(capturedPayload['request-id']);
-    expect(capturedPayload.network).toBe(2); // Glo is 2
+    expect(capturedPayload.network).toBe(3); // Glo is 3 on Legitdataway
+    expect(capturedPayload.data_plan).toBe(71); // Glo 500MB resolves to 71 on Legitdataway
     expect(capturedPayload.Ported_number).toBe(true);
     expect(capturedHeaders['request-id']).toBe(capturedPayload['request-id']);
 
     dynamicProviderService.getHttpClient.mockRestore();
   });
 
-  it('generates unique request-id starting with Airtime_ for Legitdataway airtime purchase and includes headers', async () => {
+  it('generates unique request-id starting with Airtime_ for Legitdataway airtime purchase and routes to /api/topup', async () => {
     let capturedPayload = null;
     let capturedHeaders = null;
+    let capturedPath = null;
 
+    const originalGetHttpClient = dynamicProviderService.getHttpClient.bind(dynamicProviderService);
     jest.spyOn(dynamicProviderService, 'getHttpClient').mockImplementation((prov) => {
-      if (String(prov.slug).includes('legitdataway')) {
+      if (String(prov?.slug).includes('legit') || String(prov?.name).includes('Legit')) {
         return {
           post: async (path, payload, config) => {
+            capturedPath = path;
             capturedPayload = payload;
             capturedHeaders = config?.headers;
             return {
@@ -364,21 +372,51 @@ describe('Dynamic API Provider Orchestration', () => {
           },
         };
       }
-      return dynamicProviderService.getHttpClient(prov);
+      return originalGetHttpClient(prov);
     });
 
     const res = await dynamicProviderService.purchaseAirtime('glo', 100, '08055551234', {
-      providerSlug: 'legitdataway',
+      providerSlug: 'legit',
       reference: 'AIR-TEST-1234',
     });
 
     expect(res.success).toBe(true);
+    expect(capturedPath).toBe('/api/topup');
     expect(capturedPayload).toBeDefined();
     expect(capturedPayload['request-id']).toMatch(/^Airtime_\d+_\d+$/);
-    expect(capturedPayload.network).toBe(2);
+    expect(capturedPayload.network).toBe(3); // Glo is 3
+    expect(capturedPayload.plan_type).toBe('VTU');
     expect(capturedHeaders['request-id']).toBe(capturedPayload['request-id']);
 
     dynamicProviderService.getHttpClient.mockRestore();
+  });
+
+  it('accurately maps networks and data plans for Legitdataway', async () => {
+    // Network mappings: 1=MTN, 2=AIRTEL, 3=GLO, 4=9MOBILE
+    expect(dynamicProviderService.mapNetworkToLegitdataway('mtn')).toBe(1);
+    expect(dynamicProviderService.mapNetworkToLegitdataway('airtel')).toBe(2);
+    expect(dynamicProviderService.mapNetworkToLegitdataway('glo')).toBe(3);
+    expect(dynamicProviderService.mapNetworkToLegitdataway('9mobile')).toBe(4);
+
+    // Plan resolutions for Glo:
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('glo', '10', { size: '200MB' }, 85)).toBe(70);
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('glo', '10', { size: '500MB' }, 210)).toBe(71);
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('glo', '10', { size: '1GB' }, 390)).toBe(72);
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('glo', '10', { size: '2GB' }, 750)).toBe(73);
+
+    // Plan resolutions for MTN:
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('mtn', '1', { size: '500MB' }, 280)).toBe(36);
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('mtn', '2', { size: '1GB' }, 219)).toBe(46);
+
+    // Plan resolutions for Airtel:
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('airtel', '1', { size: '1GB' }, 285)).toBe(233);
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('airtel', '1', { size: '500MB' }, 475)).toBe(235);
+
+    // Plan resolutions for 9Mobile:
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('9mobile', '1', { size: '1GB' }, 300)).toBe(86);
+
+    // Passthrough when already a valid Legitdataway plan ID:
+    expect(await dynamicProviderService.resolveLegitdatawayPlanId('glo', '71')).toBe(71);
   });
 
   it('serves missing upload images as transparent pixel without 404 error', async () => {
