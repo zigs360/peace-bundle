@@ -907,68 +907,39 @@ const getWebhookMetrics = async (req, res) => {
 // @route   POST /api/admin/transactions/:id/refund
 // @access  Private (Admin)
 const refundTransaction = async (req, res) => {
-    const walletService = require('../services/walletService');
+    const refundEngine = require('../services/refundEngine');
     const { id } = req.params;
+    const reason = req.body?.reason || `Admin refund initiated by ${req.user?.name || req.user?.email || 'admin'}`;
+    const operator = req.user ? `${req.user.name || req.user.email} (${req.user.id})` : 'admin';
 
     try {
-        const transaction = await Transaction.findByPk(id, await withSafeTransactionReadOptions({
-            include: [{ model: User, as: 'user' }]
-        }));
-
-        if (!transaction) {
-            return res.status(404).json({ success: false, message: 'Transaction not found' });
-        }
-
-        if (transaction.status === 'refunded') {
-            return res.status(400).json({ success: false, message: 'Transaction already refunded' });
-        }
-
-        // Process Refund
-        const t = await sequelize.transaction();
-
-        try {
-            // Credit user wallet
-            await walletService.credit(
-                transaction.user,
-                parseFloat(transaction.amount),
-                'refund',
-                `Admin refund for transaction: ${transaction.reference}`,
-                { original_transaction_id: transaction.id },
-                t
-            );
-
-            // Update transaction status
-            transaction.status = 'refunded';
-            await transaction.save({ transaction: t });
-
-            await t.commit();
-
-            try {
-                const notificationRealtimeService = require('../services/notificationRealtimeService');
-                notificationRealtimeService.emitToUser(transaction.userId, 'wallet_balance_updated', {
-                    reference: transaction.reference,
-                    amount: parseFloat(transaction.amount),
-                    gateway: 'refund',
-                    balance: await walletService.getBalance(transaction.user),
-                });
-            } catch (e) {
-                void e;
+        const result = await refundEngine.executeRefund({
+            transactionId: id,
+            reason,
+            operator,
+            metadata: {
+                admin_id: req.user?.id || null,
+                admin_email: req.user?.email || null,
+                refund_note: req.body?.note || null
             }
+        });
 
-            res.json({
-                success: true,
-                message: 'Transaction refunded successfully',
-                data: transaction
+        if (result.duplicate) {
+            return res.status(400).json({
+                success: false,
+                message: `Transaction is already refunded (Ref: ${result.refundReference})`,
+                data: result
             });
-
-        } catch (error) {
-            if (t) await t.rollback();
-            throw error;
         }
 
+        return res.json({
+            success: true,
+            message: `Transaction refunded successfully. ₦${result.amount.toLocaleString()} credited to user wallet.`,
+            data: result
+        });
     } catch (error) {
         logger.error('Admin Refund Transaction Error:', { error: error.message, id });
-        res.status(500).json({ success: false, message: 'Refund failed: ' + error.message });
+        return res.status(500).json({ success: false, message: 'Refund failed: ' + error.message });
     }
 };
 

@@ -326,90 +326,31 @@ class TransactionIntegrityService {
     return this.withLockedTransactionRecord(transaction, dbTransaction, async (original, managedTx) => {
       const compatibility = await this.getWriteCompatibility();
       const metadata = this.getMetadata(original);
-      const existingReference = original.refund_reference || metadata?.integrity?.refund?.refundReference || null;
+      const refundEngine = require('./refundEngine');
 
-      if (existingReference) {
-        const existing = await Transaction.findOne({ where: { reference: existingReference }, transaction: managedTx });
-        if (existing) {
-          if (original.status !== 'refunded') {
-            original.status = 'refunded';
-            Object.assign(
-              original,
-              this.applyIntegrityFieldCompatibility(
-                original,
-                {
-                  integrity_status: 'auto_refunded',
-                  delivery_status: original.delivery_status || 'failed',
-                },
-                compatibility,
-              ),
-            );
-            await original.save({ transaction: managedTx });
-          }
-          return existing;
-        }
-      }
-
-      const refundReference = this.buildRefundReference(original.reference);
-      const priorRefund = await Transaction.findOne({ where: { reference: refundReference }, transaction: managedTx });
-      if (priorRefund) {
-        original.status = 'refunded';
-        Object.assign(
-          original,
-          this.applyIntegrityFieldCompatibility(
-            original,
-            {
-              refund_reference: priorRefund.reference,
-              integrity_status: 'auto_refunded',
-              delivery_status: original.delivery_status || 'failed',
-            },
-            compatibility,
-          ),
-        );
-        original.metadata = {
-          ...metadata,
-          integrity: {
-            ...(metadata.integrity || {}),
-            refund: {
-              refundReference: priorRefund.reference,
-              reason,
-              refundedAt: new Date().toISOString(),
-              resolution: options.resolution || 'automatic',
-            },
-          },
-        };
-        await original.save({ transaction: managedTx });
-        this.emitRefundBalanceUpdate(original.userId, priorRefund);
-        return priorRefund;
-      }
-
-      const user = await User.findByPk(original.userId, { transaction: managedTx });
-      if (!user) {
-        throw new Error('Refund failed because user could not be loaded');
-      }
-
-      const refundTxn = await walletService.credit(
-        user,
-        original.amount,
-        'refund',
-        `Refund for ${original.source}: ${original.reference}`,
-        {
-          reference: refundReference,
-          original_transaction_id: original.id,
-          original_transaction_reference: original.reference,
-          refund_reason: reason,
+      const result = await refundEngine.executeRefund({
+        transactionId: original.id,
+        originalReference: original.reference,
+        refundReference: original.refund_reference || null,
+        amount: original.amount,
+        reason,
+        operator: 'transaction_integrity_service',
+        metadata: {
+          flagAsAnomaly: Boolean(options.flagAsAnomaly),
           resolution: options.resolution || 'automatic',
+          auditEvent: options.auditEvent || 'safe_refund'
         },
-        managedTx,
-      );
+        dbTransaction: managedTx
+      });
 
-      original.status = 'refunded';
+      const refundTxn = result.refundTransaction || await Transaction.findOne({ where: { reference: result.refundReference }, transaction: managedTx });
+
       Object.assign(
         original,
         this.applyIntegrityFieldCompatibility(
           original,
           {
-            refund_reference: refundTxn.reference,
+            refund_reference: result.refundReference,
             delivery_status: 'failed',
             integrity_status: 'auto_refunded',
             anomaly_flag: Boolean(options.flagAsAnomaly),
@@ -417,38 +358,27 @@ class TransactionIntegrityService {
           compatibility,
         ),
       );
-      original.metadata = {
-        ...metadata,
-        integrity: {
-          ...(metadata.integrity || {}),
-          refund: {
-            refundReference: refundTxn.reference,
-            reason,
-            refundedAt: new Date().toISOString(),
-            resolution: options.resolution || 'automatic',
-          },
-        },
-      };
-      await original.save({ transaction: managedTx });
+
       await this.logAudit(
         original,
         'auto_refund_completed',
         {
-          refundReference: refundTxn.reference,
+          refundReference: result.refundReference,
           reason,
           resolution: options.resolution || 'automatic',
         },
         { transaction: managedTx, severity: 'warning', status: 'resolved', resolvedAt: new Date() },
       );
-      this.emitRefundBalanceUpdate(original.userId, refundTxn);
+
       logger.warn('[TransactionIntegrity] Auto refund completed', {
         originalReference: original?.reference || null,
-        refundReference: refundTxn?.reference || null,
+        refundReference: result.refundReference || null,
         userId: original?.userId || null,
-        amount: Number(refundTxn?.amount || 0),
+        amount: Number(refundTxn?.amount || original?.amount || 0),
         balanceAfter: refundTxn?.balance_after ?? null,
         reason: String(reason || ''),
       });
+
       return refundTxn;
     });
   }
@@ -716,17 +646,21 @@ class TransactionIntegrityService {
       }
     }
 
-    const failedWithoutRefund = candidates.filter(
+    const refundCandidatesToVerify = candidates.filter(
       (txn) =>
         PURCHASE_SOURCES.has(String(txn.source || '').toLowerCase()) &&
-        String(txn.status || '').toLowerCase() === 'failed' &&
-        !txn.refund_reference,
+        (String(txn.status || '').toLowerCase() === 'failed' || String(txn.status || '').toLowerCase() === 'refunded' || Boolean(txn.refund_reference)),
     );
 
-    for (const txn of failedWithoutRefund) {
+    for (const txn of refundCandidatesToVerify) {
       await sequelize.transaction(async (dbTransaction) => {
         const locked = await Transaction.findByPk(txn.id, { transaction: dbTransaction, lock: dbTransaction.LOCK.UPDATE });
-        if (!locked || locked.refund_reference || String(locked.status) === 'refunded') return;
+        if (!locked) return;
+        const refundEngine = require('./refundEngine');
+        const refToLookFor = locked.refund_reference || this.buildRefundReference(locked.reference);
+        const existingCredit = await refundEngine.findExistingRefundCredit(refToLookFor, locked.reference, dbTransaction);
+        if (existingCredit) return;
+
         await this.safeRefund(locked, locked.failure_reason || 'Automatic refund recovery for failed delivery', dbTransaction, {
           flagAsAnomaly: true,
           resolution: 'automatic_refund_recovery',

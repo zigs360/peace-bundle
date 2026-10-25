@@ -18,6 +18,7 @@ const { startWalletReconciliationJob } = require('./jobs/walletReconciliationJob
 const { startVirtualAccountFundingReconcileJob } = require('./jobs/virtualAccountFundingReconcileJob');
 const { startTransactionIntegrityJob } = require('./jobs/transactionIntegrityJob');
 const { startDatabaseHealthMonitorJob } = require('./jobs/databaseHealthMonitorJob');
+const { startRefundReconciliationJob } = require('./jobs/refundReconciliationJob');
 const databaseDiagnosticsService = require('./services/databaseDiagnosticsService');
 
 const path = require('path');
@@ -467,6 +468,7 @@ if (require.main === module) {
       startVirtualAccountFundingReconcileJob();
       startTransactionIntegrityJob();
       startDatabaseHealthMonitorJob();
+      startRefundReconciliationJob();
       try {
         const dynamicProviderService = require('./services/dynamicProviderService');
         dynamicProviderService.getPrimaryProvider().catch(() => {});
