@@ -66,12 +66,17 @@ function buildTalkMorePlanPayload(bundle) {
   };
 }
 
+const { Op } = require('sequelize');
+
 async function syncTalkMorePortfolio(CallPlan, { transaction } = {}) {
   for (const bundle of TALKMORE_GIFTING_BUNDLES) {
     const payload = buildTalkMorePlanPayload(bundle);
     const existing = await CallPlan.findOne({
       where: {
-        shortCode: bundle.shortCode,
+        [Op.or]: [
+          { shortCode: bundle.shortCode },
+          { internalSequenceNumber: bundle.internalSequenceNumber }
+        ]
       },
       transaction,
     });

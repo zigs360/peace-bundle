@@ -673,7 +673,6 @@ const connectDB = async () => {
 
       try {
         await sequelize.query('DELETE FROM "Wallets" WHERE "userId" IS NULL').catch(() => null);
-        await sequelize.query('DELETE FROM wallets WHERE "userId" IS NULL').catch(() => null);
       } catch (e) {
         void e;
       }
@@ -1208,7 +1207,14 @@ const connectDB = async () => {
           await Promise.all(
             providers.flatMap((provider) =>
               (provider.bundles || []).map(async (bundle) => {
-                const existing = await CallPlan.findOne({ where: { provider: provider.key, api_plan_id: bundle.code } });
+                const existing = await CallPlan.findOne({
+                  where: {
+                    [Op.or]: [
+                      { provider: provider.key, api_plan_id: bundle.code },
+                      { shortCode: bundle.code },
+                    ],
+                  },
+                });
                 if (existing) {
                   existing.name = bundle.name;
                   existing.price = bundle.price;
