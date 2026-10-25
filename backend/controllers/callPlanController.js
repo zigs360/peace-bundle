@@ -834,8 +834,13 @@ const listManagedCallSubPlans = async (req, res) => {
       order: [['price', 'ASC'], ['createdAt', 'ASC']],
     }));
 
-    if (plans.length === 0 && (!portfolio || portfolio === 'standard')) {
+    if (plans.length === 0) {
       const defaultBundles = provider.bundles || [];
+      const targetPortfolio = portfolio || (provider.key === 'airtel' ? 'talkmore' : 'standard');
+      const targetBundleClass = (provider.key === 'airtel' || portfolio === 'talkmore')
+        ? TALKMORE_GIFTING_BUNDLE_CLASS
+        : 'generic_voice';
+
       for (const b of defaultBundles) {
         try {
           await CallPlan.create({
@@ -849,13 +854,21 @@ const listManagedCallSubPlans = async (req, res) => {
             shortCode: b.code,
             api_plan_id: b.code,
             status: 'active',
-            portfolio: 'standard',
-            bundleClass: 'generic_voice',
+            portfolio: targetPortfolio,
+            bundleClass: targetBundleClass,
           });
         } catch (_) {}
       }
       plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
         where,
+        order: [['price', 'ASC'], ['createdAt', 'ASC']],
+      }));
+    }
+
+    // Fallback: If portfolio query yielded 0 items, fetch all plans for this provider
+    if (plans.length === 0 && portfolio) {
+      plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
+        where: { provider: provider.key },
         order: [['price', 'ASC'], ['createdAt', 'ASC']],
       }));
     }

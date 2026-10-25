@@ -41,6 +41,7 @@ export default function ApiProviders() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncingId, setIsSyncingId] = useState<string | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
   const [editingProvider, setEditingProvider] = useState<ApiProvider | null>(null);
 
   const [formData, setFormData] = useState({
@@ -199,6 +200,22 @@ export default function ApiProviders() {
       toast.error(err.response?.data?.message || `Failed to sync SIMs from ${provider.name}`);
     } finally {
       setIsSyncingId(null);
+    }
+  };
+
+  const handleTestConnection = async (id: string, name: string) => {
+    try {
+      setTestingId(id);
+      const res = await api.post(`/admin/providers/${id}/test`);
+      if (res.data?.success) {
+        toast.success(res.data.message || `Connected to ${name} successfully!`, { duration: 6000 });
+      } else {
+        toast.error(res.data?.message || `Failed to connect to ${name}`, { duration: 7000 });
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || `Connection failed for ${name}`, { duration: 6000 });
+    } finally {
+      setTestingId(null);
     }
   };
 
@@ -368,6 +385,15 @@ export default function ApiProviders() {
 
               {/* Action Buttons */}
               <div className="pt-3 border-t border-slate-100 flex flex-col gap-2">
+                <button
+                  onClick={() => handleTestConnection(p.id, p.name)}
+                  disabled={testingId === p.id}
+                  className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <ShieldCheck className={`w-3.5 h-3.5 ${testingId === p.id ? 'animate-spin' : 'text-blue-600'}`} />
+                  {testingId === p.id ? 'Testing Connection...' : 'Test Connection'}
+                </button>
+
                 {!p.is_primary && (
                   <button
                     onClick={() => handleActivate(p.id)}

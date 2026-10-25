@@ -289,5 +289,18 @@ describe('Dynamic API Provider Orchestration', () => {
     expect(mtnDataProvider).toBeDefined();
     expect(mtnDataProvider.slug).toBe('quicklysim');
   });
+
+  it('tests live provider connection via POST /api/admin/providers/:id/test', async () => {
+    const provider = await ApiProvider.findOne({ where: { slug: 'quicklysim' } });
+    expect(provider).toBeDefined();
+
+    const testRes = await request(app)
+      .post(`/api/admin/providers/${provider.id}/test`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(testRes.status).toBe(200);
+    expect(testRes.body).toHaveProperty('success');
+    expect(testRes.body).toHaveProperty('message');
+  });
 });
 

@@ -10,6 +10,8 @@ const {
   syncProviderSims,
   getProviderRoutes,
   updateProviderRoutes,
+  testProvider,
+  testProviderCustom,
 } = require('../controllers/apiProviderController');
 
 // All provider endpoints require Admin access
@@ -19,6 +21,10 @@ router.post('/', protect, admin, createProvider);
 // Custom granular routing endpoints
 router.get('/routes', protect, admin, getProviderRoutes);
 router.put('/routes', protect, admin, updateProviderRoutes);
+
+// Test provider connectivity
+router.post('/test', protect, admin, testProviderCustom);
+router.post('/:id/test', protect, admin, testProvider);
 
 router.put('/:id', protect, admin, updateProvider);
 router.post('/:id/activate', protect, admin, activateProvider);

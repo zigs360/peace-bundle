@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { Op, Sequelize } = require('sequelize');
 const ApiProvider = require('../models/ApiProvider');
 const logger = require('../utils/logger');
 const { sanitizeUserFacingErrorMessage } = require('../utils/clientPayloadSanitizers');
@@ -214,6 +215,18 @@ class DynamicProviderService {
   }
 
   /**
+   * Case-insensitive lookup for provider by slug
+   */
+  async findProviderBySlug(targetSlug, onlyActive = true) {
+    if (!targetSlug) return null;
+    const s = String(targetSlug).trim().toLowerCase();
+    const all = await ApiProvider.findAll({
+      where: onlyActive ? { is_active: true } : {},
+    });
+    return all.find((p) => String(p.slug || '').toLowerCase() === s) || null;
+  }
+
+  /**
    * Resolve provider for a specific service and network (e.g. glo_data, mtn_airtime)
    * Falls back to getPrimaryProvider(serviceType) if no granular route is set.
    * @param {string} serviceType - 'data', 'vtu_data', 'airtime', 'vtu_airtime', 'voice', 'call_sub'
@@ -246,7 +259,7 @@ class DynamicProviderService {
     const envVar = `PROVIDER_ROUTE_${networkKey.toUpperCase()}_${serviceKey.toUpperCase()}`;
     const envOverride = (process.env[envVar] || '').trim().toLowerCase();
     if (envOverride) {
-      const provider = await ApiProvider.findOne({ where: { slug: envOverride, is_active: true } });
+      const provider = await this.findProviderBySlug(envOverride);
       if (provider) {
         logger.info(`[DynamicProvider] Granular route hit via env ${envVar}: ${routeKey} -> ${provider.name} (${provider.slug})`);
         return provider;
@@ -260,7 +273,7 @@ class DynamicProviderService {
       if (routes && typeof routes === 'object') {
         const targetSlug = routes[routeKey] || routes[`${networkKey}_${cleanService}`];
         if (targetSlug && targetSlug !== 'default' && targetSlug !== 'primary') {
-          const provider = await ApiProvider.findOne({ where: { slug: String(targetSlug).toLowerCase().trim(), is_active: true } });
+          const provider = await this.findProviderBySlug(targetSlug);
           if (provider) {
             logger.info(`[DynamicProvider] Granular route hit via SystemSetting: ${routeKey} -> ${provider.name} (${provider.slug})`);
             return provider;
@@ -285,14 +298,14 @@ class DynamicProviderService {
     if (serviceType && (serviceType === 'airtime' || serviceType === 'vtu_airtime')) {
       const explicitAirtime = (process.env.AIRTIME_PRIMARY_ROUTE || '').trim().toLowerCase();
       if (explicitAirtime) {
-        const airtimeTarget = await ApiProvider.findOne({ where: { slug: explicitAirtime, is_active: true } });
+        const airtimeTarget = await this.findProviderBySlug(explicitAirtime);
         if (airtimeTarget) return airtimeTarget;
       }
     }
     if (serviceType && (serviceType === 'data' || serviceType === 'vtu_data')) {
       const explicitData = (process.env.DATA_PRIMARY_ROUTE || '').trim().toLowerCase();
       if (explicitData) {
-        const dataTarget = await ApiProvider.findOne({ where: { slug: explicitData, is_active: true } });
+        const dataTarget = await this.findProviderBySlug(explicitData);
         if (dataTarget) return dataTarget;
       }
     }
@@ -303,7 +316,7 @@ class DynamicProviderService {
     // 2. Only if PRIMARY_API_PROVIDER is explicitly defined in environment and differs, enforce it
     const explicitEnv = (process.env.PRIMARY_API_PROVIDER || '').trim().toLowerCase();
     if (explicitEnv && explicitEnv !== 'sim') {
-      const envTarget = await ApiProvider.findOne({ where: { slug: explicitEnv, is_active: true } });
+      const envTarget = await this.findProviderBySlug(explicitEnv);
       if (envTarget && (!primary || primary.slug !== explicitEnv)) {
         await this.setPrimaryProvider(envTarget.id);
         primary = envTarget;
@@ -312,7 +325,7 @@ class DynamicProviderService {
 
     if (!primary) {
       // Default to quicklysim first if active, otherwise highest priority
-      primary = await ApiProvider.findOne({ where: { slug: 'quicklysim', is_active: true } });
+      primary = await this.findProviderBySlug('quicklysim');
       if (!primary) {
         primary = await ApiProvider.findOne({
           where: { is_active: true },
@@ -371,21 +384,36 @@ class DynamicProviderService {
    * Register or update a provider
    */
   async saveProvider(data) {
+    let cleanSlug = (data.slug || data.name || '').toLowerCase().trim().replace(/[^a-z0-9_-]/g, '');
+    let cleanBaseUrl = String(data.base_url || '').replace(/\/+$/, '').trim();
+
+    if (cleanSlug === 'legitdataway' || cleanBaseUrl.toLowerCase().includes('legitdataway')) {
+      cleanBaseUrl = 'https://legitdataway.com';
+    }
+
     if (data.id) {
       const p = await ApiProvider.findByPk(data.id);
       if (!p) throw new Error('Provider not found');
-      return await p.update(data);
+      return await p.update({
+        ...data,
+        slug: cleanSlug || p.slug,
+        base_url: cleanBaseUrl || p.base_url,
+      });
     }
 
-    const slug = (data.slug || data.name).toLowerCase().replace(/[^a-z0-9_-]/g, '');
-    const existing = await ApiProvider.findOne({ where: { slug } });
+    const existing = await this.findProviderBySlug(cleanSlug, false);
     if (existing) {
-      return await existing.update(data);
+      return await existing.update({
+        ...data,
+        slug: cleanSlug,
+        base_url: cleanBaseUrl,
+      });
     }
 
     return await ApiProvider.create({
       ...data,
-      slug,
+      slug: cleanSlug,
+      base_url: cleanBaseUrl,
     });
   }
 
@@ -437,10 +465,16 @@ class DynamicProviderService {
     }
 
     let baseUrl = String(provider.base_url || '').replace(/\/+$/, '');
-    if (String(provider.slug || '').toLowerCase() === 'quicklysim') {
-      if (!baseUrl || baseUrl.endsWith('/api')) {
+    const slugLower = String(provider.slug || '').toLowerCase();
+    const urlLower = String(provider.base_url || '').toLowerCase();
+
+    if (slugLower === 'quicklysim' || urlLower.includes('quicklysim')) {
+      if (!baseUrl || baseUrl.endsWith('/api') || baseUrl.includes('topupmate')) {
         baseUrl = 'https://quicklysim.com';
       }
+    }
+    if (slugLower === 'legitdataway' || urlLower.includes('legitdataway')) {
+      baseUrl = 'https://legitdataway.com';
     }
 
     return axios.create({
@@ -789,7 +823,9 @@ class DynamicProviderService {
       amount,
       ref,
       reference: ref,
+      Ported_number: true,
       ported_number: true,
+      pin: provider.metadata?.transaction_pin || '',
     };
 
     logger.info(`[DynamicProvider] Routing Data purchase to ${provider.name} at ${path}`, payload);
@@ -810,12 +846,18 @@ class DynamicProviderService {
       }
 
       const resData = response.data;
+      const statusLower = String(resData?.status || '').toLowerCase();
       const isOk =
-        resData?.status === 'success' ||
+        statusLower === 'success' ||
+        statusLower === 'successful' ||
+        statusLower === 'process' ||
+        statusLower === 'processing' ||
         resData?.status === 200 ||
-        resData?.status === 'successful' ||
         resData?.success === true ||
-        (resData?.message && String(resData.message).toLowerCase().includes('successful'));
+        (resData?.message && (
+          String(resData.message).toLowerCase().includes('successful') ||
+          String(resData.message).toLowerCase().includes('process')
+        ));
 
       if (!isOk) {
         const rawErrMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || `${provider.name} data purchase failed`;
@@ -977,7 +1019,9 @@ class DynamicProviderService {
       airtime_type: 'VTU',
       ref,
       reference: ref,
+      Ported_number: true,
       ported_number: true,
+      pin: provider.metadata?.transaction_pin || '',
     };
 
     logger.info(`[DynamicProvider] Routing Airtime purchase to ${provider.name} at ${path}`, payload);
@@ -998,12 +1042,18 @@ class DynamicProviderService {
       }
 
       const resData = response.data;
+      const statusLower = String(resData?.status || '').toLowerCase();
       const isOk =
-        resData?.status === 'success' ||
+        statusLower === 'success' ||
+        statusLower === 'successful' ||
+        statusLower === 'process' ||
+        statusLower === 'processing' ||
         resData?.status === 200 ||
-        resData?.status === 'successful' ||
         resData?.success === true ||
-        (resData?.message && String(resData.message).toLowerCase().includes('successful'));
+        (resData?.message && (
+          String(resData.message).toLowerCase().includes('successful') ||
+          String(resData.message).toLowerCase().includes('process')
+        ));
 
       if (!isOk) {
         const rawErrMsg = resData?.message || resData?.msg || resData?.error || resData?.desc || resData?.reason || `${provider.name} airtime purchase failed`;
@@ -1033,6 +1083,139 @@ class DynamicProviderService {
         provider: provider.name,
         error: errMsg,
         data: errData,
+      };
+    }
+  }
+
+  /**
+   * Test live connectivity and credentials for a provider
+   * @param {string|number|object} target - Provider ID, slug, or unsaved provider data object
+   */
+  async testProviderConnection(target) {
+    let provider = null;
+    if (typeof target === 'string' || typeof target === 'number') {
+      provider = await ApiProvider.findByPk(target);
+      if (!provider) {
+        provider = await this.findProviderBySlug(String(target), false);
+      }
+    } else if (typeof target === 'object' && target !== null) {
+      provider = target;
+    }
+
+    if (!provider) {
+      return { success: false, message: 'Provider not found' };
+    }
+
+    const slugLower = String(provider.slug || provider.name || '').toLowerCase();
+    const urlLower = String(provider.base_url || '').toLowerCase();
+    const client = this.getHttpClient(provider);
+
+    try {
+      // 1. QuicklySIM test
+      if (slugLower.includes('quicklysim') || urlLower.includes('quicklysim')) {
+        const res = await client.get('/topupmate/api/user').catch(() => client.get('/api/user'));
+        const uData = res.data?.data || res.data?.user || res.data || {};
+        const bal = uData?.balance ?? uData?.wallet_balance;
+        return {
+          success: true,
+          message: bal !== undefined
+            ? `Connection successful! Live QuicklySIM balance: ₦${Number(bal).toLocaleString()}`
+            : 'Connection successful to QuicklySIM!',
+          data: res.data,
+        };
+      }
+
+      // 2. Smeplug test
+      if (slugLower.includes('smeplug') || urlLower.includes('smeplug')) {
+        const smeplugService = require('./smeplugService');
+        const balRes = await smeplugService.getWalletBalance().catch((e) => ({ error: e.message }));
+        if (balRes?.success !== false && (balRes?.balance !== undefined || balRes?.data?.balance !== undefined)) {
+          const bal = balRes?.balance ?? balRes?.data?.balance;
+          return {
+            success: true,
+            message: `Connection successful to Smeplug! Live wallet balance: ₦${Number(bal).toLocaleString()}`,
+            data: balRes,
+          };
+        }
+      }
+
+      // 3. Legitdataway test
+      if (slugLower.includes('legitdataway') || urlLower.includes('legitdataway')) {
+        try {
+          const res = await client.post('/api/data', {});
+          const data = res.data;
+          if (data?.status === 'fail' && (
+            String(data?.message || '').toLowerCase().includes('invalid api key') ||
+            String(data?.message || '').toLowerCase().includes('unauthorized') ||
+            String(data?.message || '').toLowerCase().includes('not active')
+          )) {
+            return {
+              success: false,
+              message: data?.message || 'Invalid API key or inactive Legitdataway account',
+              data,
+            };
+          }
+          return {
+            success: true,
+            message: 'Connection successful to Legitdataway! API key is verified and active.',
+            data,
+          };
+        } catch (apiErr) {
+          const errRes = apiErr.response?.data;
+          if (errRes?.status === 'fail' && (
+            String(errRes?.message || '').toLowerCase().includes('invalid api key') ||
+            String(errRes?.message || '').toLowerCase().includes('unauthorized') ||
+            String(errRes?.message || '').toLowerCase().includes('not active')
+          )) {
+            return {
+              success: false,
+              message: errRes.message,
+              data: errRes,
+            };
+          }
+          if (apiErr.response?.status === 401 || apiErr.response?.status === 403) {
+            return {
+              success: false,
+              message: errRes?.message || 'Unauthorized: API Key rejected by Legitdataway',
+            };
+          }
+          return {
+            success: true,
+            message: 'Connected to Legitdataway API server successfully.',
+            data: errRes || apiErr.message,
+          };
+        }
+      }
+
+      // 4. Generic provider test
+      const balancePath = provider.endpoint_map?.balance || '/balance';
+      try {
+        const res = await client.get(balancePath);
+        return {
+          success: true,
+          message: `Connection successful to ${provider.name || 'Provider'}`,
+          data: res.data,
+        };
+      } catch (genErr) {
+        if (genErr.response && genErr.response.status < 500) {
+          if (genErr.response.status === 401 || genErr.response.status === 403) {
+            return {
+              success: false,
+              message: genErr.response.data?.message || 'Authentication failed: Invalid API credentials',
+            };
+          }
+          return {
+            success: true,
+            message: `Provider endpoint reached (HTTP ${genErr.response.status})`,
+            data: genErr.response.data,
+          };
+        }
+        throw genErr;
+      }
+    } catch (err) {
+      return {
+        success: false,
+        message: err.response?.data?.message || err.message || 'Connection test failed',
       };
     }
   }

@@ -47,13 +47,22 @@ export default function Airtel() {
         api.get('/callplans/admin/call-sub/airtel/plans', { params: { portfolio: 'talkmore' } }),
         api.get('/callplans/admin/call-sub/airtel/stock'),
       ]);
+      let loadedPlans = plansRes.data?.items || [];
+      if (loadedPlans.length === 0) {
+        try {
+          const fallbackRes = await api.get('/callplans/admin/call-sub/airtel/plans');
+          if (fallbackRes.data?.items?.length) {
+            loadedPlans = fallbackRes.data.items;
+          }
+        } catch (_) {}
+      }
       setAnalytics(analyticsRes.data);
       setMonitoring(monitoringRes.data?.data || null);
-      setPlans(plansRes.data?.items || []);
+      setPlans(loadedPlans);
       setStock(stockRes.data?.items || []);
       setCommissionInput((prev) => ({
         ...prev,
-        planId: prev.planId || plansRes.data?.items?.[0]?.id || '',
+        planId: prev.planId || loadedPlans[0]?.id || '',
       }));
     } finally {
       setLoading(false);

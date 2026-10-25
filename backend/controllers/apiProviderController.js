@@ -200,6 +200,33 @@ const updateProviderRoutes = async (req, res) => {
   }
 };
 
+// @desc    Test live provider connection
+// @route   POST /api/admin/providers/:id/test
+// @access  Private (Admin)
+const testProvider = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await dynamicProviderService.testProviderConnection(id);
+    res.json(result);
+  } catch (err) {
+    logger.error(`[ApiProvider] Error testing provider ${req.params.id}: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message || 'Failed to test provider connection' });
+  }
+};
+
+// @desc    Test live provider connection with custom body before saving
+// @route   POST /api/admin/providers/test
+// @access  Private (Admin)
+const testProviderCustom = async (req, res) => {
+  try {
+    const result = await dynamicProviderService.testProviderConnection(req.body);
+    res.json(result);
+  } catch (err) {
+    logger.error(`[ApiProvider] Error testing provider configuration: ${err.message}`);
+    res.status(500).json({ success: false, message: err.message || 'Failed to test provider connection' });
+  }
+};
+
 module.exports = {
   getProviders,
   createProvider,
@@ -209,5 +236,7 @@ module.exports = {
   syncProviderSims,
   getProviderRoutes,
   updateProviderRoutes,
+  testProvider,
+  testProviderCustom,
 };
 
