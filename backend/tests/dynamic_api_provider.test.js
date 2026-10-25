@@ -302,5 +302,89 @@ describe('Dynamic API Provider Orchestration', () => {
     expect(testRes.body).toHaveProperty('success');
     expect(testRes.body).toHaveProperty('message');
   });
+
+  it('generates unique request-id starting with Data_ for Legitdataway data purchase and includes headers', async () => {
+    let capturedPayload = null;
+    let capturedHeaders = null;
+
+    // Spy on getHttpClient for legitdataway
+    const originalGetHttpClient = dynamicProviderService.getHttpClient.bind(dynamicProviderService);
+    jest.spyOn(dynamicProviderService, 'getHttpClient').mockImplementation((prov) => {
+      if (String(prov.slug).includes('legitdataway')) {
+        return {
+          post: async (path, payload, config) => {
+            capturedPayload = payload;
+            capturedHeaders = config?.headers;
+            return {
+              data: {
+                status: 'success',
+                message: 'Transaction Successful',
+                'request-id': payload['request-id'],
+                ident: payload['request-id'],
+              },
+            };
+          },
+        };
+      }
+      return originalGetHttpClient(prov);
+    });
+
+    const res = await dynamicProviderService.purchaseData('glo', '08055551234', '10', 210, 'legitdataway', {
+      reference: 'DATA-TEST-1234',
+    });
+
+    expect(res.success).toBe(true);
+    expect(capturedPayload).toBeDefined();
+    expect(capturedPayload['request-id']).toMatch(/^Data_\d+_\d+$/);
+    expect(capturedPayload.request_id).toBe(capturedPayload['request-id']);
+    expect(capturedPayload.network).toBe(2); // Glo is 2
+    expect(capturedPayload.Ported_number).toBe(true);
+    expect(capturedHeaders['request-id']).toBe(capturedPayload['request-id']);
+
+    dynamicProviderService.getHttpClient.mockRestore();
+  });
+
+  it('generates unique request-id starting with Airtime_ for Legitdataway airtime purchase and includes headers', async () => {
+    let capturedPayload = null;
+    let capturedHeaders = null;
+
+    jest.spyOn(dynamicProviderService, 'getHttpClient').mockImplementation((prov) => {
+      if (String(prov.slug).includes('legitdataway')) {
+        return {
+          post: async (path, payload, config) => {
+            capturedPayload = payload;
+            capturedHeaders = config?.headers;
+            return {
+              data: {
+                status: 'success',
+                message: 'Transaction Successful',
+                'request-id': payload['request-id'],
+              },
+            };
+          },
+        };
+      }
+      return dynamicProviderService.getHttpClient(prov);
+    });
+
+    const res = await dynamicProviderService.purchaseAirtime('glo', 100, '08055551234', {
+      providerSlug: 'legitdataway',
+      reference: 'AIR-TEST-1234',
+    });
+
+    expect(res.success).toBe(true);
+    expect(capturedPayload).toBeDefined();
+    expect(capturedPayload['request-id']).toMatch(/^Airtime_\d+_\d+$/);
+    expect(capturedPayload.network).toBe(2);
+    expect(capturedHeaders['request-id']).toBe(capturedPayload['request-id']);
+
+    dynamicProviderService.getHttpClient.mockRestore();
+  });
+
+  it('serves missing upload images as transparent pixel without 404 error', async () => {
+    const res = await request(app).get('/uploads/missing_avatar_1789022279437.jpg');
+    expect(res.status).toBe(200);
+    expect(res.header['content-type']).toContain('image/gif');
+  });
 });
 

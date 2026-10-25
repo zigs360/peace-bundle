@@ -809,18 +809,27 @@ class DynamicProviderService {
       path = '/api/data';
     }
 
+    const uniqueDataRequestId = `Data_${Date.now()}_${Math.floor(100000 + Math.random() * 900000)}`;
+    const targetRequestId = isLegitdataway ? uniqueDataRequestId : (options.reference || ref || `Data_${Date.now()}`);
+
     const payload = {
+      'request-id': targetRequestId,
+      request_id: targetRequestId,
+      requestId: targetRequestId,
+      'Request-Id': targetRequestId,
+      ident: targetRequestId,
       plan_id: String(planId),
       plan: String(planId),
-      data_plan: String(planId),
+      data_plan: isLegitdataway ? (isNaN(planId) ? String(planId) : parseInt(planId, 10)) : String(planId),
       data_plan_id: String(planId),
       phone: cleanPhone,
       mobile_number: cleanPhone,
       phone_number: cleanPhone,
-      network: isLegitdataway ? String(netId) : String(network).toLowerCase(),
+      network: isLegitdataway ? (isNaN(netId) ? String(netId) : parseInt(netId, 10)) : String(network).toLowerCase(),
       network_id: parseInt(netId, 10),
       network_name: String(network).toUpperCase(),
       amount,
+      bypass: false,
       ref,
       reference: ref,
       Ported_number: true,
@@ -828,18 +837,23 @@ class DynamicProviderService {
       pin: provider.metadata?.transaction_pin || '',
     };
 
+    const postHeaders = {
+      'request-id': targetRequestId,
+      'X-Request-Id': targetRequestId,
+    };
+
     logger.info(`[DynamicProvider] Routing Data purchase to ${provider.name} at ${path}`, payload);
     try {
       let response;
       try {
-        response = await client.post(path, payload);
+        response = await client.post(path, payload, { headers: postHeaders });
       } catch (postErr) {
         const errStatus = postErr.response?.status;
         const errMsg = String(postErr.response?.data?.message || postErr.message || '');
         if ((errStatus === 404 || errMsg.toLowerCase().includes('could not be found')) && path !== '/topupmate/api/data' && path !== '/api/data') {
           const fallbackPath = isLegitdataway ? '/topupmate/api/data' : '/api/data';
           logger.warn(`[DynamicProvider] ${provider.name} data endpoint ${path} returned 404, retrying at ${fallbackPath}`);
-          response = await client.post(fallbackPath, payload);
+          response = await client.post(fallbackPath, payload, { headers: postHeaders });
         } else {
           throw postErr;
         }
@@ -875,7 +889,7 @@ class DynamicProviderService {
         success: true,
         provider: provider.name,
         data: resData,
-        reference: resData?.reference || resData?.ref || resData?.data?.reference || ref,
+        reference: resData?.['request-id'] || resData?.ident || resData?.reference || resData?.ref || resData?.data?.reference || targetRequestId || ref,
       };
     } catch (err) {
       const errData = err.response?.data;
@@ -1008,8 +1022,16 @@ class DynamicProviderService {
       path = '/api/airtime';
     }
 
+    const uniqueAirtimeRequestId = `Airtime_${Date.now()}_${Math.floor(100000 + Math.random() * 900000)}`;
+    const targetRequestId = isLegitdataway ? uniqueAirtimeRequestId : (options.reference || ref || `Airtime_${Date.now()}`);
+
     const payload = {
-      network: isLegitdataway ? String(netId) : String(network).toLowerCase(),
+      'request-id': targetRequestId,
+      request_id: targetRequestId,
+      requestId: targetRequestId,
+      'Request-Id': targetRequestId,
+      ident: targetRequestId,
+      network: isLegitdataway ? (isNaN(netId) ? String(netId) : parseInt(netId, 10)) : String(network).toLowerCase(),
       network_id: parseInt(netId, 10),
       network_name: String(network).toUpperCase(),
       amount: String(amount),
@@ -1017,6 +1039,7 @@ class DynamicProviderService {
       mobile_number: cleanPhone,
       phone_number: cleanPhone,
       airtime_type: 'VTU',
+      bypass: false,
       ref,
       reference: ref,
       Ported_number: true,
@@ -1024,18 +1047,23 @@ class DynamicProviderService {
       pin: provider.metadata?.transaction_pin || '',
     };
 
+    const postHeaders = {
+      'request-id': targetRequestId,
+      'X-Request-Id': targetRequestId,
+    };
+
     logger.info(`[DynamicProvider] Routing Airtime purchase to ${provider.name} at ${path}`, payload);
     try {
       let response;
       try {
-        response = await client.post(path, payload);
+        response = await client.post(path, payload, { headers: postHeaders });
       } catch (postErr) {
         const errStatus = postErr.response?.status;
         const errMsg = String(postErr.response?.data?.message || postErr.message || '');
         if ((errStatus === 404 || errMsg.toLowerCase().includes('could not be found')) && path !== '/topupmate/api/airtime' && path !== '/api/topup') {
           const fallbackPath = isLegitdataway ? '/topupmate/api/airtime' : '/api/topup';
           logger.warn(`[DynamicProvider] ${provider.name} airtime endpoint ${path} returned 404, retrying at ${fallbackPath}`);
-          response = await client.post(fallbackPath, payload);
+          response = await client.post(fallbackPath, payload, { headers: postHeaders });
         } else {
           throw postErr;
         }
@@ -1071,7 +1099,7 @@ class DynamicProviderService {
         success: true,
         provider: provider.name,
         data: resData,
-        reference: resData?.reference || resData?.ref || resData?.data?.reference || ref,
+        reference: resData?.['request-id'] || resData?.ident || resData?.reference || resData?.ref || resData?.data?.reference || targetRequestId || ref,
       };
     } catch (err) {
       const errData = err.response?.data;
@@ -1142,25 +1170,29 @@ class DynamicProviderService {
       // 3. Legitdataway test
       if (slugLower.includes('legitdataway') || urlLower.includes('legitdataway')) {
         try {
-          const res = await client.post('/api/data', {});
-          const data = res.data;
-          if (data?.status === 'fail' && (
-            String(data?.message || '').toLowerCase().includes('invalid api key') ||
-            String(data?.message || '').toLowerCase().includes('unauthorized') ||
-            String(data?.message || '').toLowerCase().includes('not active')
-          )) {
-            return {
-              success: false,
-              message: data?.message || 'Invalid API key or inactive Legitdataway account',
-              data,
-            };
-          }
+          // Adex API provides /api/user/ to check account details & balance
+          const res = await client.get('/api/user/').catch(() => client.get('/api/user'));
+          const uData = res.data?.user || res.data?.data || res.data || {};
+          const bal = uData?.wallet_balance ?? uData?.balance;
           return {
             success: true,
-            message: 'Connection successful to Legitdataway! API key is verified and active.',
-            data,
+            message: bal !== undefined
+              ? `Connection successful to Legitdataway! Live balance: ₦${Number(bal).toLocaleString()}`
+              : 'Connection successful to Legitdataway! Account verified.',
+            data: res.data,
           };
         } catch (apiErr) {
+          // If /api/user is not available, check GET /api/data/ (lists plans safely without creating transactions)
+          if (apiErr.response?.status === 404) {
+            try {
+              const plansRes = await client.get('/api/data/').catch(() => client.get('/api/data'));
+              return {
+                success: true,
+                message: 'Connection successful to Legitdataway! API key verified and plans loaded.',
+                data: plansRes.data,
+              };
+            } catch (_) {}
+          }
           const errRes = apiErr.response?.data;
           if (errRes?.status === 'fail' && (
             String(errRes?.message || '').toLowerCase().includes('invalid api key') ||

@@ -372,6 +372,18 @@ app.use(morgan(morganFormat, {
 // Serve static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Graceful fallback for missing uploads (e.g. avatars, temporary receipts) to prevent 404 error log pollution
+app.use('/uploads', (req, res) => {
+  if (req.path.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)) {
+    // 1x1 transparent GIF
+    const transparentPixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    res.setHeader('Content-Type', 'image/gif');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.status(200).send(transparentPixel);
+  }
+  return res.status(404).json({ success: false, message: 'File not found' });
+});
+
 // Basic Route
 app.get('/', (req, res) => {
   res.send('Peace Bundlle API is running');
