@@ -411,6 +411,53 @@ const ensureSafeHavenDeprecationMigrationApplied = async () => {
   }
 };
 
+const ensureDepositReconciliationAuditMigrationApplied = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20261025_deposit_reconciliation_audit.sql');
+  try {
+    const result = await applySqlMigrationFile({ id: '20261025_deposit_reconciliation_audit', filePath: migrationFilePath });
+    if (result.applied) {
+      console.log(`[DB] Applied SQL migration: ${result.id}`);
+    }
+  } catch (error) {
+    console.error(`[DB] Migration error for deposit reconciliation audit, applying fallback: ${error.message}`);
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS "deposit_reconciliation_audits" (
+          "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          "transaction_reference" VARCHAR(255) NOT NULL,
+          "user_id" UUID NOT NULL REFERENCES "Users"("id") ON DELETE CASCADE,
+          "wallet_id" UUID REFERENCES "Wallets"("id") ON DELETE SET NULL,
+          "transaction_id" UUID REFERENCES "transactions"("id") ON DELETE SET NULL,
+          "amount" DECIMAL(15, 2) NOT NULL,
+          "gateway_provider" VARCHAR(64) NOT NULL,
+          "account_number" VARCHAR(64),
+          "reconciliation_type" VARCHAR(64) NOT NULL DEFAULT 'historical_batch',
+          "status" VARCHAR(32) NOT NULL DEFAULT 'settled',
+          "is_reconciled" BOOLEAN NOT NULL DEFAULT true,
+          "wallet_balance_before" DECIMAL(15, 2),
+          "wallet_balance_after" DECIMAL(15, 2),
+          "metadata" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "timestamp_credited" TIMESTAMPTZ,
+          "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS "idx_deposit_recon_audits_user_id" ON "deposit_reconciliation_audits" ("user_id");
+        CREATE INDEX IF NOT EXISTS "idx_deposit_recon_audits_wallet_id" ON "deposit_reconciliation_audits" ("wallet_id");
+        CREATE INDEX IF NOT EXISTS "idx_deposit_recon_audits_tx_ref" ON "deposit_reconciliation_audits" ("transaction_reference");
+        CREATE INDEX IF NOT EXISTS "idx_deposit_recon_audits_status" ON "deposit_reconciliation_audits" ("status");
+        CREATE INDEX IF NOT EXISTS "idx_deposit_recon_audits_provider" ON "deposit_reconciliation_audits" ("gateway_provider");
+        CREATE INDEX IF NOT EXISTS "idx_deposit_recon_audits_recon_type" ON "deposit_reconciliation_audits" ("reconciliation_type");
+        CREATE INDEX IF NOT EXISTS "idx_deposit_recon_audits_created_at" ON "deposit_reconciliation_audits" ("createdAt" DESC);
+      `);
+      await recordSqlMigrationApplied('20261025_deposit_reconciliation_audit');
+    } catch (fallbackErr) {
+      console.error(`[DB] Direct fallback for deposit_reconciliation_audits failed: ${fallbackErr.message}`);
+    }
+  }
+};
+
 // Import models (Top Level)
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
@@ -451,6 +498,7 @@ const TransactionIntegrityAudit = require('../models/TransactionIntegrityAudit')
 const AccountDeletionRequest = require('../models/AccountDeletionRequest');
 const AccountDeletionAudit = require('../models/AccountDeletionAudit');
 const ApiProvider = require('../models/ApiProvider');
+const DepositReconciliationAudit = require('../models/DepositReconciliationAudit');
 
 // Define Associations (Top Level)
 
@@ -610,6 +658,15 @@ try {
   User.hasMany(AccountDeletionAudit, { foreignKey: 'adminId', as: 'accountDeletionAdminAudits', onDelete: 'SET NULL' });
   AccountDeletionAudit.belongsTo(User, { foreignKey: 'adminId', as: 'admin' });
 
+  User.hasMany(DepositReconciliationAudit, { foreignKey: 'userId', as: 'depositReconciliationAudits', onDelete: 'CASCADE' });
+  DepositReconciliationAudit.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  Wallet.hasMany(DepositReconciliationAudit, { foreignKey: 'walletId', as: 'depositReconciliationAudits', onDelete: 'SET NULL' });
+  DepositReconciliationAudit.belongsTo(Wallet, { foreignKey: 'walletId', as: 'wallet' });
+
+  Transaction.hasMany(DepositReconciliationAudit, { foreignKey: 'transactionId', as: 'depositReconciliationAudits', onDelete: 'SET NULL' });
+  DepositReconciliationAudit.belongsTo(Transaction, { foreignKey: 'transactionId', as: 'transaction' });
+
   CallPlan.hasMany(VoiceBundlePurchase, { foreignKey: 'callPlanId', as: 'voiceBundlePurchases', onDelete: 'CASCADE' });
   VoiceBundlePurchase.belongsTo(CallPlan, { foreignKey: 'callPlanId', as: 'callPlan' });
 
@@ -658,6 +715,7 @@ const connectDB = async () => {
       await ensureReferralQualifyingDepositMigrationApplied();
       await ensureAccountDeletionMigrationApplied();
       await ensureSafeHavenDeprecationMigrationApplied();
+      await ensureDepositReconciliationAuditMigrationApplied();
       await ensureTransactionsDashboardIndexes();
       await ensureTransactionsStatusEnum();
       await ensureUsersOperationalIndexes();
@@ -1426,5 +1484,6 @@ module.exports = {
   AdminWalletDeductionAudit,
   VoiceBundlePurchase,
   VoiceBundlePurchaseAudit,
-  TransactionPinSecurityEvent
+  TransactionPinSecurityEvent,
+  DepositReconciliationAudit
 };

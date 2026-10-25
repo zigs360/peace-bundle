@@ -1,7 +1,7 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const logger = require('../utils/logger');
-const { User, Wallet, Transaction } = require('../models');
+const { User, Wallet, Transaction, DepositReconciliationAudit } = require('../models');
 const WebhookEvent = require('../models/WebhookEvent');
 const webhookEventService = require('./webhookEventService');
 const virtualAccountService = require('./virtualAccountService');
@@ -315,14 +315,39 @@ class VirtualAccountReconciliationService {
                     return { ok: true, pending_review: true, reference, userId: user.id };
                 }
 
-                await t.commit();
-                logger.info(`[VAReconcile] Successfully reconciled & credited deposit for user ${user.id} (${user.email}) - ₦${amount}, ref: ${reference}`);
-                await webhookEventService.markProcessed(event.id, { userId: user.id });
-
                 const creditedTxn = fundingResult.transaction || null;
                 const feeAmount = parseFloat(creditedTxn?.metadata?.fee_amount || 0);
                 const grossAmount = parseFloat(creditedTxn?.metadata?.gross_amount || amount);
                 const netAmount = parseFloat(creditedTxn?.amount || 0);
+
+                if (DepositReconciliationAudit) {
+                    try {
+                        await DepositReconciliationAudit.create({
+                            transactionReference: reference,
+                            userId: user.id,
+                            walletId: creditedTxn?.walletId || null,
+                            transactionId: creditedTxn?.id || null,
+                            amount: netAmount,
+                            gatewayProvider: provider || 'bank_transfer',
+                            accountNumber: accountNumber || null,
+                            reconciliationType: 'virtual_account_reconcile_service',
+                            status: 'settled',
+                            isReconciled: true,
+                            walletBalanceBefore: creditedTxn?.balance_before ?? null,
+                            walletBalanceAfter: creditedTxn?.balance_after ?? null,
+                            metadata: {
+                                originalEventId: event.id || null
+                            },
+                            timestampCredited: new Date()
+                        }, { transaction: t });
+                    } catch (auditErr) {
+                        logger.warn(`[VAReconcile] Could not record deposit reconciliation audit: ${auditErr.message}`);
+                    }
+                }
+
+                await t.commit();
+                logger.info(`[VAReconcile] Successfully reconciled & credited deposit for user ${user.id} (${user.email}) - ₦${amount}, ref: ${reference}`);
+                await webhookEventService.markProcessed(event.id, { userId: user.id });
                 notifyFundingSuccess(user, {
                     reference,
                     amount: netAmount,

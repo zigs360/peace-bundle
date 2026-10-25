@@ -2707,7 +2707,129 @@ const reloadFirebaseCredentials = async (req, res) => {
     }
 };
 
+// @desc    Run Deposit Reconciliation (Dry-run or Live)
+// @route   POST /api/admin/reconciliation/deposits/run
+// @access  Private (Admin)
+const adminRunDepositReconciliation = async (req, res) => {
+    try {
+        const depositReconciliationEngine = require('../services/depositReconciliationEngine');
+        const dryRun = req.body?.dryRun !== false; // defaults to true for safety
+        const provider = req.body?.provider || 'all';
+        const hours = parseInt(req.body?.hours || '72', 10);
+        const limit = parseInt(req.body?.limit || '100', 10);
+        const operator = req.user ? `${req.user.name || req.user.email} (${req.user.id})` : 'admin';
+
+        const result = await depositReconciliationEngine.reconcileUncreditedWebhookEvents({
+            limit,
+            hours,
+            provider,
+            dryRun,
+            operator
+        });
+
+        return res.json({
+            success: true,
+            message: dryRun
+                ? `Dry-run completed: ${result.matchedCount} deposits eligible for recovery (₦${result.totalRecoveredAmount.toLocaleString()}). No wallet balances were modified.`
+                : `Live reconciliation completed: ${result.settledCount} deposits credited (₦${result.totalRecoveredAmount.toLocaleString()}), ${result.duplicateCount} duplicate/already credited, ${result.unresolvedCount} unresolved.`,
+            data: result
+        });
+    } catch (error) {
+        logger.error(`[Admin] adminRunDepositReconciliation error: ${error.message}`);
+        return res.status(500).json({ success: false, message: error.message || 'Server error' });
+    }
+};
+
+// @desc    Get Deposit Reconciliation Audit Logs
+// @route   GET /api/admin/reconciliation/deposits/audits
+// @access  Private (Admin)
+const adminGetDepositReconciliationAudits = async (req, res) => {
+    try {
+        const depositReconciliationEngine = require('../services/depositReconciliationEngine');
+        const { page = 1, limit = 25, status, provider, userId, reference, startDate, endDate } = req.query;
+
+        const result = await depositReconciliationEngine.getAuditHistory({
+            page,
+            limit,
+            status,
+            provider,
+            userId,
+            reference,
+            startDate,
+            endDate
+        });
+
+        return res.json({
+            success: true,
+            data: result
+        });
+    } catch (error) {
+        logger.error(`[Admin] adminGetDepositReconciliationAudits error: ${error.message}`);
+        return res.status(500).json({ success: false, message: error.message || 'Server error' });
+    }
+};
+
+// @desc    Get Deposit Reconciliation Telemetry Summary
+// @route   GET /api/admin/reconciliation/deposits/summary
+// @access  Private (Admin)
+const adminGetDepositReconciliationSummary = async (req, res) => {
+    try {
+        const depositReconciliationEngine = require('../services/depositReconciliationEngine');
+        const summary = await depositReconciliationEngine.getSummaryStats();
+        return res.json({
+            success: true,
+            data: summary
+        });
+    } catch (error) {
+        logger.error(`[Admin] adminGetDepositReconciliationSummary error: ${error.message}`);
+        return res.status(500).json({ success: false, message: error.message || 'Server error' });
+    }
+};
+
+// @desc    Import External Deposit Dump for Batch Reconciliation
+// @route   POST /api/admin/reconciliation/deposits/import
+// @access  Private (Admin)
+const adminImportExternalDepositDump = async (req, res) => {
+    try {
+        const depositReconciliationEngine = require('../services/depositReconciliationEngine');
+        const dryRun = req.body?.dryRun !== false; // defaults to true for safety
+        const records = req.body?.records || [];
+        const provider = req.body?.provider || 'external_import';
+        const operator = req.user ? `${req.user.name || req.user.email} (${req.user.id})` : 'admin';
+
+        if (!Array.isArray(records) || records.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Body must contain a non-empty array of records'
+            });
+        }
+
+        const result = await depositReconciliationEngine.reconcileExternalBatch({
+            records,
+            dryRun,
+            provider,
+            operator,
+            reconciliationType: 'file_import'
+        });
+
+        return res.json({
+            success: true,
+            message: dryRun
+                ? `Dry-run import preview: ${result.matchedCount} matches found (₦${result.totalRecoveredAmount.toLocaleString()}). No balances modified.`
+                : `Live batch import completed: ${result.settledCount} deposits credited (₦${result.totalRecoveredAmount.toLocaleString()}).`,
+            data: result
+        });
+    } catch (error) {
+        logger.error(`[Admin] adminImportExternalDepositDump error: ${error.message}`);
+        return res.status(500).json({ success: false, message: error.message || 'Server error' });
+    }
+};
+
 module.exports = {
+    adminRunDepositReconciliation,
+    adminGetDepositReconciliationAudits,
+    adminGetDepositReconciliationSummary,
+    adminImportExternalDepositDump,
     getFirebaseStatus,
     sendTestPushNotification,
     reloadFirebaseCredentials,

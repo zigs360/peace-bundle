@@ -56,7 +56,11 @@ const {
     exportUserReferralsCsv,
     getFirebaseStatus,
     sendTestPushNotification,
-    reloadFirebaseCredentials
+    reloadFirebaseCredentials,
+    adminRunDepositReconciliation,
+    adminGetDepositReconciliationAudits,
+    adminGetDepositReconciliationSummary,
+    adminImportExternalDepositDump
 } = require('../controllers/adminController');
 const {
     adminGetSubscriptionPlans,
@@ -259,5 +263,11 @@ router.post('/leaderboard/reward', protect, admin, rewardRankedUser);
 router.get('/firebase/status', protect, admin, getFirebaseStatus);
 router.post('/firebase/test-push', protect, admin, sendTestPushNotification);
 router.post('/firebase/reload', protect, admin, reloadFirebaseCredentials);
+
+// Deposit Reconciliation & Recovery Engine Routes
+router.post('/reconciliation/deposits/run', protect, admin, adminRunDepositReconciliation);
+router.get('/reconciliation/deposits/audits', protect, admin, adminGetDepositReconciliationAudits);
+router.get('/reconciliation/deposits/summary', protect, admin, adminGetDepositReconciliationSummary);
+router.post('/reconciliation/deposits/import', protect, admin, adminImportExternalDepositDump);
 
 module.exports = router;
