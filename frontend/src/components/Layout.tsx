@@ -1,4 +1,4 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Receipt, Tag, LogOut, Users, Settings, Database, Smartphone, 
   BarChart3, MessageSquare, Menu, X, ChevronLeft, ChevronRight, ShieldCheck, Bell, Star, Landmark, Wifi, MinusCircle, PhoneCall, History, ShieldAlert, Shield, UserX, Server, Wallet, Trophy
@@ -9,18 +9,34 @@ import { useTranslation } from 'react-i18next';
 import PageTransition from './animations/PageTransition';
 import { useSidebar } from '../hooks/useSidebar';
 import { useNotifications } from '../context/NotificationContext';
+import { getStoredUser } from '../utils/storage';
 import BrandMark from './ui/BrandMark';
 import LanguageSwitcher from './ui/LanguageSwitcher';
 import ShellFrame from './ui/ShellFrame';
 
+const isAdmin = (role?: string) => {
+  const clean = String(role || '').trim().toLowerCase();
+  return clean === 'admin' || clean === 'super_admin' || clean === 'superadmin';
+};
+
 export default function Layout() {
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const isActive = (path: string) => location.pathname === path;
   const { isCollapsed, isMobileOpen, toggleCollapse, toggleMobile, closeMobile } = useSidebar();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const user = getStoredUser();
+    if (!localStorage.getItem('token')) {
+      navigate('/login', { replace: true });
+    } else if (user && !isAdmin(user.role)) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

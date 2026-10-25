@@ -61,6 +61,8 @@ import Beneficiaries from './pages/dashboard/Beneficiaries';
 import { NotificationProvider } from './context/NotificationContext';
 import { PrivacyProvider } from './context/PrivacyContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import AdminRoute from './components/common/AdminRoute';
+import ProtectedRoute from './components/common/ProtectedRoute';
 
 function App() {
   return (
@@ -83,7 +85,7 @@ function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* User Routes */}
-          <Route path="/dashboard" element={<UserLayout />}>
+          <Route path="/dashboard" element={<ProtectedRoute><UserLayout /></ProtectedRoute>}>
             <Route index element={<UserDashboard />} />
             <Route path="fund" element={<FundWallet />} />
             <Route path="data" element={<BuyData />} />
@@ -104,7 +106,7 @@ function App() {
           </Route>
 
           {/* Admin Routes */}
-          <Route path="/admin" element={<Layout />}>
+          <Route path="/admin" element={<AdminRoute><Layout /></AdminRoute>}>
             <Route index element={<AdminDashboard />} />
             <Route path="providers" element={<ApiProviders />} />
             <Route path="billstack-monitor" element={<BillstackMonitor />} />

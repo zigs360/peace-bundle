@@ -211,27 +211,11 @@ export default function UserLayout() {
             {!isCollapsed && <span>{t('dashboard.bulkSms')}</span>}
           </Link>
 
-          {(userRole === 'reseller' || userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin') && (
-            <>
-              {(userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin') && (
-                <Link to="/admin" className={getLinkClasses('/admin')} title={isCollapsed ? 'Admin Console' : ''}>
-                  <ShieldCheck className={getIconClasses('/admin')} />
-                  {!isCollapsed && <span className="font-semibold text-primary-700">Admin Console</span>}
-                </Link>
-              )}
-
-              <Link to="/admin/sims" className={getLinkClasses('/admin/sims')} title={isCollapsed ? t('admin.simManagement') : ''}>
-                <Users className={getIconClasses('/admin/sims')} />
-                {!isCollapsed && <span>{t('admin.simManagement')}</span>}
-              </Link>
-
-              {(userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin') && (
-                <Link to="/admin/kyc" className={getLinkClasses('/admin/kyc')} title={isCollapsed ? t('admin.kycManagement') : ''}>
-                  <ShieldCheck className={getIconClasses('/admin/kyc')} />
-                  {!isCollapsed && <span>{t('admin.kycManagement')}</span>}
-                </Link>
-              )}
-            </>
+          {((userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin')) && (
+            <Link to="/admin" className={getLinkClasses('/admin')} title={isCollapsed ? 'Admin Console' : ''}>
+              <ShieldCheck className={getIconClasses('/admin')} />
+              {!isCollapsed && <span className="font-semibold text-primary-700">Admin Console</span>}
+            </Link>
           )}
 
           <Link to="/dashboard/transactions" className={getLinkClasses('/dashboard/transactions')} title={isCollapsed ? t('dashboard.transactionsMenu') : ''}>
