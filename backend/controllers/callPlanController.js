@@ -818,22 +818,33 @@ const listManagedCallSubPlans = async (req, res) => {
     const portfolio = String(req.query.portfolio || '').trim().toLowerCase();
     const compatibility = await getCallPlanSchemaCompatibility();
     const managedColumnsAvailable = compatibility.managedColumnsAvailable;
-    if (portfolio && !managedColumnsAvailable) {
-      return res.json({
-        success: true,
-        degraded: true,
-        message: 'Managed call subscription plans are unavailable until the migration is applied.',
-        missingColumns: compatibility.missingManagedColumns || [],
-        items: [],
-      });
+    
+    const providerVariants = [provider.key.toLowerCase(), provider.key.toUpperCase()];
+    const where = { provider: { [Op.in]: providerVariants } };
+    if (portfolio && managedColumnsAvailable) {
+      where.portfolio = portfolio;
     }
-    const where = { provider: provider.key };
-    if (portfolio) where.portfolio = portfolio;
+
     let plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
       where,
       order: [['price', 'ASC'], ['createdAt', 'ASC']],
     }));
 
+    // Auto-seed for airtel talkmore if 0 plans
+    if (plans.length === 0 && provider.key === 'airtel') {
+      try {
+        const { syncTalkMorePortfolio } = require('../services/callSubscriptionPortfolioService');
+        await syncTalkMorePortfolio(CallPlan);
+        plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
+          where,
+          order: [['price', 'ASC'], ['createdAt', 'ASC']],
+        }));
+      } catch (err) {
+        logger.warn(`[CallPlan] syncTalkMorePortfolio attempt failed: ${err.message}`);
+      }
+    }
+
+    // Auto-seed from default provider catalog bundles if still 0
     if (plans.length === 0) {
       const defaultBundles = provider.bundles || [];
       const targetPortfolio = portfolio || (provider.key === 'airtel' ? 'talkmore' : 'standard');
@@ -844,13 +855,13 @@ const listManagedCallSubPlans = async (req, res) => {
       for (const b of defaultBundles) {
         try {
           await CallPlan.create({
-            provider: provider.key,
+            provider: provider.key.toLowerCase(),
             name: b.name,
             price: b.price,
             customerPrice: Math.round(b.price * 1.05),
             dealerCommission: Math.min(Math.round(b.price * 0.03), Math.round(b.price * 1.05 * 0.05)),
-            minutes: b.minutes,
-            validityDays: b.validityDays,
+            minutes: b.minutes || 0,
+            validityDays: b.validityDays || 30,
             shortCode: b.code,
             api_plan_id: b.code,
             status: 'active',
@@ -868,10 +879,36 @@ const listManagedCallSubPlans = async (req, res) => {
     // Fallback: If portfolio query yielded 0 items, fetch all plans for this provider
     if (plans.length === 0 && portfolio) {
       plans = await CallPlan.findAll(await withSafeCallPlanReadAttributes({
-        where: { provider: provider.key },
+        where: { provider: { [Op.in]: providerVariants } },
         order: [['price', 'ASC'], ['createdAt', 'ASC']],
       }));
     }
+
+    // If still 0 in DB, construct fallback items directly from catalog so admin is never blank
+    let items = plans.map((plan) => normalizeManagedCallPlan(plan));
+    if (items.length === 0 && provider.bundles && provider.bundles.length > 0) {
+      items = provider.bundles.map((b, idx) => ({
+        id: `catalog-${b.code || idx}`,
+        name: b.name,
+        provider: provider.key,
+        price: b.price,
+        customerPrice: Math.round(b.price * 1.05),
+        dealerCommission: Math.min(Math.round(b.price * 0.03), Math.round(b.price * 1.05 * 0.05)),
+        minutes: b.minutes || 0,
+        validityDays: b.validityDays || 30,
+        shortCode: b.code,
+        api_plan_id: b.code,
+        status: 'active',
+        portfolio: portfolio || (provider.key === 'airtel' ? 'talkmore' : 'standard'),
+        bundleClass: provider.key === 'airtel' ? TALKMORE_GIFTING_BUNDLE_CLASS : 'generic_voice',
+        stockLimit: null,
+        stockRemaining: null,
+        stockUsed: null,
+        validityLocked: false,
+        ussdMapping: `*312*${b.code}#`,
+      }));
+    }
+
     return res.json({
       success: true,
       degraded: !managedColumnsAvailable,
@@ -881,7 +918,7 @@ const listManagedCallSubPlans = async (req, res) => {
             message: 'Managed call subscription plans are running in compatibility mode until the migration is applied.',
             missingColumns: compatibility.missingManagedColumns || [],
           }),
-      items: plans.map((plan) => normalizeManagedCallPlan(plan)),
+      items,
     });
   } catch (error) {
     const statusCode = error.statusCode || 500;

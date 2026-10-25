@@ -59,8 +59,27 @@ async function getCallPlanSchemaCompatibility({ forceRefresh = false } = {}) {
   }
 
   try {
-    const tableName = typeof CallPlan.getTableName === 'function' ? CallPlan.getTableName() : 'CallPlans';
-    const desc = await sequelize.getQueryInterface().describeTable(tableName);
+    const rawTableName = typeof CallPlan.getTableName === 'function' ? CallPlan.getTableName() : 'CallPlans';
+    let desc = null;
+    const candidates = [
+      rawTableName,
+      typeof rawTableName === 'string' ? rawTableName.toLowerCase() : null,
+      'CallPlans',
+      'callplans',
+      'call_plans'
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      try {
+        desc = await sequelize.getQueryInterface().describeTable(candidate);
+        if (desc && Object.keys(desc).length > 0) break;
+      } catch (_) {}
+    }
+
+    if (!desc || Object.keys(desc).length === 0) {
+      throw new Error(`Unable to describe CallPlan table across candidate names: ${candidates.join(', ')}`);
+    }
+
     const missingManagedColumns = CALLPLAN_MANAGED_COLUMNS.filter(
       (columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName),
     );
