@@ -1,5 +1,6 @@
 const { User, Wallet, Transaction, Referral, ReferralClick, SystemSetting } = require('../models');
 const { sequelize } = require('../config/db');
+const { Op } = require('sequelize');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 
@@ -407,6 +408,150 @@ class ReferralService {
                 return await sequelize.transaction(work);
             }
             throw error;
+        }
+    }
+
+    /**
+     * Automatically synchronize and heal referral relationships between `Users` and `referrals` table.
+     * Ensures every user with `referred_by` has a corresponding row in `referrals` with the correct `referrerId`.
+     * Also updates statuses if the referee has made qualifying deposits or transactions.
+     */
+    async syncReferralRecords(options = {}) {
+        const { force = false } = options;
+        const now = Date.now();
+        if (!force && this._lastSyncTime && (now - this._lastSyncTime < 30000)) {
+            return { synced: true, throttled: true };
+        }
+        this._lastSyncTime = now;
+
+        try {
+            await this._ensureSchemaCompatibility();
+
+            // Find all users who were referred by someone
+            const referredUsers = await User.findAll({
+                where: {
+                    referred_by: { [Op.ne]: null }
+                },
+                attributes: ['id', 'name', 'email', 'phone', 'referred_by', 'createdAt', 'account_status'],
+                raw: true
+            });
+
+            if (!referredUsers || referredUsers.length === 0) {
+                return { synced: true, count: 0 };
+            }
+
+            // Extract unique referral codes normalized (trimmed & uppercase)
+            const refCodes = [...new Set(
+                referredUsers
+                    .map(u => String(u.referred_by || '').trim().toUpperCase())
+                    .filter(c => c.length > 0)
+            )];
+
+            if (refCodes.length === 0) {
+                return { synced: true, count: 0 };
+            }
+
+            // Fetch all users who own referral codes
+            const referrers = await User.findAll({
+                where: {
+                    referral_code: { [Op.ne]: null }
+                },
+                attributes: ['id', 'name', 'email', 'phone', 'referral_code'],
+                raw: true
+            });
+
+            const codeToReferrer = new Map();
+            for (const r of referrers) {
+                if (r.referral_code) {
+                    codeToReferrer.set(r.referral_code.trim().toUpperCase(), r);
+                }
+            }
+
+            // Fetch existing referral records for these referred users
+            const refereeIds = referredUsers.map(u => u.id);
+            const existingReferrals = await Referral.findAll({
+                where: {
+                    referredUserId: { [Op.in]: refereeIds }
+                },
+                attributes: ['id', 'referrerId', 'referredUserId', 'status', 'registered_at'],
+                raw: true
+            });
+
+            const existingByReferee = new Map(existingReferrals.map(r => [String(r.referredUserId), r]));
+
+            // Also check transactions of these referees to auto-qualify any that have completed transactions
+            const completedTxns = await Transaction.findAll({
+                where: {
+                    userId: { [Op.in]: refereeIds },
+                    status: 'completed',
+                    source: { [Op.ne]: 'refund' }
+                },
+                attributes: ['userId', 'amount', 'source'],
+                raw: true
+            });
+
+            const refereeTxSet = new Set(completedTxns.map(t => String(t.userId)));
+
+            const toCreate = [];
+            const toUpdate = [];
+
+            for (const referee of referredUsers) {
+                const code = String(referee.referred_by || '').trim().toUpperCase();
+                const referrer = codeToReferrer.get(code);
+                if (!referrer) continue;
+
+                // Self-referral prevention
+                if (String(referrer.id) === String(referee.id)) continue;
+
+                const existing = existingByReferee.get(String(referee.id));
+                const hasCompletedTxn = refereeTxSet.has(String(referee.id));
+
+                if (!existing) {
+                    toCreate.push({
+                        referrerId: referrer.id,
+                        referredUserId: referee.id,
+                        registered_at: referee.createdAt || new Date(),
+                        createdAt: referee.createdAt || new Date(),
+                        status: hasCompletedTxn ? 'qualified' : 'pending',
+                        total_commissions_earned: 0,
+                        total_transactions: hasCompletedTxn ? 1 : 0,
+                        referrer_signup_bonus_amount: 0,
+                        referee_signup_bonus_amount: 0,
+                        qualifying_deposit_amount: null
+                    });
+                } else {
+                    const needsReferrerUpdate = !existing.referrerId || String(existing.referrerId) !== String(referrer.id);
+                    const needsStatusUpdate = existing.status === 'pending' && hasCompletedTxn;
+
+                    if (needsReferrerUpdate || needsStatusUpdate) {
+                        toUpdate.push({
+                            id: existing.id,
+                            referrerId: referrer.id,
+                            status: needsStatusUpdate ? 'qualified' : existing.status
+                        });
+                    }
+                }
+            }
+
+            if (toCreate.length > 0) {
+                await Referral.bulkCreate(toCreate, { ignoreDuplicates: true });
+                logger.info(`[Referral Sync] Auto-created ${toCreate.length} missing referral records from actual user database`);
+            }
+
+            for (const u of toUpdate) {
+                const updateFields = { referrerId: u.referrerId };
+                if (u.status) updateFields.status = u.status;
+                await Referral.update(updateFields, { where: { id: u.id } });
+            }
+
+            return {
+                synced: true,
+                createdCount: toCreate.length,
+                updatedCount: toUpdate.length
+            };
+        } catch (err) {
+            logger.warn(`[Referral Sync] Failed during referral synchronization: ${err.message}`);
+            return { synced: false, error: err.message };
         }
     }
 }

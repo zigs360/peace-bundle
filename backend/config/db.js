@@ -1378,6 +1378,16 @@ const connectDB = async () => {
 
       globalState.isConnected = true;
       isConnected = true;
+
+      // Trigger asynchronous background self-healing of referral records
+      setImmediate(() => {
+        try {
+          const referralService = require('../services/referralService');
+          referralService.syncReferralRecords().catch((e) => {
+            console.warn('[Referral Sync] Startup sync warning:', e.message);
+          });
+        } catch (_) {}
+      });
     })();
 
     await globalState.connectPromise;

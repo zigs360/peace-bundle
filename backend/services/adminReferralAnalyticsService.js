@@ -58,6 +58,9 @@ async function getReferralLeaderboard({
     sortBy = 'total_referrals',
     sortOrder = 'DESC'
 } = {}) {
+    const referralService = require('./referralService');
+    await referralService.syncReferralRecords();
+
     const inactivityNum = Math.max(1, parseInt(inactivityDays, 10) || 30);
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 5), 100);
 
@@ -72,7 +75,10 @@ async function getReferralLeaderboard({
     // Find all distinct referrers
     const whereReferral = {};
     if (startDate) {
-        whereReferral.createdAt = { [Op.gte]: startDate };
+        whereReferral[Op.or] = [
+            { createdAt: { [Op.gte]: startDate } },
+            { registered_at: { [Op.gte]: startDate } }
+        ];
     }
 
     const referralAgg = await Referral.findAll({
@@ -368,6 +374,9 @@ async function getReferralLeaderboard({
  * Get comprehensive referral performance summary for a single referring user
  */
 async function getUserReferralSummary(userId, { inactivityDays = 30 } = {}) {
+    const referralService = require('./referralService');
+    await referralService.syncReferralRecords();
+
     const inactivityNum = Math.max(1, parseInt(inactivityDays, 10) || 30);
 
     const user = await User.findByPk(userId, {
@@ -624,6 +633,9 @@ async function getUserReferralsList(userId, {
     sortBy = 'registered_at',
     sortOrder = 'DESC'
 } = {}) {
+    const referralService = require('./referralService');
+    await referralService.syncReferralRecords();
+
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
     const inactivityNum = Math.max(1, parseInt(inactivityDays, 10) || 30);

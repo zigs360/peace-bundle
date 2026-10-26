@@ -68,7 +68,7 @@ export default function Leaderboard() {
     if (category === 'transactions') {
       return `${score.toLocaleString()} txns`;
     }
-    return `${score.toLocaleString()} qualified`;
+    return `${score.toLocaleString()} ${score === 1 ? 'referral' : 'referrals'}`;
   };
 
   return (

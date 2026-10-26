@@ -85,6 +85,9 @@ const getAdminLeaderboard = async (req, res) => {
         const userMap = new Map(users.map(u => [String(u.id), u]));
 
         // Fetch referral counts for these users
+        const referralService = require('../services/referralService');
+        await referralService.syncReferralRecords();
+
         const referralCounts = await Referral.findAll({
             where: { referrerId: { [Op.in]: userIds } },
             attributes: [

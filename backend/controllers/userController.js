@@ -790,25 +790,51 @@ const getLeaderboard = async (req, res) => {
         }
 
         if (category === 'referrals') {
+            await referralService.syncReferralRecords();
+
             const whereRef = {
-                status: { [Op.in]: ['qualified', 'rewarded'] }
+                status: { [Op.ne]: 'revoked' }
             };
             if (startDate) {
-                whereRef.createdAt = { [Op.gte]: startDate };
+                whereRef[Op.or] = [
+                    { createdAt: { [Op.gte]: startDate } },
+                    { registered_at: { [Op.gte]: startDate } }
+                ];
             }
 
-            const referralAgg = await Referral.findAll({
-                attributes: [
-                    'referrerId',
-                    [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
-                ],
+            const allRefs = await Referral.findAll({
                 where: whereRef,
-                group: ['referrerId'],
-                order: [[sequelize.fn('COUNT', sequelize.col('id')), 'DESC']],
+                attributes: ['id', 'referrerId', 'referredUserId', 'status'],
                 raw: true,
             });
 
-            const topUserIds = referralAgg.map(r => r.referrerId).filter(Boolean);
+            const referrerAggMap = new Map();
+            for (const ref of allRefs) {
+                if (!ref.referrerId) continue;
+                const rid = String(ref.referrerId);
+                if (!referrerAggMap.has(rid)) {
+                    referrerAggMap.set(rid, {
+                        referrerId: ref.referrerId,
+                        totalCount: 0,
+                        qualifiedCount: 0
+                    });
+                }
+                const entry = referrerAggMap.get(rid);
+                entry.totalCount++;
+                const isQual = ['qualified', 'rewarded', 'active'].includes(String(ref.status).toLowerCase());
+                if (isQual) {
+                    entry.qualifiedCount++;
+                }
+            }
+
+            const sortedReferrers = Array.from(referrerAggMap.values()).sort((a, b) => {
+                if (b.totalCount !== a.totalCount) {
+                    return b.totalCount - a.totalCount;
+                }
+                return b.qualifiedCount - a.qualifiedCount;
+            });
+
+            const topUserIds = sortedReferrers.map(r => r.referrerId).filter(Boolean);
             const users = await User.findAll({
                 where: {
                     id: { [Op.in]: topUserIds },
@@ -823,11 +849,10 @@ const getLeaderboard = async (req, res) => {
             let myRank = null;
             let rankCounter = 1;
 
-            for (const item of referralAgg) {
+            for (const item of sortedReferrers) {
                 const u = userMap.get(String(item.referrerId));
                 if (!u) continue;
 
-                const count = parseInt(item.count, 10) || 0;
                 const isCurrentUser = currentUserId && String(u.id) === String(currentUserId);
                 if (isCurrentUser) {
                     myRank = rankCounter;
@@ -838,8 +863,9 @@ const getLeaderboard = async (req, res) => {
                         rank: rankCounter,
                         displayName: maskUserName(u.name),
                         avatar: u.avatar || null,
-                        score: count,
-                        qualifiedReferrals: count,
+                        score: item.totalCount,
+                        totalReferrals: item.totalCount,
+                        qualifiedReferrals: item.qualifiedCount,
                         isCurrentUser: Boolean(isCurrentUser)
                     });
                 }
@@ -847,9 +873,13 @@ const getLeaderboard = async (req, res) => {
             }
 
             let myScore = 0;
+            let myQualified = 0;
             if (currentUserId) {
-                const myAgg = referralAgg.find(r => String(r.referrerId) === String(currentUserId));
-                if (myAgg) myScore = parseInt(myAgg.count, 10) || 0;
+                const myAgg = referrerAggMap.get(String(currentUserId));
+                if (myAgg) {
+                    myScore = myAgg.totalCount;
+                    myQualified = myAgg.qualifiedCount;
+                }
             }
 
             return res.json({
@@ -860,7 +890,8 @@ const getLeaderboard = async (req, res) => {
                 myStats: {
                     rank: myRank || '-',
                     score: myScore,
-                    qualifiedReferrals: myScore,
+                    totalReferrals: myScore,
+                    qualifiedReferrals: myQualified,
                     category
                 }
             });

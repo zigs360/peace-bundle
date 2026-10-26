@@ -1769,6 +1769,9 @@ const rejectKyc = async (req, res) => {
 // @access  Private (Admin)
 const getReferralAnalytics = async (req, res) => {
     try {
+        const referralService = require('../services/referralService');
+        await referralService.syncReferralRecords();
+
         const totalReferrals = await User.count({
             where: { referred_by: { [Op.ne]: null } }
         });
@@ -1784,7 +1787,7 @@ const getReferralAnalytics = async (req, res) => {
                 'id',
                 'referral_code',
                 'name',
-                [sequelize.literal('(SELECT COUNT(*) FROM "Users" AS "referrals" WHERE "referrals"."referred_by" = "User"."referral_code")'), 'referral_count'],
+                [sequelize.literal('(SELECT COUNT(*) FROM "Users" AS "referrals" WHERE UPPER(TRIM("referrals"."referred_by")) = UPPER(TRIM("User"."referral_code")))'), 'referral_count'],
                 [sequelize.literal('(SELECT COALESCE(SUM("total_commissions_earned"), 0) FROM "referrals" WHERE "referrals"."referrerId" = "User"."id")'), 'total_earnings']
             ],
             where: { 
