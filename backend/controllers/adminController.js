@@ -1907,6 +1907,95 @@ const exportUserReferralsCsv = async (req, res) => {
     }
 };
 
+// @desc    Get Global Referrals Directory with Audit Metrics (Admin)
+// @route   GET /api/admin/referrals
+// @access  Private (Admin)
+const getGlobalReferralsList = async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 20,
+            status = 'all',
+            bonusStatus = 'all',
+            activityStatus = 'all',
+            search = '',
+            startDate,
+            endDate,
+            sortBy = 'createdAt',
+            sortOrder = 'DESC',
+            inactivityDays = 30
+        } = req.query;
+
+        const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+        const result = await adminReferralAnalyticsService.getGlobalReferralsList({
+            page,
+            limit,
+            status,
+            bonusStatus,
+            activityStatus,
+            search,
+            startDate,
+            endDate,
+            sortBy,
+            sortOrder,
+            inactivityDays
+        });
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error(`[Admin] getGlobalReferralsList error: ${error.message}`);
+        res.status(500).json({ success: false, message: error.message || 'Failed to fetch global referrals' });
+    }
+};
+
+// @desc    Manually Approve & Credit Referral Bonus (Admin)
+// @route   POST /api/admin/referrals/:id/approve
+// @access  Private (Admin)
+const adminApproveReferralBonus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { notes, bonusAmount } = req.body;
+        const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+        const result = await adminReferralAnalyticsService.approveReferralBonus(id, req.user, { notes, bonusAmount });
+        res.json({ success: true, message: 'Referral bonus approved and credited successfully', ...result });
+    } catch (error) {
+        logger.error(`[Admin] adminApproveReferralBonus error: ${error.message}`);
+        res.status(400).json({ success: false, message: error.message || 'Failed to approve referral bonus' });
+    }
+};
+
+// @desc    Flag Referral for Suspicious Activity (Admin)
+// @route   POST /api/admin/referrals/:id/flag
+// @access  Private (Admin)
+const adminFlagReferralBonus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reason, notes } = req.body;
+        const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+        const result = await adminReferralAnalyticsService.flagReferralBonus(id, req.user, { reason, notes });
+        res.json({ success: true, message: 'Referral bonus flagged successfully', ...result });
+    } catch (error) {
+        logger.error(`[Admin] adminFlagReferralBonus error: ${error.message}`);
+        res.status(400).json({ success: false, message: error.message || 'Failed to flag referral bonus' });
+    }
+};
+
+// @desc    Reverse Referral Bonus and Clawback Wallet (Admin)
+// @route   POST /api/admin/referrals/:id/reverse
+// @access  Private (Admin)
+const adminReverseReferralBonus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reason, notes } = req.body;
+        const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+        const result = await adminReferralAnalyticsService.reverseReferralBonus(id, req.user, { reason, notes });
+        res.json({ success: true, message: 'Referral bonus reversed and wallet clawback completed', ...result });
+    } catch (error) {
+        logger.error(`[Admin] adminReverseReferralBonus error: ${error.message}`);
+        res.status(400).json({ success: false, message: error.message || 'Failed to reverse referral bonus' });
+    }
+};
+
 // @desc    View KYC Document (Secure)
 // @route   GET /api/admin/users/kyc-document/:filename
 // @access  Private (Admin)
@@ -2859,6 +2948,10 @@ module.exports = {
     adminSyncUserDeposits,
     getUserReferralSummary,
     getUserReferralsList,
-    exportUserReferralsCsv
+    exportUserReferralsCsv,
+    getGlobalReferralsList,
+    adminApproveReferralBonus,
+    adminFlagReferralBonus,
+    adminReverseReferralBonus
 };
 

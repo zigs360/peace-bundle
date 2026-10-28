@@ -379,6 +379,12 @@ class DataPurchaseService {
       // 4. Process affiliate commission
       await affiliateService.processTransactionCommission(user, transaction, t);
 
+      // 5. Check and reward qualifying VTU referral bonus
+      const referralService = require('./referralService');
+      await referralService.checkAndRewardQualifyingVTU(user, transaction, t).catch((err) => {
+        logger.warn('[Referral] Failed checking qualifying VTU in dataPurchaseService', { error: err.message, userId: user.id });
+      });
+
       return transaction;
     });
   }

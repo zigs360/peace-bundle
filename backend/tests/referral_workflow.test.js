@@ -9,7 +9,7 @@ const app = require('../server');
 const sequelize = require('../config/database');
 require('../config/db');
 
-const { User, Wallet, Referral, Commission, Transaction } = require('../models');
+const { User, Wallet, Referral, Commission, Transaction, SystemSetting } = require('../models');
 const affiliateService = require('../services/affiliateService');
 
 async function createUser(overrides = {}) {
@@ -30,6 +30,7 @@ async function createUser(overrides = {}) {
 describe('Referral workflow', () => {
   beforeEach(async () => {
     await sequelize.sync({ force: true });
+    await SystemSetting.set('referral_bonus_trigger', 'deposit');
   });
 
   afterEach(async () => {

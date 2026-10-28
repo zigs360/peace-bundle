@@ -169,7 +169,13 @@ class WalletService {
       if (txnSource === 'funding' && amountNum > 0) {
         try {
           const referralService = require('./referralService');
-          await referralService.checkAndRewardQualifyingDeposit(user, amountNum, txn, transaction);
+          const SystemSetting = require('../models/SystemSetting');
+          const trigger = await SystemSetting.get('referral_bonus_trigger', 'vtu_transaction');
+          if (trigger === 'deposit') {
+            await referralService.checkAndRewardQualifyingDeposit(user, amountNum, txn, transaction);
+          } else {
+            await referralService.recordRefereeFunding(user, amountNum, txn, transaction);
+          }
         } catch (refErr) {
           logger.warn(`[WalletService] Referral qualifying deposit check error for user ${user.id}: ${refErr.message}`);
         }

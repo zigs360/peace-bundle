@@ -328,9 +328,14 @@ const ensureReferralQualifyingDepositMigrationApplied = async () => {
 
   const requiredColumns = [
     'status',
+    'bonus_status',
     'qualifying_deposit_amount',
     'qualifying_deposit_at',
     'qualifying_transaction_id',
+    'qualifying_transaction_amount',
+    'qualifying_transaction_at',
+    'flag_reason',
+    'reversed_at',
   ];
 
   const missingColumns = requiredColumns.filter(
@@ -343,27 +348,38 @@ const ensureReferralQualifyingDepositMigrationApplied = async () => {
   try {
     await sequelize.query(`
       ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "status" VARCHAR(255) NOT NULL DEFAULT 'pending';
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "bonus_status" VARCHAR(50) NOT NULL DEFAULT 'locked';
       ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_amount" DECIMAL(15, 2);
       ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_at" TIMESTAMPTZ;
       ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_id" VARCHAR(255);
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_amount" DECIMAL(15, 2);
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_at" TIMESTAMPTZ;
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "flag_reason" TEXT;
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "flagged_at" TIMESTAMPTZ;
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "flagged_by" UUID;
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "reversed_at" TIMESTAMPTZ;
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "reversal_reason" TEXT;
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "reversal_admin_id" UUID;
+      ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "admin_notes" TEXT;
       CREATE INDEX IF NOT EXISTS "referrals_status_idx" ON "referrals" ("status");
+      CREATE INDEX IF NOT EXISTS "referrals_bonus_status_idx" ON "referrals" ("bonus_status");
       CREATE INDEX IF NOT EXISTS "referrals_referred_user_id_idx" ON "referrals" ("referredUserId");
       CREATE INDEX IF NOT EXISTS "referrals_referrer_id_idx" ON "referrals" ("referrerId");
     `);
-    console.log('[DB] Ensured referrals qualifying deposit columns exist via direct ALTER TABLE');
+    console.log('[DB] Ensured referrals qualifying transaction & oversight columns exist via direct ALTER TABLE');
   } catch (sqlErr) {
-    console.error(`[DB] Direct ALTER TABLE for referrals qualifying deposit columns failed: ${sqlErr.message}`);
+    console.error(`[DB] Direct ALTER TABLE for referrals qualifying columns failed: ${sqlErr.message}`);
   }
 
-  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20261016_referral_qualifying_deposit_status.sql');
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20261028_referral_transaction_gated_and_oversight.sql');
   try {
-    const result = await applySqlMigrationFile({ id: '20261016_referral_qualifying_deposit_status', filePath: migrationFilePath });
+    const result = await applySqlMigrationFile({ id: '20261028_referral_transaction_gated_and_oversight', filePath: migrationFilePath });
     if (result.applied) {
       console.log(`[DB] Applied SQL migration: ${result.id}`);
     }
   } catch (error) {
     try {
-      await recordSqlMigrationApplied('20261016_referral_qualifying_deposit_status');
+      await recordSqlMigrationApplied('20261028_referral_transaction_gated_and_oversight');
     } catch (_) {}
   }
 };

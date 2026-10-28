@@ -54,6 +54,10 @@ const {
     getUserReferralSummary,
     getUserReferralsList,
     exportUserReferralsCsv,
+    getGlobalReferralsList,
+    adminApproveReferralBonus,
+    adminFlagReferralBonus,
+    adminReverseReferralBonus,
     getFirebaseStatus,
     sendTestPushNotification,
     reloadFirebaseCredentials,
@@ -215,7 +219,11 @@ router.get('/wallet/deductions', protect, admin, adminWalletDeductionController.
 router.post('/wallet/deductions', protect, admin, adminWalletDeductionController.createWalletDeduction);
 router.post('/wallet/deductions/:reference/reverse', protect, admin, adminWalletDeductionController.reverseWalletDeduction);
 
-// Referral Analytics Routes
+// Referral Oversight & Analytics Routes
+router.get('/referrals', protect, admin, getGlobalReferralsList);
+router.post('/referrals/:id/approve', protect, admin, adminApproveReferralBonus);
+router.post('/referrals/:id/flag', protect, admin, adminFlagReferralBonus);
+router.post('/referrals/:id/reverse', protect, admin, adminReverseReferralBonus);
 router.get('/referrals/analytics', protect, admin, getReferralAnalytics);
 router.get('/referrals/user/:userId/summary', protect, admin, getUserReferralSummary);
 router.get('/referrals/user/:userId/list', protect, admin, getUserReferralsList);
@@ -255,9 +263,11 @@ router.post('/billstack/events/:id/reprocess', protect, admin, billstackMonitorC
 const {
     getAdminLeaderboard,
     rewardRankedUser,
+    rewardTieredReferrersController,
 } = require('../controllers/adminLeaderboardController');
 router.get('/leaderboard', protect, admin, getAdminLeaderboard);
 router.post('/leaderboard/reward', protect, admin, rewardRankedUser);
+router.post('/leaderboard/tier-rewards', protect, admin, rewardTieredReferrersController);
 
 // Firebase Admin SDK Health & Push Diagnostics
 router.get('/firebase/status', protect, admin, getFirebaseStatus);

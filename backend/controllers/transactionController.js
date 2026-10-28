@@ -502,6 +502,13 @@ const buyData = async (req, res) => {
 
         await t.commit();
         await sendTransactionNotification(user, newTransaction);
+
+        if (finalStatusLower === 'completed') {
+            const referralService = require('../services/referralService');
+            referralService.checkAndRewardQualifyingVTU(user, newTransaction).catch((err) => {
+                logger.warn('[Referral] Failed checking qualifying VTU in buyData', { error: err.message, userId: user.id });
+            });
+        }
         
         if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
         const updatedWallet = await walletService.getBalance(user);
@@ -774,6 +781,10 @@ const buyAirtime = async (req, res) => {
                 priority: 'medium',
             });
             await sendTransactionNotification(user, newTransaction);
+            const referralService = require('../services/referralService');
+            referralService.checkAndRewardQualifyingVTU(user, newTransaction).catch((err) => {
+                logger.warn('[Referral] Failed checking qualifying VTU in buyAirtime', { error: err.message, userId: user.id });
+            });
         }
         
         if (res.headersSent || res.writableEnded || res.locals?.requestTimedOut) return;
@@ -878,6 +889,10 @@ const payBill = async (req, res) => {
         
         await t.commit();
         await sendTransactionNotification(user, newTransaction);
+        const referralService = require('../services/referralService');
+        referralService.checkAndRewardQualifyingVTU(user, newTransaction).catch((err) => {
+            logger.warn('[Referral] Failed checking qualifying VTU in payBill', { error: err.message, userId: user.id });
+        });
         
         const updatedWallet = await walletService.getBalance(user);
 

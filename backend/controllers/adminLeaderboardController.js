@@ -262,7 +262,27 @@ const rewardRankedUser = async (req, res) => {
     }
 };
 
+// @desc    Batch distribute tiered rewards to top referrers
+// @route   POST /api/admin/leaderboard/tier-rewards
+// @access  Private (Admin)
+const rewardTieredReferrersController = async (req, res) => {
+    try {
+        const { tiers, period = 'all_time' } = req.body;
+        const adminReferralAnalyticsService = require('../services/adminReferralAnalyticsService');
+        const result = await adminReferralAnalyticsService.rewardTieredReferrers(req.user, { tiers, period });
+        res.json({
+            success: true,
+            message: `Successfully rewarded ${result.awardedCount} referrers with ₦${result.totalDistributed.toLocaleString()}!`,
+            ...result
+        });
+    } catch (error) {
+        logger.error(`[Admin Leaderboard] rewardTieredReferrers error: ${error.message}`);
+        res.status(500).json({ success: false, message: error.message || 'Failed to process tiered rewards' });
+    }
+};
+
 module.exports = {
     getAdminLeaderboard,
     rewardRankedUser,
+    rewardTieredReferrersController,
 };

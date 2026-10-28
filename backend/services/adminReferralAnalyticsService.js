@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { User, Wallet, Transaction, Referral, ReferralClick, Commission } = require('../models');
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
@@ -796,6 +797,7 @@ async function getUserReferralsList(userId, {
 
         records.push({
             id: referee.id,
+            referralId: refRecord.id || null,
             name: referee.name,
             email: referee.email,
             phone: referee.phone,
@@ -805,6 +807,14 @@ async function getUserReferralsList(userId, {
             walletBalance: parseFloat(referee.wallet?.balance || 0),
             registeredAt: refRecord.registered_at || referee.createdAt,
             activityStatus,
+            referralStatus: refRecord.status || 'pending',
+            bonusStatus: refRecord.bonus_status || 'locked',
+            bonusAmount: parseFloat(refRecord.referrer_signup_bonus_amount || 0),
+            qualifyingTxAmount: parseFloat(refRecord.qualifying_transaction_amount || 0),
+            qualifyingTxAt: refRecord.qualifying_transaction_at || null,
+            flagReason: refRecord.flag_reason || null,
+            reversedAt: refRecord.reversed_at || null,
+            adminNotes: refRecord.admin_notes || null,
             lastSuccessfulTxDate: lastTxDate ? lastTxDate.toISOString() : null,
             funding: {
                 count: fundingCount,
@@ -928,10 +938,489 @@ async function exportUserReferralsCsv(userId, options = {}) {
     return [headers.join(','), ...rows].join('\n');
 }
 
+/**
+ * Global referrals directory for admin oversight
+ */
+async function getGlobalReferralsList({
+    page = 1,
+    limit = 20,
+    status = 'all',
+    bonusStatus = 'all',
+    activityStatus = 'all',
+    search = '',
+    startDate = null,
+    endDate = null,
+    sortBy = 'createdAt',
+    sortOrder = 'DESC',
+    inactivityDays = 30
+} = {}) {
+    const referralService = require('./referralService');
+    await referralService.syncReferralRecords();
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+    const inactivityNum = Math.max(1, parseInt(inactivityDays, 10) || 30);
+
+    const where = {};
+    if (status && status !== 'all') {
+        where.status = String(status).toLowerCase().trim();
+    }
+    if (bonusStatus && bonusStatus !== 'all') {
+        where.bonus_status = String(bonusStatus).toLowerCase().trim();
+    }
+    if (startDate || endDate) {
+        where.createdAt = {};
+        if (startDate) where.createdAt[Op.gte] = new Date(startDate);
+        if (endDate) where.createdAt[Op.lte] = new Date(endDate);
+    }
+
+    if (search && String(search).trim()) {
+        const q = String(search).trim();
+        const searchUsers = await User.findAll({
+            where: {
+                [Op.or]: [
+                    { name: { [Op.like]: `%${q}%` } },
+                    { email: { [Op.like]: `%${q}%` } },
+                    { phone: { [Op.like]: `%${q}%` } }
+                ]
+            },
+            attributes: ['id'],
+            raw: true
+        });
+        const matchingIds = searchUsers.map(u => u.id);
+        where[Op.or] = [
+            { referrerId: { [Op.in]: matchingIds } },
+            { referredUserId: { [Op.in]: matchingIds } }
+        ];
+    }
+
+    // Global counts by status for metrics overview
+    const [totalCount, pendingCount, creditedCount, flaggedCount, reversedCount, totalBonusPaid] = await Promise.all([
+        Referral.count(),
+        Referral.count({ where: { status: 'pending' } }),
+        Referral.count({ where: { status: 'credited' } }),
+        Referral.count({ where: { status: 'flagged' } }),
+        Referral.count({ where: { status: 'reversed' } }),
+        Referral.sum('referrer_signup_bonus_amount', { where: { status: 'credited' } })
+    ]);
+
+    const { count, rows: referrals } = await Referral.findAndCountAll({
+        where,
+        include: [
+            {
+                model: User,
+                as: 'Referrer',
+                attributes: ['id', 'name', 'email', 'phone', 'role', 'avatar']
+            },
+            {
+                model: User,
+                as: 'ReferredUser',
+                attributes: ['id', 'name', 'email', 'phone', 'role', 'avatar', 'account_status', 'createdAt']
+            }
+        ],
+        order: [[sortBy || 'createdAt', String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC']],
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum
+    });
+
+    const refereeIds = referrals.map(r => r.referredUserId).filter(Boolean);
+    const transactions = refereeIds.length > 0 ? await Transaction.findAll({
+        where: {
+            userId: { [Op.in]: refereeIds },
+            status: 'completed'
+        },
+        attributes: ['userId', 'amount', 'source', 'createdAt'],
+        raw: true
+    }) : [];
+
+    const txByReferee = new Map();
+    for (const tx of transactions) {
+        const uid = String(tx.userId);
+        if (!txByReferee.has(uid)) txByReferee.set(uid, []);
+        txByReferee.get(uid).push(tx);
+    }
+
+    const items = [];
+    for (const ref of referrals) {
+        const referee = ref.ReferredUser;
+        const referrer = ref.Referrer;
+        const userTxs = referee ? (txByReferee.get(String(referee.id)) || []) : [];
+
+        let lastTxDate = null;
+        let totalSpend = 0;
+        let vtuCount = 0;
+
+        for (const tx of userTxs) {
+            const src = String(tx.source || '').toLowerCase();
+            const amt = parseFloat(tx.amount) || 0;
+            if (QUALIFYING_SERVICE_SOURCES.includes(src)) {
+                vtuCount++;
+                totalSpend += amt;
+                const d = new Date(tx.createdAt);
+                if (!lastTxDate || d > lastTxDate) lastTxDate = d;
+            }
+        }
+
+        const computedActivity = referee ? classifyReferralActivity(referee, lastTxDate, inactivityNum) : 'unknown';
+
+        if (activityStatus && activityStatus !== 'all' && computedActivity !== String(activityStatus).toLowerCase().trim()) {
+            continue;
+        }
+
+        items.push({
+            id: ref.id,
+            referrer: referrer ? {
+                id: referrer.id,
+                name: referrer.name,
+                email: referrer.email,
+                phone: referrer.phone,
+                role: referrer.role,
+                avatar: referrer.avatar
+            } : null,
+            referee: referee ? {
+                id: referee.id,
+                name: referee.name,
+                email: referee.email,
+                phone: referee.phone,
+                role: referee.role,
+                avatar: referee.avatar,
+                accountStatus: referee.account_status || 'active',
+                registeredAt: referee.createdAt
+            } : null,
+            status: ref.status || 'pending',
+            bonusStatus: ref.bonus_status || 'locked',
+            bonusAmount: parseFloat(ref.referrer_signup_bonus_amount || 0),
+            bonusAwardedAt: ref.referrer_signup_bonus_awarded_at,
+            commissionsEarned: parseFloat(ref.total_commissions_earned || 0),
+            qualifyingTransactionAmount: parseFloat(ref.qualifying_transaction_amount || 0),
+            qualifyingTransactionAt: ref.qualifying_transaction_at,
+            flagReason: ref.flag_reason,
+            flaggedAt: ref.flagged_at,
+            flaggedBy: ref.flagged_by,
+            reversedAt: ref.reversed_at,
+            reversalReason: ref.reversal_reason,
+            reversalAdminId: ref.reversal_admin_id,
+            adminNotes: ref.admin_notes,
+            activityStatus: computedActivity,
+            lastActivityAt: lastTxDate ? lastTxDate.toISOString() : null,
+            vtuTransactionsCount: vtuCount,
+            vtuTotalSpend: Number(totalSpend.toFixed(2)),
+            createdAt: ref.createdAt
+        });
+    }
+
+    return {
+        total: count,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(count / limitNum),
+        metrics: {
+            totalReferrals: totalCount,
+            pending: pendingCount,
+            credited: creditedCount,
+            flagged: flaggedCount,
+            reversed: reversedCount,
+            totalBonusPaid: parseFloat(totalBonusPaid || 0)
+        },
+        referrals: items
+    };
+}
+
+/**
+ * Manually approve and credit a referral bonus
+ */
+async function approveReferralBonus(referralId, adminUser, options = {}) {
+    const t = await sequelize.transaction();
+    try {
+        const referral = await Referral.findByPk(referralId, {
+            transaction: t,
+            lock: t.LOCK.UPDATE
+        });
+        if (!referral) {
+            throw new Error('Referral record not found');
+        }
+        if (referral.bonus_status === 'credited') {
+            throw new Error('Referral bonus has already been credited');
+        }
+
+        const referrer = await User.findByPk(referral.referrerId, { transaction: t });
+        if (!referrer) {
+            throw new Error('Referrer user not found');
+        }
+        const referee = await User.findByPk(referral.referredUserId, { transaction: t });
+
+        const referrerWallet = await Wallet.findOne({
+            where: { userId: referrer.id },
+            transaction: t,
+            lock: t.LOCK.UPDATE
+        });
+        if (!referrerWallet) {
+            throw new Error('Referrer wallet not found');
+        }
+
+        const bonusAmount = parseFloat(options.bonusAmount) || parseFloat(referral.referrer_signup_bonus_amount) || 100;
+        const curBonus = parseFloat(referrerWallet.bonus_balance || 0);
+        const newBonus = curBonus + bonusAmount;
+        await referrerWallet.update({ bonus_balance: newBonus }, { transaction: t });
+
+        const now = new Date();
+        const refCode = `REF-ADM-APPR-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+        await Transaction.create({
+            id: crypto.randomUUID(),
+            userId: referrer.id,
+            walletId: referrerWallet.id,
+            type: 'credit',
+            amount: bonusAmount,
+            balance_before: curBonus,
+            balance_after: newBonus,
+            source: 'bonus',
+            status: 'completed',
+            reference: refCode,
+            description: `Admin approved referral bonus for referring ${referee?.name || 'User'} (#${referral.id})`,
+            metadata: {
+                referralId: referral.id,
+                referredUserId: referral.referredUserId,
+                adminId: adminUser?.id || null,
+                action: 'admin_manual_approval',
+                notes: options.notes || null
+            },
+            completed_at: now
+        }, { transaction: t });
+
+        await referral.update({
+            status: 'credited',
+            bonus_status: 'credited',
+            referrer_signup_bonus_amount: bonusAmount,
+            referrer_signup_bonus_awarded_at: now,
+            flag_reason: null,
+            admin_notes: options.notes || referral.admin_notes || 'Approved by admin'
+        }, { transaction: t });
+
+        await t.commit();
+        logger.info(`[AdminReferral] Approved referral bonus #${referralId} for referrer ${referrer.id} (₦${bonusAmount})`);
+        return { success: true, referral, bonusAmount };
+    } catch (error) {
+        if (t && !t.finished) await t.rollback();
+        throw error;
+    }
+}
+
+/**
+ * Flag a referral bonus for suspicious activity
+ */
+async function flagReferralBonus(referralId, adminUser, { reason, notes } = {}) {
+    const referral = await Referral.findByPk(referralId);
+    if (!referral) {
+        throw new Error('Referral record not found');
+    }
+    await referral.update({
+        status: 'flagged',
+        bonus_status: 'flagged',
+        flag_reason: reason || 'Flagged by admin oversight',
+        flagged_at: new Date(),
+        flagged_by: adminUser?.id || null,
+        admin_notes: notes || referral.admin_notes
+    });
+    logger.info(`[AdminReferral] Flagged referral #${referralId} by admin ${adminUser?.id}: ${reason}`);
+    return { success: true, referral };
+}
+
+/**
+ * Reverse a credited referral bonus and clawback wallet balance atomically
+ */
+async function reverseReferralBonus(referralId, adminUser, { reason, notes } = {}) {
+    const t = await sequelize.transaction();
+    try {
+        const referral = await Referral.findByPk(referralId, {
+            transaction: t,
+            lock: t.LOCK.UPDATE
+        });
+        if (!referral) {
+            throw new Error('Referral record not found');
+        }
+        if (referral.status === 'reversed') {
+            throw new Error('Referral bonus has already been reversed');
+        }
+
+        const referrer = await User.findByPk(referral.referrerId, { transaction: t });
+        if (!referrer) {
+            throw new Error('Referrer user not found');
+        }
+        const referrerWallet = await Wallet.findOne({
+            where: { userId: referrer.id },
+            transaction: t,
+            lock: t.LOCK.UPDATE
+        });
+        if (!referrerWallet) {
+            throw new Error('Referrer wallet not found');
+        }
+
+        const bonusAmount = parseFloat(referral.referrer_signup_bonus_amount) || 100;
+        let bonusBal = parseFloat(referrerWallet.bonus_balance || 0);
+        let mainBal = parseFloat(referrerWallet.balance || 0);
+
+        let deductionFromBonus = Math.min(bonusBal, bonusAmount);
+        let deductionFromMain = bonusAmount - deductionFromBonus;
+        let newBonusBal = bonusBal - deductionFromBonus;
+        let newMainBal = Math.max(0, mainBal - deductionFromMain);
+
+        await referrerWallet.update({
+            bonus_balance: newBonusBal,
+            balance: newMainBal
+        }, { transaction: t });
+
+        const now = new Date();
+        const refCode = `REF-ADM-REV-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+        await Transaction.create({
+            id: crypto.randomUUID(),
+            userId: referrer.id,
+            walletId: referrerWallet.id,
+            type: 'debit',
+            amount: bonusAmount,
+            balance_before: mainBal,
+            balance_after: newMainBal,
+            source: 'bonus_reversal',
+            status: 'completed',
+            reference: refCode,
+            description: `Referral bonus clawback (#${referral.id}): ${reason || 'Admin reversal'}`,
+            metadata: {
+                referralId: referral.id,
+                adminId: adminUser?.id || null,
+                reason: reason || null,
+                notes: notes || null,
+                deductionFromBonus,
+                deductionFromMain,
+                action: 'admin_bonus_reversal'
+            },
+            completed_at: now
+        }, { transaction: t });
+
+        await referral.update({
+            status: 'reversed',
+            bonus_status: 'reversed',
+            reversed_at: now,
+            reversal_reason: reason || 'Reversed by admin',
+            reversal_admin_id: adminUser?.id || null,
+            admin_notes: notes || referral.admin_notes
+        }, { transaction: t });
+
+        await t.commit();
+        logger.info(`[AdminReferral] Reversed referral bonus #${referralId} for referrer ${referrer.id} (clawback: ₦${bonusAmount})`);
+        return { success: true, referral, clawbackAmount: bonusAmount };
+    } catch (error) {
+        if (t && !t.finished) await t.rollback();
+        throw error;
+    }
+}
+
+/**
+ * Reward top referrers based on leaderboard tiers
+ */
+async function rewardTieredReferrers(adminUser, {
+    tiers = [
+        { rankStart: 1, rankEnd: 1, rewardAmount: 5000, title: '1st Place Champion' },
+        { rankStart: 2, rankEnd: 3, rewardAmount: 2500, title: 'Top 3 Performer' },
+        { rankStart: 4, rankEnd: 10, rewardAmount: 1000, title: 'Top 10 Contender' }
+    ],
+    period = 'all_time'
+} = {}) {
+    const leaderboard = await getReferralLeaderboard({ period, limit: 100 });
+    const rankedUsers = leaderboard.leaderboard || leaderboard.rankedUsers || [];
+
+    const awardedRecipients = [];
+    let totalDistributed = 0;
+
+    for (const item of rankedUsers) {
+        const userRank = item.rank;
+        const matchingTier = tiers.find(t => userRank >= (t.rankStart || t.rank) && userRank <= (t.rankEnd || t.rank));
+        if (!matchingTier || !matchingTier.rewardAmount || matchingTier.rewardAmount <= 0) {
+            continue;
+        }
+
+        const rewardAmount = parseFloat(matchingTier.rewardAmount);
+        const uid = item.id || item.userId;
+        const recipientUser = await User.findByPk(uid);
+        if (!recipientUser) continue;
+
+        const t = await sequelize.transaction();
+        try {
+            const wallet = await Wallet.findOne({
+                where: { userId: recipientUser.id },
+                transaction: t,
+                lock: t.LOCK.UPDATE
+            });
+
+            if (!wallet) {
+                await t.rollback();
+                continue;
+            }
+
+            const curBonus = parseFloat(wallet.bonus_balance || 0);
+            const newBonus = curBonus + rewardAmount;
+            await wallet.update({ bonus_balance: newBonus }, { transaction: t });
+
+            const ref = `TIER-RWD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+            const desc = `Referral Leaderboard Reward: ${matchingTier.title || `Rank #${userRank}`} (${period})`;
+            await Transaction.create({
+                id: crypto.randomUUID(),
+                userId: recipientUser.id,
+                walletId: wallet.id,
+                type: 'credit',
+                amount: rewardAmount,
+                balance_before: curBonus,
+                balance_after: newBonus,
+                source: 'bonus',
+                status: 'completed',
+                reference: ref,
+                description: desc,
+                metadata: {
+                    kind: 'tiered_leaderboard_reward',
+                    rank: userRank,
+                    tierTitle: matchingTier.title,
+                    period,
+                    adminId: adminUser?.id || null,
+                    activeReferrals: item.activeReferrals,
+                    totalReferrals: item.totalReferrals
+                },
+                completed_at: new Date()
+            }, { transaction: t });
+
+            await t.commit();
+
+            totalDistributed += rewardAmount;
+            awardedRecipients.push({
+                userId: recipientUser.id,
+                userName: recipientUser.name,
+                userEmail: recipientUser.email,
+                rank: userRank,
+                tierTitle: matchingTier.title,
+                rewardAmount,
+                reference: ref
+            });
+        } catch (err) {
+            if (t && !t.finished) await t.rollback();
+            logger.error(`[TierReward] Error awarding user ${uid}:`, err.message);
+        }
+    }
+
+    return {
+        success: true,
+        period,
+        awardedCount: awardedRecipients.length,
+        totalDistributed,
+        recipients: awardedRecipients
+    };
+}
+
 module.exports = {
     classifyReferralActivity,
     getReferralLeaderboard,
     getUserReferralSummary,
     getUserReferralsList,
-    exportUserReferralsCsv
+    exportUserReferralsCsv,
+    getGlobalReferralsList,
+    approveReferralBonus,
+    flagReferralBonus,
+    reverseReferralBonus,
+    rewardTieredReferrers
 };

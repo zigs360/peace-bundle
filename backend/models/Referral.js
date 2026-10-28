@@ -52,6 +52,12 @@ const Referral = sequelize.define('Referral', {
     defaultValue: 'pending',
     field: 'status'
   },
+  bonus_status: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'locked',
+    field: 'bonus_status'
+  },
   qualifying_deposit_amount: {
     type: DataTypes.DECIMAL(15, 2),
     allowNull: true,
@@ -69,6 +75,60 @@ const Referral = sequelize.define('Referral', {
     allowNull: true,
     defaultValue: null,
     field: 'qualifying_transaction_id'
+  },
+  qualifying_transaction_amount: {
+    type: DataTypes.DECIMAL(15, 2),
+    allowNull: true,
+    defaultValue: null,
+    field: 'qualifying_transaction_amount'
+  },
+  qualifying_transaction_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null,
+    field: 'qualifying_transaction_at'
+  },
+  flag_reason: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    defaultValue: null,
+    field: 'flag_reason'
+  },
+  flagged_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null,
+    field: 'flagged_at'
+  },
+  flagged_by: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    defaultValue: null,
+    field: 'flagged_by'
+  },
+  reversed_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null,
+    field: 'reversed_at'
+  },
+  reversal_reason: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    defaultValue: null,
+    field: 'reversal_reason'
+  },
+  reversal_admin_id: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    defaultValue: null,
+    field: 'reversal_admin_id'
+  },
+  admin_notes: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    defaultValue: null,
+    field: 'admin_notes'
   },
   referrerId: {
     type: DataTypes.UUID,

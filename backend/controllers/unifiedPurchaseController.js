@@ -181,6 +181,13 @@ const purchaseUnified = async (req, res) => {
 
         const updatedWallet = await walletService.getBalance(user);
         
+        if (finalStatusLower === 'completed') {
+          const referralService = require('../services/referralService');
+          referralService.checkAndRewardQualifyingVTU(user, newTransaction).catch((err) => {
+            logger.warn('[Referral] Failed checking qualifying VTU on unified airtime', { error: err.message, userId: user.id });
+          });
+        }
+
         if (req.body?.save_beneficiary) {
           saveBeneficiaryForUser({
             userId,
@@ -284,6 +291,13 @@ const purchaseUnified = async (req, res) => {
 
         await t.commit();
         const updatedWallet = await walletService.getBalance(user);
+
+        if (finalDataStatusLower === 'completed') {
+          const referralService = require('../services/referralService');
+          referralService.checkAndRewardQualifyingVTU(user, newTransaction).catch((err) => {
+            logger.warn('[Referral] Failed checking qualifying VTU on unified data', { error: err.message, userId: user.id });
+          });
+        }
 
         if (req.body?.save_beneficiary) {
           saveBeneficiaryForUser({

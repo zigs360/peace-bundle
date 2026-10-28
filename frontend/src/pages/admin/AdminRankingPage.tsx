@@ -128,6 +128,7 @@ interface UserReferralSummary {
 
 interface RefereeRecord {
   id: string;
+  referralId?: string | null;
   name: string;
   email: string;
   phone: string;
@@ -137,6 +138,14 @@ interface RefereeRecord {
   walletBalance: number;
   registeredAt: string;
   activityStatus: 'active' | 'inactive' | 'new' | 'registered_only' | 'suspended';
+  referralStatus?: 'pending' | 'credited' | 'flagged' | 'reversed' | string;
+  bonusStatus?: 'locked' | 'credited' | 'flagged' | 'reversed' | string;
+  bonusAmount?: number;
+  qualifyingTxAmount?: number;
+  qualifyingTxAt?: string | null;
+  flagReason?: string | null;
+  reversedAt?: string | null;
+  adminNotes?: string | null;
   lastSuccessfulTxDate: string | null;
   funding: {
     count: number;
@@ -222,6 +231,23 @@ export default function AdminRankingPage() {
   const [refereeTxnSearch, setRefereeTxnSearch] = useState('');
   const [refereeTxnSearchInput, setRefereeTxnSearchInput] = useState('');
   const [expandedTxnId, setExpandedTxnId] = useState<string | null>(null);
+
+  // Referral Checkmate Action Modal States
+  const [selectedReferralAction, setSelectedReferralAction] = useState<{
+    type: 'approve' | 'flag' | 'reverse';
+    referee: RefereeRecord;
+  } | null>(null);
+  const [actionReason, setActionReason] = useState('');
+  const [actionNotes, setActionNotes] = useState('');
+  const [actionBonusAmount, setActionBonusAmount] = useState('100');
+  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+
+  // Tiered rewards modal
+  const [showTierRewardsModal, setShowTierRewardsModal] = useState(false);
+  const [tier1Reward, setTier1Reward] = useState('5000');
+  const [tier2Reward, setTier2Reward] = useState('2500');
+  const [tier3Reward, setTier3Reward] = useState('1000');
+  const [isSubmittingTierRewards, setIsSubmittingTierRewards] = useState(false);
 
   // Fetch rankings
   const fetchRankings = async (isManual = false) => {
@@ -536,6 +562,103 @@ export default function AdminRankingPage() {
     }
   };
 
+  const getBonusStatusBadge = (status?: string) => {
+    const s = String(status || 'locked').toLowerCase();
+    switch (s) {
+      case 'credited':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+            <CheckCircle className="w-3 h-3 text-emerald-600" />
+            Credited
+          </span>
+        );
+      case 'flagged':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-800 border border-red-200">
+            <AlertTriangle className="w-3 h-3 text-red-600" />
+            Flagged
+          </span>
+        );
+      case 'reversed':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+            <ArrowDownLeft className="w-3 h-3 text-purple-600" />
+            Reversed
+          </span>
+        );
+      case 'locked':
+      case 'pending':
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200" title="Locked until referee completes qualifying VTU transaction">
+            <Clock className="w-3 h-3 text-amber-600" />
+            Locked (Pending VTU)
+          </span>
+        );
+    }
+  };
+
+  const handleExecuteReferralAction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedReferralAction || !selectedReferralAction.referee.referralId) return;
+    setIsSubmittingAction(true);
+    const { type, referee } = selectedReferralAction;
+    try {
+      if (type === 'approve') {
+        const res = await api.post(`/admin/referrals/${referee.referralId}/approve`, {
+          notes: actionNotes,
+          bonusAmount: parseFloat(actionBonusAmount) || 100
+        });
+        toast.success(res.data?.message || 'Bonus approved and credited successfully!');
+      } else if (type === 'flag') {
+        const res = await api.post(`/admin/referrals/${referee.referralId}/flag`, {
+          reason: actionReason || 'Suspicious referral pattern',
+          notes: actionNotes
+        });
+        toast.success(res.data?.message || 'Referral flagged successfully!');
+      } else if (type === 'reverse') {
+        const res = await api.post(`/admin/referrals/${referee.referralId}/reverse`, {
+          reason: actionReason || 'Reversed by admin',
+          notes: actionNotes
+        });
+        toast.success(res.data?.message || 'Bonus reversed and clawed back successfully!');
+      }
+      setSelectedReferralAction(null);
+      setActionReason('');
+      setActionNotes('');
+      if (targetUser) {
+        fetchUserReferralsList(targetUser.id, refListPage, refListStatus, refListSearch, refListSortBy);
+        fetchUserSummary(targetUser.id, inactivityDays);
+      }
+    } catch (err: any) {
+      console.error('Failed executing referral action', err);
+      toast.error(err.response?.data?.message || 'Failed executing referral action');
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
+  const handleDistributeTierRewards = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingTierRewards(true);
+    try {
+      const tiers = [
+        { rankStart: 1, rankEnd: 1, rewardAmount: parseFloat(tier1Reward) || 5000, title: '1st Place Champion' },
+        { rankStart: 2, rankEnd: 3, rewardAmount: parseFloat(tier2Reward) || 2500, title: 'Top 3 Performer' },
+        { rankStart: 4, rankEnd: 10, rewardAmount: parseFloat(tier3Reward) || 1000, title: 'Top 10 Contender' }
+      ];
+      const res = await api.post('/admin/leaderboard/tier-rewards', { tiers, period });
+      toast.success(res.data?.message || `Successfully distributed tier rewards!`);
+      setShowTierRewardsModal(false);
+      fetchRankings();
+    } catch (err: any) {
+      console.error('Failed to distribute tier rewards', err);
+      toast.error(err.response?.data?.message || 'Failed to distribute tier rewards');
+    } finally {
+      setIsSubmittingTierRewards(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* ========================================================================= */}
@@ -801,6 +924,18 @@ export default function AdminRankingPage() {
                   Showing {filteredUsers.length} ranked members • Click any row or &quot;View Analytics&quot; to inspect referral network
                 </p>
               </div>
+
+              {category === 'referrals' && (
+                <button
+                  type="button"
+                  onClick={() => setShowTierRewardsModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                  title="Distribute performance-based rewards to top referrers"
+                >
+                  <Gift className="w-3.5 h-3.5" />
+                  Distribute Tiered Rewards
+                </button>
+              )}
             </div>
 
             {loading ? (
@@ -1320,6 +1455,7 @@ export default function AdminRankingPage() {
                     <tr className="border-b border-slate-100 text-slate-400 uppercase tracking-wider text-[10px] bg-slate-50/50">
                       <th className="py-3 px-4">Referee Info</th>
                       <th className="py-3 px-4">Engagement Status</th>
+                      <th className="py-3 px-4">Bonus Lifecycle</th>
                       <th className="py-3 px-4">Registered Date</th>
                       <th className="py-3 px-4">Wallet Funding (₦)</th>
                       <th className="py-3 px-4">Service Purchases (₦)</th>
@@ -1360,6 +1496,10 @@ export default function AdminRankingPage() {
                           {getActivityBadge(ref.activityStatus)}
                         </td>
 
+                        <td className="py-3.5 px-4">
+                          {getBonusStatusBadge(ref.bonusStatus)}
+                        </td>
+
                         <td className="py-3.5 px-4 text-slate-500 font-mono text-[11px]">
                           {ref.registeredAt ? new Date(ref.registeredAt).toLocaleDateString() : 'N/A'}
                         </td>
@@ -1393,15 +1533,50 @@ export default function AdminRankingPage() {
                         </td>
 
                         <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenRefereeTransactions(ref)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-primary-50 hover:text-primary-700 text-slate-700 rounded-xl text-xs font-semibold transition"
-                            title="View referee's full transaction history"
-                          >
-                            <Receipt className="w-3.5 h-3.5" />
-                            Transactions
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenRefereeTransactions(ref)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-primary-50 hover:text-primary-700 text-slate-700 rounded-xl text-xs font-semibold transition"
+                              title="View referee's full transaction history"
+                            >
+                              <Receipt className="w-3.5 h-3.5" />
+                              Txns
+                            </button>
+                            {ref.referralId && ref.bonusStatus !== 'credited' && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReferralAction({ type: 'approve', referee: ref })}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition border border-emerald-200"
+                                title="Manually approve & credit bonus"
+                              >
+                                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                Approve
+                              </button>
+                            )}
+                            {ref.referralId && ref.bonusStatus !== 'flagged' && ref.bonusStatus !== 'reversed' && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReferralAction({ type: 'flag', referee: ref })}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl text-xs font-bold transition border border-red-200"
+                                title="Flag as suspicious referral"
+                              >
+                                <AlertTriangle className="w-3 h-3 text-red-600" />
+                                Flag
+                              </button>
+                            )}
+                            {ref.referralId && ref.bonusStatus === 'credited' && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedReferralAction({ type: 'reverse', referee: ref })}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-xs font-bold transition border border-purple-200"
+                                title="Reverse bonus & clawback wallet"
+                              >
+                                <ArrowDownLeft className="w-3 h-3 text-purple-600" />
+                                Reverse
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1908,6 +2083,246 @@ export default function AdminRankingPage() {
                     <>
                       <Gift className="w-3.5 h-3.5" />
                       Credit &amp; Award Bonus
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 5. REFERRAL CHECKMATE ACTION MODAL (Approve, Flag, Reverse) */}
+      {/* ========================================================================= */}
+      {selectedReferralAction && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 overflow-hidden">
+            <div className={`p-5 border-b border-slate-100 flex items-center justify-between ${
+              selectedReferralAction.type === 'approve' ? 'bg-emerald-50/70' :
+              selectedReferralAction.type === 'flag' ? 'bg-red-50/70' : 'bg-purple-50/70'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2 rounded-xl text-white ${
+                  selectedReferralAction.type === 'approve' ? 'bg-emerald-600' :
+                  selectedReferralAction.type === 'flag' ? 'bg-red-600' : 'bg-purple-600'
+                }`}>
+                  {selectedReferralAction.type === 'approve' ? <CheckCircle className="w-5 h-5" /> :
+                   selectedReferralAction.type === 'flag' ? <AlertTriangle className="w-5 h-5" /> :
+                   <ArrowDownLeft className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    {selectedReferralAction.type === 'approve' ? 'Approve Referral Bonus' :
+                     selectedReferralAction.type === 'flag' ? 'Flag Suspicious Referral' :
+                     'Reverse Bonus & Clawback'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Referee: {selectedReferralAction.referee.name || selectedReferralAction.referee.email}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedReferralAction(null)}
+                className="p-1.5 rounded-xl hover:bg-white text-slate-400 hover:text-slate-600 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteReferralAction} className="p-6 space-y-4">
+              {selectedReferralAction.type === 'reverse' && (
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p>
+                    <strong>Warning:</strong> Reversing this bonus will automatically claw back ₦{selectedReferralAction.referee.bonusAmount || 100} from the referrer&apos;s wallet balance atomically.
+                  </p>
+                </div>
+              )}
+
+              {selectedReferralAction.type === 'approve' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Bonus Amount to Credit (₦)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="any"
+                    value={actionBonusAmount}
+                    onChange={(e) => setActionBonusAmount(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono font-bold"
+                  />
+                </div>
+              )}
+
+              {(selectedReferralAction.type === 'flag' || selectedReferralAction.type === 'reverse') && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Reason <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder={selectedReferralAction.type === 'flag' ? 'e.g., Shared device ID, duplicate phone match' : 'e.g., Fraudulent referee signup reversal'}
+                    value={actionReason}
+                    onChange={(e) => setActionReason(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Internal Admin Notes (Optional)</label>
+                <textarea
+                  rows={2}
+                  value={actionNotes}
+                  onChange={(e) => setActionNotes(e.target.value)}
+                  placeholder="Additional context or notes for audit logs..."
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedReferralAction(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAction}
+                  className={`px-5 py-2 text-xs font-bold text-white rounded-xl transition shadow-sm disabled:opacity-50 flex items-center gap-1.5 ${
+                    selectedReferralAction.type === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700' :
+                    selectedReferralAction.type === 'flag' ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-600 hover:bg-purple-700'
+                  }`}
+                >
+                  {isSubmittingAction ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      {selectedReferralAction.type === 'approve' ? 'Approve & Credit' :
+                       selectedReferralAction.type === 'flag' ? 'Confirm Flag' : 'Confirm Reversal'}
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 6. BATCH TIERED REWARDS MODAL */}
+      {/* ========================================================================= */}
+      {showTierRewardsModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-100 overflow-hidden">
+            <div className="p-6 bg-gradient-to-r from-amber-500 to-amber-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-white/20 rounded-2xl backdrop-blur-xs">
+                  <Trophy className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">Batch Tiered Rewards</h3>
+                  <p className="text-xs text-amber-100">
+                    Performance bonuses for top referrers ({period === 'all_time' ? 'All Time' : period === 'month' ? 'This Month' : 'This Week'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTierRewardsModal(false)}
+                className="p-1.5 rounded-xl hover:bg-white/20 text-white transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDistributeTierRewards} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Define the cash reward amounts for top leaderboard tiers. The system will atomically credit each qualifying referrer&apos;s bonus balance and log individual transaction records.
+              </p>
+
+              <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/70">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-amber-400 text-amber-900 font-extrabold text-xs flex items-center justify-center">1</span>
+                    <span className="text-xs font-bold text-slate-800">1st Place Champion</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-400 font-bold">₦</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={tier1Reward}
+                      onChange={(e) => setTier1Reward(e.target.value)}
+                      className="w-28 px-3 py-1.5 text-xs font-bold rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-slate-300 text-slate-800 font-extrabold text-xs flex items-center justify-center">2-3</span>
+                    <span className="text-xs font-bold text-slate-800">Top 3 Performers (Rank 2 & 3)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-400 font-bold">₦</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={tier2Reward}
+                      onChange={(e) => setTier2Reward(e.target.value)}
+                      className="w-28 px-3 py-1.5 text-xs font-bold rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-full bg-amber-200 text-amber-800 font-extrabold text-xs flex items-center justify-center">4-10</span>
+                    <span className="text-xs font-bold text-slate-800">Top 10 Contenders (Rank 4 to 10)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-400 font-bold">₦</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={tier3Reward}
+                      onChange={(e) => setTier3Reward(e.target.value)}
+                      className="w-28 px-3 py-1.5 text-xs font-bold rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowTierRewardsModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingTierRewards}
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl transition shadow-sm disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSubmittingTierRewards ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Distributing Rewards...
+                    </>
+                  ) : (
+                    <>
+                      <Gift className="w-3.5 h-3.5" />
+                      Distribute to Top Referrers
                     </>
                   )}
                 </button>

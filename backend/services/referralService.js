@@ -24,14 +24,25 @@ class ReferralService {
         try {
             await sequelize.query(`
                 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "status" VARCHAR(255) NOT NULL DEFAULT 'pending';
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "bonus_status" VARCHAR(50) NOT NULL DEFAULT 'locked';
                 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_amount" DECIMAL(15, 2);
                 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_deposit_at" TIMESTAMPTZ;
                 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_id" VARCHAR(255);
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_amount" DECIMAL(15, 2);
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "qualifying_transaction_at" TIMESTAMPTZ;
                 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
                 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referrer_signup_bonus_awarded_at" TIMESTAMPTZ;
                 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_amount" DECIMAL(15, 2) NOT NULL DEFAULT 0.00;
                 ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "referee_signup_bonus_awarded_at" TIMESTAMPTZ;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "flag_reason" TEXT;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "flagged_at" TIMESTAMPTZ;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "flagged_by" UUID;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "reversed_at" TIMESTAMPTZ;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "reversal_reason" TEXT;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "reversal_admin_id" UUID;
+                ALTER TABLE "referrals" ADD COLUMN IF NOT EXISTS "admin_notes" TEXT;
                 CREATE INDEX IF NOT EXISTS "referrals_status_idx" ON "referrals" ("status");
+                CREATE INDEX IF NOT EXISTS "referrals_bonus_status_idx" ON "referrals" ("bonus_status");
                 CREATE INDEX IF NOT EXISTS "referrals_referred_user_id_idx" ON "referrals" ("referredUserId");
                 CREATE INDEX IF NOT EXISTS "referrals_referrer_id_idx" ON "referrals" ("referrerId");
             `);
@@ -138,8 +149,8 @@ class ReferralService {
 
     /**
      * Record a new referral relationship at user signup.
-     * NOTE: Does NOT award any bonuses. Bonuses are strictly awarded upon qualifying deposit.
-     * Prevents self-referral, duplicate referral relationship, and reassignment.
+     * NOTE: Referral bonuses are locked upon sign-up and awarded ONLY after first qualifying VTU purchase.
+     * Enforces strict self-referral, multi-accounting, and device/IP checks.
      * @param {User} referrer 
      * @param {User} referredUser 
      * @param {Object} options 
@@ -149,14 +160,49 @@ class ReferralService {
             return { recorded: false, reason: 'missing_user_context' };
         }
 
-        // Strict self-referral prevention
-        if (
+        // 1. Strict self-referral prevention
+        const refPhoneNorm = String(referrer.phone || '').replace(/\D/g, '').slice(-10);
+        const userPhoneNorm = String(referredUser.phone || '').replace(/\D/g, '').slice(-10);
+        const refEmailNorm = String(referrer.email || '').trim().toLowerCase();
+        const userEmailNorm = String(referredUser.email || '').trim().toLowerCase();
+
+        const isExactSelfReferral = 
             String(referrer.id) === String(referredUser.id) ||
-            (referrer.email && referredUser.email && String(referrer.email).toLowerCase() === String(referredUser.email).toLowerCase()) ||
-            (referrer.phone && referredUser.phone && String(referrer.phone).replace(/\D/g, '') === String(referredUser.phone).replace(/\D/g, ''))
-        ) {
-            logger.warn(`[Referral] Self-referral attempt blocked for user ${referredUser.id}`);
+            (refEmailNorm && userEmailNorm && refEmailNorm === userEmailNorm) ||
+            (refPhoneNorm && userPhoneNorm && refPhoneNorm === userPhoneNorm);
+
+        if (isExactSelfReferral) {
+            logger.warn(`[Referral] Self-referral attempt blocked for user ${referredUser.id} against referrer ${referrer.id}`);
             return { recorded: false, reason: 'self_referral_disallowed' };
+        }
+
+        // 2. Suspicious Device Fingerprint & IP Check
+        let initialStatus = 'pending';
+        let initialFlagReason = null;
+        let initialFlaggedAt = null;
+
+        const incomingIpHash = options.ip ? hashValue(options.ip) : null;
+        const incomingUaHash = options.userAgent ? hashValue(options.userAgent) : null;
+
+        if (incomingIpHash || incomingUaHash) {
+            // Check if referrer has matching click or recent login from same IP/Device
+            const matchingClick = await ReferralClick.findOne({
+                where: {
+                    referrerId: referrer.id,
+                    ...(incomingIpHash && incomingUaHash 
+                        ? { [Op.or]: [{ ip_hash: incomingIpHash }, { user_agent_hash: incomingUaHash }] }
+                        : incomingIpHash 
+                        ? { ip_hash: incomingIpHash } 
+                        : { user_agent_hash: incomingUaHash })
+                }
+            }).catch(() => null);
+
+            if (matchingClick && matchingClick.referrerId === referrer.id && matchingClick.referredUserId && matchingClick.referredUserId !== referredUser.id) {
+                initialStatus = 'flagged';
+                initialFlagReason = 'suspected_self_referral_shared_network_signature';
+                initialFlaggedAt = new Date();
+                logger.warn(`[Referral] Shared IP/device network signature flagged for referrer ${referrer.id} and referee ${referredUser.id}`);
+            }
         }
 
         const t = await sequelize.transaction();
@@ -176,7 +222,8 @@ class ReferralService {
             const referralRecord = await Referral.create({
                 referrerId: referrer.id,
                 referredUserId: referredUser.id,
-                status: 'pending',
+                status: initialStatus,
+                bonus_status: 'locked',
                 registered_at: new Date(),
                 total_commissions_earned: 0,
                 total_transactions: 0,
@@ -187,6 +234,8 @@ class ReferralService {
                 qualifying_deposit_amount: null,
                 qualifying_deposit_at: null,
                 qualifying_transaction_id: null,
+                flag_reason: initialFlagReason,
+                flagged_at: initialFlaggedAt,
             }, { transaction: t });
 
             if (options.referralClickToken) {
@@ -207,11 +256,11 @@ class ReferralService {
             }
 
             await t.commit();
-            logger.info(`[Referral] Referral relationship registered: Referrer ${referrer.id} -> Referee ${referredUser.id} (Status: pending qualifying deposit)`);
-            return { recorded: true, referralId: referralRecord.id, status: 'pending' };
+            logger.info(`[Referral] Referral relationship registered: Referrer ${referrer.id} -> Referee ${referredUser.id} (Status: ${initialStatus}, Bonus: locked until first qualifying VTU purchase)`);
+            return { recorded: true, referralId: referralRecord.id, status: initialStatus };
         } catch (error) {
             await t.rollback();
-            if (/column.*(status|qualifying_deposit).*does not exist/i.test(error.message) && !options._retried) {
+            if (/column.*(status|bonus_status|qualifying_deposit).*does not exist/i.test(error.message) && !options._retried) {
                 logger.warn('[Referral] Detected missing columns in referrals table during signup, attempting runtime auto-heal...');
                 await this._ensureSchemaCompatibility();
                 return await this.recordReferralSignup(referrer, referredUser, { ...options, _retried: true });
@@ -226,6 +275,297 @@ class ReferralService {
      */
     async trackReferral(referrer, referredUser, options = {}) {
         return this.recordReferralSignup(referrer, referredUser, options);
+    }
+
+    /**
+     * Verify and reward referral bonuses upon a referee's first successful qualifying VTU transaction.
+     * Enforces transaction-gated logic, atomic locks, idempotency, and anti-fraud safeguards.
+     * Lifecycle: Locked -> Verified -> Credited
+     * @param {User} refereeUser
+     * @param {Object} transactionRecord
+     * @param {Object} [externalTransaction]
+     */
+    async checkAndRewardQualifyingVTU(refereeUser, transactionRecord, externalTransaction = null) {
+        if (!refereeUser || !refereeUser.id) {
+            return { rewarded: false, reason: 'missing_user' };
+        }
+        if (!transactionRecord) {
+            return { rewarded: false, reason: 'missing_transaction' };
+        }
+
+        const QUALIFYING_VTU_SOURCES = [
+            'data_purchase',
+            'airtime_purchase',
+            'bill_payment',
+            'cable',
+            'electricity',
+            'exam_payment',
+            'bulk_sms_payment'
+        ];
+
+        const source = String(transactionRecord.source || '').toLowerCase();
+        const status = String(transactionRecord.status || '').toLowerCase();
+        const type = String(transactionRecord.type || '').toLowerCase();
+
+        // Must be a completed debit transaction for a qualifying VTU service
+        if (status !== 'completed' || type !== 'debit' || !QUALIFYING_VTU_SOURCES.includes(source)) {
+            return { rewarded: false, reason: 'not_qualifying_vtu_transaction', source, status, type };
+        }
+
+        const amountNum = parseFloat(transactionRecord.amount || 0);
+        const minQualifyingVTU = parseRewardAmount(
+            await SystemSetting.get('referral_qualifying_vtu_min', 100),
+            100
+        );
+
+        if (amountNum < minQualifyingVTU) {
+            logger.info(`[Referral] Referee ${refereeUser.id} VTU transaction ₦${amountNum} is below qualifying minimum ₦${minQualifyingVTU}. Bonus locked.`);
+            return { rewarded: false, reason: 'below_qualifying_threshold', minQualifyingVTU, amount: amountNum };
+        }
+
+        const work = async (t) => {
+            // Find pending referral for this user where bonuses have not been awarded yet (atomic lock)
+            const referralRecord = await Referral.findOne({
+                where: {
+                    referredUserId: refereeUser.id,
+                    referrer_signup_bonus_awarded_at: null,
+                },
+                transaction: t,
+                lock: t.LOCK.UPDATE,
+            });
+
+            if (!referralRecord) {
+                return { rewarded: false, reason: 'no_pending_qualifying_referral' };
+            }
+
+            // If referral was flagged or reversed by admin or anti-fraud, do not auto-credit
+            if (referralRecord.status === 'flagged' || referralRecord.status === 'reversed') {
+                logger.warn(`[Referral] Referral ${referralRecord.id} has status "${referralRecord.status}". Automated bonus crediting halted.`);
+                return { rewarded: false, reason: `referral_${referralRecord.status}`, status: referralRecord.status };
+            }
+
+            const referrerUser = await User.findByPk(referralRecord.referrerId, { transaction: t });
+            if (!referrerUser) {
+                logger.error(`[Referral] Referrer ${referralRecord.referrerId} not found for referral ${referralRecord.id}`);
+                return { rewarded: false, reason: 'referrer_not_found' };
+            }
+
+            // Anti-Fraud self-referral check: verify referee & referrer are distinct entities
+            const normP1 = String(referrerUser.phone || '').replace(/\D/g, '').slice(-10);
+            const normP2 = String(refereeUser.phone || '').replace(/\D/g, '').slice(-10);
+            const isSelfReferral = 
+                String(referrerUser.id) === String(refereeUser.id) ||
+                (referrerUser.email && refereeUser.email && String(referrerUser.email).toLowerCase() === String(refereeUser.email).toLowerCase()) ||
+                (normP1 && normP2 && normP1 === normP2);
+
+            if (isSelfReferral) {
+                logger.warn(`[Referral] Self-referral detected at reward stage for referral ${referralRecord.id}. Flagging.`);
+                await referralRecord.update({
+                    status: 'flagged',
+                    flag_reason: 'self_referral_detected_at_reward',
+                    flagged_at: new Date()
+                }, { transaction: t });
+                return { rewarded: false, reason: 'self_referral_flagged' };
+            }
+
+            const referrerWallet = await Wallet.findOne({
+                where: { userId: referrerUser.id },
+                transaction: t,
+                lock: t.LOCK.UPDATE,
+            });
+
+            if (!referrerWallet) {
+                logger.error(`[Referral] Referrer wallet not found for user ${referrerUser.id}`);
+                return { rewarded: false, reason: 'referrer_wallet_not_found' };
+            }
+
+            const refereeWallet = await Wallet.findOne({
+                where: { userId: refereeUser.id },
+                transaction: t,
+                lock: t.LOCK.UPDATE,
+            });
+
+            const referrerBonusAmount = parseRewardAmount(
+                await SystemSetting.get('referrer_signup_bonus_amount', 100),
+                100
+            );
+            const refereeBonusAmount = parseRewardAmount(
+                await SystemSetting.get('referee_signup_bonus_amount', 50),
+                50
+            );
+
+            const now = new Date();
+            const txId = transactionRecord?.id || transactionRecord?.reference || `VTU-${Date.now()}`;
+
+            // Phase: Verified -> Credited
+            // 1. Credit Referrer Wallet Bonus
+            let referrerBalanceBefore = parseFloat(referrerWallet.bonus_balance || 0);
+            let referrerBalanceAfter = referrerBalanceBefore;
+
+            if (referrerBonusAmount > 0) {
+                referrerBalanceAfter = referrerBalanceBefore + referrerBonusAmount;
+                await referrerWallet.update({ bonus_balance: referrerBalanceAfter }, { transaction: t });
+
+                await Transaction.create({
+                    id: crypto.randomUUID(),
+                    userId: referrerUser.id,
+                    walletId: referrerWallet.id,
+                    type: 'credit',
+                    amount: referrerBonusAmount,
+                    balance_before: referrerBalanceBefore,
+                    balance_after: referrerBalanceAfter,
+                    source: 'bonus',
+                    status: 'completed',
+                    reference: `REF-BONUS-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+                    description: `Referral bonus for referring ${refereeUser.name || 'Friend'} (First VTU: ${source} ₦${amountNum.toLocaleString()})`,
+                    metadata: {
+                        referredUserId: refereeUser.id,
+                        referredUserName: refereeUser.name,
+                        referralId: referralRecord.id,
+                        qualifyingTransactionId: String(txId),
+                        qualifyingTransactionAmount: amountNum,
+                        qualifyingServiceType: source,
+                        kind: 'referrer_vtu_bonus',
+                        lifecycle: 'credited'
+                    },
+                    completed_at: now,
+                }, { transaction: t });
+            }
+
+            // 2. Credit Referee Welcome Bonus
+            let refereeBalanceBefore = refereeWallet ? parseFloat(refereeWallet.bonus_balance || 0) : 0;
+            let refereeBalanceAfter = refereeBalanceBefore;
+
+            if (refereeWallet && refereeBonusAmount > 0) {
+                refereeBalanceAfter = refereeBalanceBefore + refereeBonusAmount;
+                await refereeWallet.update({ bonus_balance: refereeBalanceAfter }, { transaction: t });
+
+                await Transaction.create({
+                    id: crypto.randomUUID(),
+                    userId: refereeUser.id,
+                    walletId: refereeWallet.id,
+                    type: 'credit',
+                    amount: refereeBonusAmount,
+                    balance_before: refereeBalanceBefore,
+                    balance_after: refereeBalanceAfter,
+                    source: 'bonus',
+                    status: 'completed',
+                    reference: `REF-WELCOME-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+                    description: `Welcome bonus unlocked on your first VTU transaction!`,
+                    metadata: {
+                        referralId: referralRecord.id,
+                        referrerId: referrerUser.id,
+                        qualifyingTransactionId: String(txId),
+                        qualifyingTransactionAmount: amountNum,
+                        qualifyingServiceType: source,
+                        kind: 'referee_vtu_welcome_bonus',
+                        lifecycle: 'credited'
+                    },
+                    completed_at: now,
+                }, { transaction: t });
+            }
+
+            // 3. Mark Referral as Credited
+            await referralRecord.update({
+                status: 'credited',
+                bonus_status: 'credited',
+                qualifying_transaction_id: String(txId),
+                qualifying_transaction_amount: amountNum,
+                qualifying_transaction_at: now,
+                referrer_signup_bonus_amount: referrerBonusAmount,
+                referrer_signup_bonus_awarded_at: now,
+                referee_signup_bonus_amount: refereeBonusAmount,
+                referee_signup_bonus_awarded_at: now,
+                total_transactions: Number(referralRecord.total_transactions || 0) + 1,
+            }, { transaction: t });
+
+            logger.info(`[Referral] Transaction-gated bonus credited! Referrer ${referrerUser.id} credited ₦${referrerBonusAmount}, Referee ${refereeUser.id} credited ₦${refereeBonusAmount}`);
+
+            // Asynchronous notification delivery
+            setImmediate(async () => {
+                try {
+                    const notificationRealtimeService = require('./notificationRealtimeService');
+                    const { sendEmail } = require('./notificationService');
+
+                    notificationRealtimeService.emitToUser(referrerUser.id, 'wallet_balance_updated', {
+                        reference: `REF-BONUS-${referralRecord.id}`,
+                        amount: referrerBonusAmount,
+                        gateway: 'referral_bonus',
+                        balance: referrerBalanceAfter
+                    });
+
+                    await notificationRealtimeService.sendToUser(referrerUser.id, {
+                        title: '🎁 Referral Bonus Credited!',
+                        message: `Your referral bonus of ₦${referrerBonusAmount.toLocaleString()} has been unlocked and credited because ${refereeUser.name || 'your friend'} completed their first VTU transaction!`,
+                        type: 'success',
+                        priority: 'high',
+                        link: '/dashboard',
+                        metadata: { kind: 'referral_bonus', referralId: referralRecord.id, amount: referrerBonusAmount }
+                    });
+
+                    if (referrerUser.email) {
+                        await sendEmail(
+                            referrerUser.email,
+                            '🎁 Referral Bonus Credited! - Peace Bundle',
+                            `Hello ${referrerUser.name || 'Valued User'},\n\nGreat news! Your friend ${refereeUser.name || 'Referee'} has completed their first VTU transaction on Peace Bundle.\n\nYour referral bonus of ₦${referrerBonusAmount.toLocaleString()} has been credited to your bonus balance!\n\nKeep sharing your referral code: ${referrerUser.referral_code || ''}\n\nThank you for choosing Peace Bundle!`
+                        ).catch(() => {});
+                    }
+                } catch (notifyErr) {
+                    logger.warn(`[Referral] Post-credit notification warning: ${notifyErr.message}`);
+                }
+            });
+
+            return {
+                rewarded: true,
+                referralId: referralRecord.id,
+                referrerBonusAmount,
+                refereeBonusAmount,
+                qualifyingTransactionId: String(txId),
+                status: 'credited',
+            };
+        };
+
+        try {
+            if (externalTransaction) {
+                return await work(externalTransaction);
+            }
+            return await sequelize.transaction(work);
+        } catch (error) {
+            if (/column.*(bonus_status|qualifying_transaction).*does not exist/i.test(error.message)) {
+                logger.warn('[Referral] Detected missing columns in referrals table, auto-healing...');
+                await this._ensureSchemaCompatibility();
+                if (externalTransaction) {
+                    return await work(externalTransaction);
+                }
+                return await sequelize.transaction(work);
+            }
+            logger.error(`[Referral] Error crediting qualifying VTU bonus: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Record referee wallet funding deposit for tracking without awarding signup bonuses.
+     * Signup bonus remains locked until referee completes first qualifying VTU purchase.
+     */
+    async recordRefereeFunding(refereeUser, depositAmount, transactionRecord = null, externalTransaction = null) {
+        if (!refereeUser || !refereeUser.id) return { recorded: false };
+        const amountNum = parseFloat(depositAmount || 0);
+        const work = async (t) => {
+            const referralRecord = await Referral.findOne({
+                where: { referredUserId: refereeUser.id },
+                transaction: t
+            });
+            if (referralRecord) {
+                await referralRecord.update({
+                    qualifying_deposit_amount: amountNum,
+                    qualifying_deposit_at: new Date()
+                }, { transaction: t });
+            }
+            return { recorded: true };
+        };
+        if (externalTransaction) return work(externalTransaction);
+        return sequelize.transaction(work);
     }
 
     /**
