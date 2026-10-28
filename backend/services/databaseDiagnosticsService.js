@@ -190,7 +190,16 @@ const runConnectionCheck = async () => {
   }
 };
 
-const checkSchemaCompatibility = async () => {
+let cachedSchemaReport = null;
+let lastSchemaCheckAt = 0;
+const SCHEMA_CHECK_CACHE_TTL_MS = 600000; // 10 minutes cache
+
+const checkSchemaCompatibility = async (forceRefresh = false) => {
+  const now = Date.now();
+  if (!forceRefresh && cachedSchemaReport && now - lastSchemaCheckAt < SCHEMA_CHECK_CACHE_TTL_MS) {
+    return cachedSchemaReport;
+  }
+
   const report = {
     checked: false,
     transactionsTableExists: null,
@@ -198,6 +207,8 @@ const checkSchemaCompatibility = async () => {
   };
 
   if (sequelize.getDialect && sequelize.getDialect() !== 'postgres') {
+    cachedSchemaReport = report;
+    lastSchemaCheckAt = now;
     return report;
   }
 
@@ -223,6 +234,8 @@ const checkSchemaCompatibility = async () => {
     report.error = summarizeError(error);
   }
 
+  cachedSchemaReport = report;
+  lastSchemaCheckAt = now;
   return report;
 };
 

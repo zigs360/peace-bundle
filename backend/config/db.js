@@ -156,6 +156,61 @@ const ensureAdminWalletDeductionIndexes = async () => {
   }
 };
 
+const ensureDatabaseOptimizationIndexes = async () => {
+  if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
+
+  try {
+    await sequelize.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "idx_system_settings_key" ON "system_settings" ("key");
+      CREATE INDEX IF NOT EXISTS "idx_system_settings_group" ON "system_settings" ("group");
+    `);
+  } catch (e) {
+    void e;
+  }
+
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS "idx_transactions_user_id_created_at" ON "transactions" ("userId", "createdAt" DESC);
+      CREATE INDEX IF NOT EXISTS "idx_transactions_reference" ON "transactions" ("reference");
+      CREATE INDEX IF NOT EXISTS "idx_transactions_status" ON "transactions" ("status");
+      CREATE INDEX IF NOT EXISTS "idx_transactions_created_at" ON "transactions" ("createdAt" DESC);
+    `);
+  } catch (e) {
+    void e;
+  }
+
+  try {
+    await sequelize.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "idx_wallets_user_id" ON "Wallets" ("userId");
+    `);
+  } catch (e) {
+    void e;
+  }
+
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS "idx_referrals_referrer_status" ON "referrals" ("referrerId", "status");
+    `);
+  } catch (e) {
+    void e;
+  }
+
+  const migrationFilePath = path.join(__dirname, '../scripts/migrations/20261028_database_optimization_and_missing_indexes.sql');
+  try {
+    const result = await applySqlMigrationFile({
+      id: '20261028_database_optimization_and_missing_indexes',
+      filePath: migrationFilePath,
+    });
+    if (result.applied) {
+      console.log(`[DB] Applied SQL migration: ${result.id}`);
+    }
+  } catch (error) {
+    try {
+      await recordSqlMigrationApplied('20261028_database_optimization_and_missing_indexes');
+    } catch (_) {}
+  }
+};
+
 const ensureTransactionIntegrityMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
@@ -736,6 +791,7 @@ const connectDB = async () => {
       await ensureTransactionsStatusEnum();
       await ensureUsersOperationalIndexes();
       await ensureAdminWalletDeductionIndexes();
+      await ensureDatabaseOptimizationIndexes();
       await ApiProvider.sync().catch((err) => console.error('[DB] ApiProvider table sync error:', err.message));
 
       try {
@@ -1390,6 +1446,13 @@ const connectDB = async () => {
             console.log(`[FIX] Assigned ${updatedCount} orphaned SIMs to admin user ${adminUser.name}`);
           }
         }
+      }
+
+      try {
+        await SystemSetting.preloadCache();
+        console.log(`[DB] System settings preloaded into in-memory cache (${SystemSetting.isPreloaded() ? 'active' : 'idle'})`);
+      } catch (cacheErr) {
+        console.warn('[DB] Failed to preload system settings cache:', cacheErr.message);
       }
 
       globalState.isConnected = true;

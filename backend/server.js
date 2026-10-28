@@ -453,6 +453,8 @@ if (require.main === module) {
     if (process.env.NODE_ENV !== 'test') {
       try {
         await connectDB();
+        const SystemSetting = require('./models/SystemSetting');
+        await SystemSetting.preloadCache();
       } catch (err) {
         logger.error(`Database connection failed: ${err.message}`);
         process.exit(1);

@@ -32,8 +32,11 @@ class PricingService {
   }
 
   async getSystemSettingMap(transaction = null) {
+    if (typeof SystemSetting.getCacheMap === 'function') {
+      return await SystemSetting.getCacheMap();
+    }
     const now = Date.now();
-    if (!transaction && this.cache.settings && now - this.cache.settingsAt < 10000) return this.cache.settings;
+    if (!transaction && this.cache.settings && now - this.cache.settingsAt < 30000) return this.cache.settings;
 
     const rows = await SystemSetting.findAll({ transaction });
     const map = new Map(rows.map((r) => [r.key, r.value]));

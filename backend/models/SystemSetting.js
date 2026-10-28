@@ -52,17 +52,49 @@ SystemSetting.castValue = function(value, type) {
   }
 };
 
-// In-memory cache for fast lookups without hammering the database
+// In-memory cache for ultra-fast lookups without querying the database on every request
 const settingCache = new Map();
-const SETTING_CACHE_TTL_MS = 30000; // 30 seconds cache TTL
+let isCachePreloaded = false;
+let lastPreloadTime = 0;
+
+// Preload all system settings into memory once on startup
+SystemSetting.preloadCache = async function() {
+  try {
+    const settings = await this.findAll();
+    settingCache.clear();
+    for (const s of settings) {
+      const parsed = this.castValue(s.value, s.type);
+      settingCache.set(s.key, {
+        value: parsed,
+        rawValue: s.value,
+        type: s.type,
+        group: s.group,
+        description: s.description,
+        timestamp: Date.now()
+      });
+    }
+    isCachePreloaded = true;
+    lastPreloadTime = Date.now();
+    return settingCache.size;
+  } catch (error) {
+    // If DB is temporarily unavailable or in test mode before table exists
+    return 0;
+  }
+};
 
 // Static Methods
 SystemSetting.get = async function(key, defaultValue = null) {
-  const cached = settingCache.get(key);
-  if (cached && (Date.now() - cached.timestamp < SETTING_CACHE_TTL_MS)) {
-    return cached.value !== undefined ? cached.value : defaultValue;
+  if (settingCache.has(key)) {
+    const entry = settingCache.get(key);
+    return entry.value !== undefined ? entry.value : defaultValue;
   }
 
+  // If cache is preloaded and key is not found, avoid hitting DB repeatedly
+  if (isCachePreloaded) {
+    return defaultValue;
+  }
+
+  // Fallback for cold start or un-preloaded state
   const setting = await this.findOne({ where: { key } });
   
   if (!setting) {
@@ -71,13 +103,42 @@ SystemSetting.get = async function(key, defaultValue = null) {
   }
 
   const parsed = this.castValue(setting.value, setting.type);
-  settingCache.set(key, { value: parsed, timestamp: Date.now() });
+  settingCache.set(key, {
+    value: parsed,
+    rawValue: setting.value,
+    type: setting.type,
+    group: setting.group,
+    description: setting.description,
+    timestamp: Date.now()
+  });
   return parsed;
 };
 
-SystemSetting.set = async function(key, value, type = 'string', group = 'general', description = null) {
-  settingCache.delete(key);
+// Return a Map of all settings from in-memory cache (or warm if not yet preloaded)
+SystemSetting.getCacheMap = async function() {
+  if (!isCachePreloaded) {
+    await this.preloadCache();
+  }
+  const map = new Map();
+  for (const [k, v] of settingCache.entries()) {
+    map.set(k, v.value);
+  }
+  return map;
+};
 
+// Return all settings as key-value plain object from in-memory cache
+SystemSetting.getAllCached = async function() {
+  if (!isCachePreloaded) {
+    await this.preloadCache();
+  }
+  const result = {};
+  for (const [k, v] of settingCache.entries()) {
+    result[k] = v.value;
+  }
+  return result;
+};
+
+SystemSetting.set = async function(key, value, type = 'string', group = 'general', description = null) {
   const stringValue = (type === 'json' || type === 'array') && typeof value !== 'string' 
     ? JSON.stringify(value) 
     : String(value);
@@ -101,12 +162,28 @@ SystemSetting.set = async function(key, value, type = 'string', group = 'general
   }
 
   const parsed = this.castValue(setting.value, setting.type);
-  settingCache.set(key, { value: parsed, timestamp: Date.now() });
+  settingCache.set(key, {
+    value: parsed,
+    rawValue: setting.value,
+    type: setting.type,
+    group: setting.group,
+    description: setting.description,
+    timestamp: Date.now()
+  });
   return setting;
 };
 
 SystemSetting.clearCache = function() {
   settingCache.clear();
+  isCachePreloaded = false;
+};
+
+SystemSetting.refreshCache = async function() {
+  return await this.preloadCache();
+};
+
+SystemSetting.isPreloaded = function() {
+  return isCachePreloaded;
 };
 
 module.exports = SystemSetting;

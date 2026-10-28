@@ -1559,6 +1559,10 @@ const updateSystemSettings = async (req, res) => {
             );
         }));
 
+        if (typeof SystemSetting.refreshCache === 'function') {
+            await SystemSetting.refreshCache();
+        }
+
         res.json({ message: 'Settings updated successfully' });
     } catch (error) {
         console.error(error);
