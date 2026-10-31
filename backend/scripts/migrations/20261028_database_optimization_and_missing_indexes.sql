@@ -16,4 +16,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx_wallets_user_id" ON "Wallets" ("userId");
 -- 4. Indexes for referrals (leaderboards, user referral network, status lookups)
 CREATE INDEX IF NOT EXISTS "idx_referrals_referrer_status" ON "referrals" ("referrerId", "status");
 
+-- 5. Indexes for Users hot paths (auth lookup with paranoid deletedAt, phone/email login, referral lookups)
+CREATE INDEX IF NOT EXISTS "idx_users_id_deleted_at" ON "Users" ("id", "deletedAt");
+CREATE INDEX IF NOT EXISTS "idx_users_email_deleted_at" ON "Users" ("email", "deletedAt");
+CREATE INDEX IF NOT EXISTS "idx_users_phone_deleted_at" ON "Users" ("phone", "deletedAt");
+CREATE INDEX IF NOT EXISTS "idx_users_referral_code" ON "Users" ("referral_code");
+CREATE INDEX IF NOT EXISTS "idx_users_referred_by" ON "Users" ("referred_by");
+
 COMMIT;

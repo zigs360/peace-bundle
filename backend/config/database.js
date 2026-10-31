@@ -63,8 +63,8 @@ if (globalThis.__peacebundle_sequelize) {
       : (isRenderExternal || (isProduction && databaseUrl && !isLocalhost && !isRenderInternal && !isDockerInternal));
     
     const poolConfig = {
-      max: parseIntegerEnv(process.env.DB_POOL_MAX, 5),
-      min: parseIntegerEnv(process.env.DB_POOL_MIN, 0),
+      max: parseIntegerEnv(process.env.DB_POOL_MAX, 10),
+      min: parseIntegerEnv(process.env.DB_POOL_MIN, 2),
       acquire: parseIntegerEnv(process.env.DB_POOL_ACQUIRE_MS, 30000),
       idle: parseIntegerEnv(process.env.DB_POOL_IDLE_MS, 10000),
       evict: parseIntegerEnv(process.env.DB_POOL_EVICT_MS, 1000),

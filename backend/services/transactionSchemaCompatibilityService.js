@@ -62,7 +62,8 @@ async function getTransactionSchemaCompatibility({ forceRefresh = false } = {}) 
   }
 
   try {
-    const desc = await sequelize.getQueryInterface().describeTable('transactions');
+    const { getTableColumnsFast } = require('../utils/tableColumnsHelper');
+    const desc = await getTableColumnsFast(sequelize, 'transactions');
     const missingIntegrityColumns = TRANSACTION_INTEGRITY_COLUMNS.filter(
       (columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName),
     );

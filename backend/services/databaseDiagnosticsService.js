@@ -2,6 +2,7 @@ const { QueryTypes } = require('sequelize');
 const crypto = require('crypto');
 const sequelize = require('../config/database');
 const logger = require('../utils/logger');
+const { getTableColumnsFast } = require('../utils/tableColumnsHelper');
 
 const DIAGNOSTICS_STATE_KEY = Symbol.for('peacebundle.databaseDiagnosticsState');
 
@@ -131,7 +132,9 @@ const instrumentQueries = () => {
       table = match ? match[1] : null;
     }
     const hash = crypto.createHash('sha256').update(cleaned).digest('hex').slice(0, 12);
-    return { op, table, hash };
+    const sqlPreview = cleaned.length > 250 ? cleaned.slice(0, 250) + '...' : cleaned;
+    const isLockWait = upper.includes('PG_ADVISORY_XACT_LOCK') || upper.includes('PG_ADVISORY_LOCK');
+    return { op: isLockWait ? 'LOCK_WAIT' : op, table, hash, isLockWait, sql: sqlPreview };
   };
 
   sequelize.query = async function instrumentedQuery(...args) {
@@ -149,7 +152,9 @@ const instrumentQueries = () => {
         metrics.lastSlowQueryAt = metrics.lastQueryAt;
         const fp = fingerprintSql(sqlText);
         metrics.lastSlowQuery = fp ? { durationMs, ...fp } : { durationMs };
-        if (fp) {
+        if (fp?.isLockWait) {
+          logger.info(`[DB] Advisory lock acquisition completed (${durationMs}ms)`, fp);
+        } else if (fp) {
           logger.warn(`[DB] Slow query detected (${durationMs}ms)`, fp);
         } else {
           logger.warn(`[DB] Slow query detected (${durationMs}ms)`);
@@ -213,9 +218,10 @@ const checkSchemaCompatibility = async (forceRefresh = false) => {
   }
 
   try {
-    const desc = await sequelize.getQueryInterface().describeTable('transactions');
+    const desc = await getTableColumnsFast(sequelize, 'transactions');
+    const colsCount = Object.keys(desc || {}).length;
     report.checked = true;
-    report.transactionsTableExists = true;
+    report.transactionsTableExists = colsCount > 0;
     const requiredColumns = [
       'payment_channel',
       'fulfillment_route',
@@ -225,9 +231,9 @@ const checkSchemaCompatibility = async (forceRefresh = false) => {
       'refund_reference',
       'anomaly_flag',
     ];
-    report.missingTransactionColumns = requiredColumns.filter(
-      (columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName),
-    );
+    report.missingTransactionColumns = colsCount > 0
+      ? requiredColumns.filter((columnName) => !Object.prototype.hasOwnProperty.call(desc || {}, columnName))
+      : requiredColumns;
   } catch (error) {
     report.checked = true;
     report.transactionsTableExists = false;

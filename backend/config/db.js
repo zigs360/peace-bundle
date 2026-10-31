@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { DataTypes, Op } = require('sequelize');
 const fs = require('fs');
 const path = require('path');
+const { getTableColumnsFast, hasTableFast } = require('../utils/tableColumnsHelper');
 
 let isConnected = false;
 const globalState = globalThis.__peacebundle_db_state || {
@@ -195,6 +196,18 @@ const ensureDatabaseOptimizationIndexes = async () => {
     void e;
   }
 
+  try {
+    await sequelize.query(`
+      CREATE INDEX IF NOT EXISTS "idx_users_id_deleted_at" ON "Users" ("id", "deletedAt");
+      CREATE INDEX IF NOT EXISTS "idx_users_email_deleted_at" ON "Users" ("email", "deletedAt");
+      CREATE INDEX IF NOT EXISTS "idx_users_phone_deleted_at" ON "Users" ("phone", "deletedAt");
+      CREATE INDEX IF NOT EXISTS "idx_users_referral_code" ON "Users" ("referral_code");
+      CREATE INDEX IF NOT EXISTS "idx_users_referred_by" ON "Users" ("referred_by");
+    `);
+  } catch (e) {
+    void e;
+  }
+
   const migrationFilePath = path.join(__dirname, '../scripts/migrations/20261028_database_optimization_and_missing_indexes.sql');
   try {
     const result = await applySqlMigrationFile({
@@ -214,10 +227,9 @@ const ensureDatabaseOptimizationIndexes = async () => {
 const ensureTransactionIntegrityMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
-  const qi = sequelize.getQueryInterface();
   let desc;
   try {
-    desc = await qi.describeTable('transactions');
+    desc = await getTableColumnsFast(sequelize, 'transactions');
   } catch (error) {
     return;
   }
@@ -249,7 +261,7 @@ const ensureTransactionIntegrityMigrationApplied = async () => {
     throw error;
   }
 
-  const descAfter = await qi.describeTable('transactions');
+  const descAfter = await getTableColumnsFast(sequelize, 'transactions');
   const stillMissingColumns = requiredColumns.filter(
     (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
   );
@@ -261,10 +273,9 @@ const ensureTransactionIntegrityMigrationApplied = async () => {
 const ensureCallSubscriptionModuleMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
-  const qi = sequelize.getQueryInterface();
   let desc;
   try {
-    desc = await qi.describeTable('CallPlans');
+    desc = await getTableColumnsFast(sequelize, 'CallPlans');
   } catch (error) {
     return;
   }
@@ -295,7 +306,7 @@ const ensureCallSubscriptionModuleMigrationApplied = async () => {
     throw error;
   }
 
-  const descAfter = await qi.describeTable('CallPlans');
+  const descAfter = await getTableColumnsFast(sequelize, 'CallPlans');
   const stillMissingColumns = requiredColumns.filter(
     (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
   );
@@ -307,14 +318,12 @@ const ensureCallSubscriptionModuleMigrationApplied = async () => {
 const ensureReferralSystemMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
-  const qi = sequelize.getQueryInterface();
   let desc;
   let hasReferralClicks = false;
   try {
-    desc = await qi.describeTable('referrals');
+    desc = await getTableColumnsFast(sequelize, 'referrals');
     // Check if referral_clicks table exists
-    await qi.describeTable('referral_clicks');
-    hasReferralClicks = true;
+    hasReferralClicks = await hasTableFast(sequelize, 'referral_clicks');
   } catch (error) {
     // If referrals table doesn't exist, we skip
     if (!desc) return;
@@ -354,7 +363,7 @@ const ensureReferralSystemMigrationApplied = async () => {
     }
   }
 
-  const descAfter = await qi.describeTable('referrals');
+  const descAfter = await getTableColumnsFast(sequelize, 'referrals');
   const stillMissingColumns = requiredColumns.filter(
     (columnName) => !Object.prototype.hasOwnProperty.call(descAfter || {}, columnName),
   );
@@ -373,10 +382,9 @@ const ensureReferralSystemMigrationApplied = async () => {
 const ensureReferralQualifyingDepositMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
-  const qi = sequelize.getQueryInterface();
   let desc;
   try {
-    desc = await qi.describeTable('referrals');
+    desc = await getTableColumnsFast(sequelize, 'referrals');
   } catch (error) {
     if (!desc) return;
   }
@@ -442,14 +450,11 @@ const ensureReferralQualifyingDepositMigrationApplied = async () => {
 const ensureAccountDeletionMigrationApplied = async () => {
   if (!sequelize?.getDialect || sequelize.getDialect() !== 'postgres') return;
 
-  const qi = sequelize.getQueryInterface();
   let hasRequests = false;
   let hasAudits = false;
   try {
-    await qi.describeTable('account_deletion_requests');
-    hasRequests = true;
-    await qi.describeTable('account_deletion_audits');
-    hasAudits = true;
+    hasRequests = await hasTableFast(sequelize, 'account_deletion_requests');
+    hasAudits = await hasTableFast(sequelize, 'account_deletion_audits');
   } catch (error) {
     // If one of the tables doesn't exist, we will run the migration
   }
@@ -842,8 +847,7 @@ const connectDB = async () => {
       };
       const tableExists = async (tableName) => {
         try {
-          await qi.describeTable(normalizeTableName(tableName));
-          return true;
+          return await hasTableFast(sequelize, normalizeTableName(tableName));
         } catch (e) {
           return false;
         }
@@ -851,8 +855,8 @@ const connectDB = async () => {
       const ensureColumn = async (tableName, columnName, columnDef) => {
         const normalizedTableName = normalizeTableName(tableName);
         try {
-          const desc = await qi.describeTable(normalizedTableName).catch(() => null);
-          if (!desc) return; // Table does not exist yet, sequelize.sync will create it
+          const desc = await getTableColumnsFast(sequelize, normalizedTableName).catch(() => null);
+          if (!desc || Object.keys(desc).length === 0) return; // Table does not exist yet, sequelize.sync will create it
           if (Object.prototype.hasOwnProperty.call(desc, columnName)) return;
           if (dialect === 'postgres') {
             const queryGenerator = qi.queryGenerator;
@@ -1105,9 +1109,10 @@ const connectDB = async () => {
         };
 
         try {
-          const desc = await qi.describeTable(normalizeTableName(callPlansTable));
+          const desc = await getTableColumnsFast(sequelize, normalizeTableName(callPlansTable));
+          const colsCount = Object.keys(desc || {}).length;
           result.checked = true;
-          result.tableExists = true;
+          result.tableExists = colsCount > 0;
           const requiredColumns = [
             'customer_price',
             'dealer_commission',

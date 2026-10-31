@@ -251,4 +251,22 @@ User.afterCreate(async (user, options) => {
   }
 });
 
+User.afterUpdate((user) => {
+  try {
+    const { invalidateUserAuthCache } = require('../middleware/authMiddleware');
+    if (typeof invalidateUserAuthCache === 'function') {
+      invalidateUserAuthCache(user.id);
+    }
+  } catch (_) {}
+});
+
+User.afterDestroy((user) => {
+  try {
+    const { invalidateUserAuthCache } = require('../middleware/authMiddleware');
+    if (typeof invalidateUserAuthCache === 'function') {
+      invalidateUserAuthCache(user.id);
+    }
+  } catch (_) {}
+});
+
 module.exports = User;

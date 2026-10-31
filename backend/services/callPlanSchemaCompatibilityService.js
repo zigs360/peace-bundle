@@ -69,9 +69,10 @@ async function getCallPlanSchemaCompatibility({ forceRefresh = false } = {}) {
       'call_plans'
     ].filter(Boolean);
 
+    const { getTableColumnsFast } = require('../utils/tableColumnsHelper');
     for (const candidate of candidates) {
       try {
-        desc = await sequelize.getQueryInterface().describeTable(candidate);
+        desc = await getTableColumnsFast(sequelize, candidate);
         if (desc && Object.keys(desc).length > 0) break;
       } catch (_) {}
     }
