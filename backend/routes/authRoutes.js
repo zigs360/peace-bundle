@@ -153,6 +153,7 @@ const enforceSensitiveHttps = (req, res, next) => {
 const { getPublicSettings } = require('../controllers/adminController');
 
 router.get('/settings/public', getPublicSettings);
+router.get('/settings/whatsapp-group', getPublicSettings);
 router.post('/register', authLimiter, validate(registerValidation), registerUser);
 router.post('/referral/click', authLimiter, trackReferralClick);
 router.post('/login', authLimiter, validate(loginValidation), loginUser);

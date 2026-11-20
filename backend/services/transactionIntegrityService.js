@@ -287,7 +287,8 @@ class TransactionIntegrityService {
       const rowClientReference = String(metadata.client_reference || metadata.reference || '').trim();
       const rowFingerprint = String(metadata.transaction_fingerprint || '').trim();
       if (clientReference && rowClientReference && rowClientReference === clientReference) return true;
-      if (fingerprint && rowFingerprint && rowFingerprint === fingerprint) return true;
+      const isPending = ['processing', 'queued'].includes(String(row.status || '').toLowerCase());
+      if (fingerprint && rowFingerprint && rowFingerprint === fingerprint && isPending) return true;
       return false;
     }) || null;
   }

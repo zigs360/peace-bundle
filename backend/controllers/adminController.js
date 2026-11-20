@@ -1434,7 +1434,12 @@ const getSystemSettings = async (req, res) => {
             { key: 'referee_signup_bonus_amount', value: '50', type: 'number', group: 'referrals', description: 'Bonus awarded to referee upon first qualifying deposit' },
             { key: 'maintenanceMode', value: 'false', type: 'boolean', group: 'general', description: 'System maintenance mode' },
             { key: 'allowRegistration', value: 'true', type: 'boolean', group: 'general', description: 'Allow new user registrations' },
-            { key: 'developerMode', value: 'false', type: 'boolean', group: 'general', description: 'Developer mode flag' }
+            { key: 'developerMode', value: 'false', type: 'boolean', group: 'general', description: 'Developer mode flag' },
+            { key: 'whatsapp_group_enabled', value: 'false', type: 'boolean', group: 'community', description: 'Enable or disable WhatsApp Group Floating Action Button' },
+            { key: 'whatsapp_group_link', value: '', type: 'string', group: 'community', description: 'WhatsApp Group invite link (e.g. https://chat.whatsapp.com/...)' },
+            { key: 'whatsapp_group_title', value: 'Join our Official WhatsApp Community', type: 'string', group: 'community', description: 'WhatsApp Group title or description' },
+            { key: 'whatsapp_group_start_time', value: '', type: 'string', group: 'community', description: 'Daily appearance start time (HH:mm, 24-hour format). Leave empty for 24/7.' },
+            { key: 'whatsapp_group_end_time', value: '', type: 'string', group: 'community', description: 'Daily appearance end time (HH:mm, 24-hour format). Leave empty for 24/7.' }
         ];
 
         for (const def of defaults) {
@@ -1483,6 +1488,43 @@ const getPublicSettings = async (req, res) => {
         const maintenanceMode = await SystemSetting.get('maintenanceMode', false);
         const allowRegistration = await SystemSetting.get('allowRegistration', true);
 
+        const isTimeWindowActive = (startTime, endTime) => {
+            if (!startTime || !endTime) return true;
+            try {
+                const now = new Date();
+                const lagosTime = new Intl.DateTimeFormat('en-GB', {
+                    timeZone: 'Africa/Lagos',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                }).format(now);
+                const [curH, curM] = lagosTime.split(':').map((v) => parseInt(v, 10));
+                const curMinutes = curH * 60 + curM;
+
+                const [startH, startM] = String(startTime).trim().split(':').map((v) => parseInt(v, 10));
+                const startMinutes = (Number.isFinite(startH) ? startH : 0) * 60 + (Number.isFinite(startM) ? startM : 0);
+
+                const [endH, endM] = String(endTime).trim().split(':').map((v) => parseInt(v, 10));
+                const endMinutes = (Number.isFinite(endH) ? endH : 0) * 60 + (Number.isFinite(endM) ? endM : 0);
+
+                if (startMinutes <= endMinutes) {
+                    return curMinutes >= startMinutes && curMinutes <= endMinutes;
+                } else {
+                    return curMinutes >= startMinutes || curMinutes <= endMinutes;
+                }
+            } catch (err) {
+                return true;
+            }
+        };
+
+        const waEnabledRaw = await SystemSetting.get('whatsapp_group_enabled', false);
+        const waEnabled = waEnabledRaw === true || waEnabledRaw === 'true' || waEnabledRaw === '1' || waEnabledRaw === 1;
+        const waLink = String(await SystemSetting.get('whatsapp_group_link', '') || '').trim();
+        const waTitle = String(await SystemSetting.get('whatsapp_group_title', 'Join our Official WhatsApp Community') || '').trim();
+        const waStartTime = String(await SystemSetting.get('whatsapp_group_start_time', '') || '').trim();
+        const waEndTime = String(await SystemSetting.get('whatsapp_group_end_time', '') || '').trim();
+        const waIsActive = waEnabled && Boolean(waLink) && isTimeWindowActive(waStartTime, waEndTime);
+
         res.set('Cache-Control', 'no-store');
         res.json({
             success: true,
@@ -1499,7 +1541,15 @@ const getPublicSettings = async (req, res) => {
                 service_airtime_glo: serviceStatuses.airtime.glo,
                 service_airtime_9mobile: serviceStatuses.airtime['9mobile'],
                 maintenanceMode: maintenanceMode === true || maintenanceMode === 'true',
-                allowRegistration: allowRegistration !== false && allowRegistration !== 'false'
+                allowRegistration: allowRegistration !== false && allowRegistration !== 'false',
+                whatsapp_group: {
+                    enabled: waEnabled,
+                    link: waLink,
+                    title: waTitle,
+                    start_time: waStartTime,
+                    end_time: waEndTime,
+                    is_active: waIsActive,
+                }
             }
         });
     } catch (error) {
@@ -1522,7 +1572,15 @@ const getPublicSettings = async (req, res) => {
                 service_airtime_glo: true,
                 service_airtime_9mobile: true,
                 maintenanceMode: false,
-                allowRegistration: true
+                allowRegistration: true,
+                whatsapp_group: {
+                    enabled: false,
+                    link: '',
+                    title: 'Join our Official WhatsApp Community',
+                    start_time: '',
+                    end_time: '',
+                    is_active: false,
+                }
             }
         });
     }

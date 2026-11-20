@@ -417,6 +417,8 @@ const unifiedPurchaseRoutes = require('./routes/unifiedPurchaseRoutes');
 const transferRoutes = require('./routes/transferRoutes');
 const apiProviderRoutes = require('./routes/apiProviderRoutes');
 
+const { getPublicSettings } = require('./controllers/adminController');
+app.get(['/api/settings/public', '/api/settings/whatsapp-group'], getPublicSettings);
 app.use('/api/auth', authRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/sims', simRoutes);

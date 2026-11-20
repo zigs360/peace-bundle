@@ -44,6 +44,25 @@ export default function UserLayout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const [whatsappGroup, setWhatsappGroup] = useState<{
+    enabled: boolean;
+    link: string;
+    title: string;
+    is_active: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    // Fetch public settings for WhatsApp Group FAB
+    api.get('/auth/settings/public').then((res) => {
+      const wa = res?.data?.settings?.whatsapp_group;
+      if (wa && wa.is_active && wa.link) {
+        setWhatsappGroup(wa);
+      } else {
+        setWhatsappGroup(null);
+      }
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     // Fetch user profile
     api.get('/auth/profile').then(res => {
@@ -435,6 +454,20 @@ export default function UserLayout() {
             </PageTransition>
           </AnimatePresence>
         </div>
+        {whatsappGroup?.is_active && whatsappGroup?.link && (
+          <a
+            href={whatsappGroup.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 bg-[#25D366] hover:bg-[#20ba59] text-white px-4 py-3 rounded-full shadow-lg hover:shadow-2xl hover:scale-105 transition-all duration-300 font-semibold text-sm group"
+            title={whatsappGroup.title || 'Join WhatsApp Group'}
+          >
+            <MessageSquare className="w-5 h-5 fill-current" />
+            <span className="hidden sm:inline font-bold tracking-wide">
+              {whatsappGroup.title || 'Join WhatsApp Group'}
+            </span>
+          </a>
+        )}
       </main>
     </div>
     </ShellFrame>

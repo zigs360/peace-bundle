@@ -860,6 +860,9 @@ const refreshUserToken = async (req, res) => {
         res.json({
             success: true,
             message: 'Session refreshed',
+            token: newToken,
+            accessToken: newToken,
+            refreshToken: newRefreshToken,
         });
     } catch (error) {
         logger.error(`[Auth] Token refresh error: ${error.message}`);

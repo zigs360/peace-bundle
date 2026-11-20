@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react';
 import api from '../../services/api';
-import { Save, Settings as SettingsIcon } from 'lucide-react';
+import { Save, Settings as SettingsIcon, MessageSquare } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState<Record<string, any>>({});
   const [maskedKeys, setMaskedKeys] = useState<Record<string, true>>({});
   const [loading, setLoading] = useState(true);
+
+  const handleChange = (key: string, value: any) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+  };
 
   useEffect(() => {
     fetchSettings();
@@ -486,6 +490,83 @@ export default function AdminSettings() {
                   onChange={(e) => handleChange('settlement_account_name', e.target.value)}
                   placeholder="Account name"
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* WhatsApp Community & Group Settings */}
+          <div className="border-b pb-6 bg-emerald-50/50 p-5 rounded-xl border border-emerald-200">
+            <div className="flex items-center gap-2 mb-1">
+              <MessageSquare className="w-5 h-5 text-emerald-600" />
+              <h2 className="text-lg font-bold text-gray-900">WhatsApp Community & Group Settings</h2>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Configure the WhatsApp Group floating action button visible to users when logged in.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="flex items-center justify-between p-3.5 bg-white border border-emerald-200 rounded-lg shadow-sm">
+                <div>
+                  <label htmlFor="whatsapp_group_enabled" className="block text-sm font-semibold text-gray-800 cursor-pointer">
+                    Enable WhatsApp Group FAB
+                  </label>
+                  <span className="text-xs text-gray-500">Show floating WhatsApp button to users</span>
+                </div>
+                <input
+                  id="whatsapp_group_enabled"
+                  type="checkbox"
+                  className="h-5 w-5 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
+                  checked={Boolean(settings['whatsapp_group_enabled'])}
+                  onChange={(e) => handleChange('whatsapp_group_enabled', e.target.checked)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Group Title / Text</label>
+                <input
+                  type="text"
+                  className="mt-1 block w-full border rounded-md px-3 py-2 border-emerald-200 bg-white"
+                  value={settings['whatsapp_group_title'] ?? 'Join our Official WhatsApp Community'}
+                  onChange={(e) => handleChange('whatsapp_group_title', e.target.value)}
+                  placeholder="e.g. Join our Official WhatsApp Community"
+                />
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700">WhatsApp Group Link</label>
+              <input
+                type="text"
+                className="mt-1 block w-full border rounded-md px-3 py-2 border-emerald-200 bg-white"
+                value={settings['whatsapp_group_link'] || ''}
+                onChange={(e) => handleChange('whatsapp_group_link', e.target.value)}
+                placeholder="https://chat.whatsapp.com/..."
+              />
+              <span className="text-xs text-gray-500">The full invite link for the WhatsApp group or community.</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Daily Appear Time (24-Hour WAT)</label>
+                <input
+                  type="time"
+                  className="mt-1 block w-full border rounded-md px-3 py-2 border-emerald-200 bg-white"
+                  value={settings['whatsapp_group_start_time'] || ''}
+                  onChange={(e) => handleChange('whatsapp_group_start_time', e.target.value)}
+                  placeholder="08:00"
+                />
+                <span className="text-xs text-gray-500">Start time for FAB to appear (leave blank for 24/7).</span>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Daily Disappear Time (24-Hour WAT)</label>
+                <input
+                  type="time"
+                  className="mt-1 block w-full border rounded-md px-3 py-2 border-emerald-200 bg-white"
+                  value={settings['whatsapp_group_end_time'] || ''}
+                  onChange={(e) => handleChange('whatsapp_group_end_time', e.target.value)}
+                  placeholder="22:00"
+                />
+                <span className="text-xs text-gray-500">End time for FAB to disappear (leave blank for 24/7).</span>
               </div>
             </div>
           </div>
