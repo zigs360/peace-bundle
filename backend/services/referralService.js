@@ -398,13 +398,19 @@ class ReferralService {
             const txId = transactionRecord?.id || transactionRecord?.reference || `VTU-${Date.now()}`;
 
             // Phase: Verified -> Credited
-            // 1. Credit Referrer Wallet Bonus
-            let referrerBalanceBefore = parseFloat(referrerWallet.bonus_balance || 0);
-            let referrerBalanceAfter = referrerBalanceBefore;
+            // 1. Credit Referrer Wallet Main Balance & Bonus Balance
+            let referrerMainBefore = parseFloat(referrerWallet.balance || 0);
+            let referrerMainAfter = referrerMainBefore;
+            let referrerBonusBefore = parseFloat(referrerWallet.bonus_balance || 0);
+            let referrerBonusAfter = referrerBonusBefore;
 
             if (referrerBonusAmount > 0) {
-                referrerBalanceAfter = referrerBalanceBefore + referrerBonusAmount;
-                await referrerWallet.update({ bonus_balance: referrerBalanceAfter }, { transaction: t });
+                referrerMainAfter = parseFloat((referrerMainBefore + referrerBonusAmount).toFixed(2));
+                referrerBonusAfter = parseFloat((referrerBonusBefore + referrerBonusAmount).toFixed(2));
+                await referrerWallet.update({
+                    balance: referrerMainAfter,
+                    bonus_balance: referrerBonusAfter
+                }, { transaction: t });
 
                 await Transaction.create({
                     id: crypto.randomUUID(),
@@ -412,8 +418,8 @@ class ReferralService {
                     walletId: referrerWallet.id,
                     type: 'credit',
                     amount: referrerBonusAmount,
-                    balance_before: referrerBalanceBefore,
-                    balance_after: referrerBalanceAfter,
+                    balance_before: referrerMainBefore,
+                    balance_after: referrerMainAfter,
                     source: 'bonus',
                     status: 'completed',
                     reference: `REF-BONUS-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
@@ -426,19 +432,26 @@ class ReferralService {
                         qualifyingTransactionAmount: amountNum,
                         qualifyingServiceType: source,
                         kind: 'referrer_vtu_bonus',
-                        lifecycle: 'credited'
+                        lifecycle: 'credited',
+                        credited_to_main_balance: true
                     },
                     completed_at: now,
                 }, { transaction: t });
             }
 
             // 2. Credit Referee Welcome Bonus
-            let refereeBalanceBefore = refereeWallet ? parseFloat(refereeWallet.bonus_balance || 0) : 0;
-            let refereeBalanceAfter = refereeBalanceBefore;
+            let refereeMainBefore = refereeWallet ? parseFloat(refereeWallet.balance || 0) : 0;
+            let refereeMainAfter = refereeMainBefore;
+            let refereeBonusBefore = refereeWallet ? parseFloat(refereeWallet.bonus_balance || 0) : 0;
+            let refereeBonusAfter = refereeBonusBefore;
 
             if (refereeWallet && refereeBonusAmount > 0) {
-                refereeBalanceAfter = refereeBalanceBefore + refereeBonusAmount;
-                await refereeWallet.update({ bonus_balance: refereeBalanceAfter }, { transaction: t });
+                refereeMainAfter = parseFloat((refereeMainBefore + refereeBonusAmount).toFixed(2));
+                refereeBonusAfter = parseFloat((refereeBonusBefore + refereeBonusAmount).toFixed(2));
+                await refereeWallet.update({
+                    balance: refereeMainAfter,
+                    bonus_balance: refereeBonusAfter
+                }, { transaction: t });
 
                 await Transaction.create({
                     id: crypto.randomUUID(),
@@ -446,8 +459,8 @@ class ReferralService {
                     walletId: refereeWallet.id,
                     type: 'credit',
                     amount: refereeBonusAmount,
-                    balance_before: refereeBalanceBefore,
-                    balance_after: refereeBalanceAfter,
+                    balance_before: refereeMainBefore,
+                    balance_after: refereeMainAfter,
                     source: 'bonus',
                     status: 'completed',
                     reference: `REF-WELCOME-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
@@ -459,7 +472,8 @@ class ReferralService {
                         qualifyingTransactionAmount: amountNum,
                         qualifyingServiceType: source,
                         kind: 'referee_vtu_welcome_bonus',
-                        lifecycle: 'credited'
+                        lifecycle: 'credited',
+                        credited_to_main_balance: true
                     },
                     completed_at: now,
                 }, { transaction: t });
@@ -477,6 +491,7 @@ class ReferralService {
                 referee_signup_bonus_amount: refereeBonusAmount,
                 referee_signup_bonus_awarded_at: now,
                 total_transactions: Number(referralRecord.total_transactions || 0) + 1,
+                total_commissions_earned: parseFloat(referralRecord.total_commissions_earned || 0) + referrerBonusAmount,
             }, { transaction: t });
 
             logger.info(`[Referral] Transaction-gated bonus credited! Referrer ${referrerUser.id} credited ₦${referrerBonusAmount}, Referee ${refereeUser.id} credited ₦${refereeBonusAmount}`);
@@ -487,11 +502,16 @@ class ReferralService {
                     const notificationRealtimeService = require('./notificationRealtimeService');
                     const { sendEmail } = require('./notificationService');
 
+                    if (globalThis.__peacebundle_dashboard_stats_cache) {
+                        globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${referrerUser.id}`);
+                        globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${refereeUser.id}`);
+                    }
+
                     notificationRealtimeService.emitToUser(referrerUser.id, 'wallet_balance_updated', {
                         reference: `REF-BONUS-${referralRecord.id}`,
                         amount: referrerBonusAmount,
                         gateway: 'referral_bonus',
-                        balance: referrerBalanceAfter
+                        balance: referrerMainAfter
                     });
 
                     await notificationRealtimeService.sendToUser(referrerUser.id, {
@@ -648,13 +668,19 @@ class ReferralService {
             const now = new Date();
             const txId = transactionRecord?.id || transactionRecord?.reference || `DEP-${Date.now()}`;
 
-            // 1. Credit Referrer Bonus Balance
-            let referrerBalanceBefore = parseFloat(referrerWallet.bonus_balance || 0);
-            let referrerBalanceAfter = referrerBalanceBefore;
+            // 1. Credit Referrer Main Balance & Bonus Balance
+            let referrerMainBefore = parseFloat(referrerWallet.balance || 0);
+            let referrerMainAfter = referrerMainBefore;
+            let referrerBonusBefore = parseFloat(referrerWallet.bonus_balance || 0);
+            let referrerBonusAfter = referrerBonusBefore;
 
             if (referrerBonusAmount > 0) {
-                referrerBalanceAfter = referrerBalanceBefore + referrerBonusAmount;
-                await referrerWallet.update({ bonus_balance: referrerBalanceAfter }, { transaction: t });
+                referrerMainAfter = parseFloat((referrerMainBefore + referrerBonusAmount).toFixed(2));
+                referrerBonusAfter = parseFloat((referrerBonusBefore + referrerBonusAmount).toFixed(2));
+                await referrerWallet.update({
+                    balance: referrerMainAfter,
+                    bonus_balance: referrerBonusAfter
+                }, { transaction: t });
 
                 await Transaction.create({
                     id: crypto.randomUUID(),
@@ -662,8 +688,8 @@ class ReferralService {
                     walletId: referrerWallet.id,
                     type: 'credit',
                     amount: referrerBonusAmount,
-                    balance_before: referrerBalanceBefore,
-                    balance_after: referrerBalanceAfter,
+                    balance_before: referrerMainBefore,
+                    balance_after: referrerMainAfter,
                     source: 'bonus',
                     status: 'completed',
                     reference: `REF-BONUS-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
@@ -674,18 +700,25 @@ class ReferralService {
                         referralId: referralRecord.id,
                         qualifyingDepositAmount: amountNum,
                         kind: 'referrer_qualifying_bonus',
+                        credited_to_main_balance: true
                     },
                     completed_at: now,
                 }, { transaction: t });
             }
 
             // 2. Credit Referee Welcome Bonus Balance
-            let refereeBalanceBefore = refereeWallet ? parseFloat(refereeWallet.bonus_balance || 0) : 0;
-            let refereeBalanceAfter = refereeBalanceBefore;
+            let refereeMainBefore = refereeWallet ? parseFloat(refereeWallet.balance || 0) : 0;
+            let refereeMainAfter = refereeMainBefore;
+            let refereeBonusBefore = refereeWallet ? parseFloat(refereeWallet.bonus_balance || 0) : 0;
+            let refereeBonusAfter = refereeBonusBefore;
 
             if (refereeWallet && refereeBonusAmount > 0) {
-                refereeBalanceAfter = refereeBalanceBefore + refereeBonusAmount;
-                await refereeWallet.update({ bonus_balance: refereeBalanceAfter }, { transaction: t });
+                refereeMainAfter = parseFloat((refereeMainBefore + refereeBonusAmount).toFixed(2));
+                refereeBonusAfter = parseFloat((refereeBonusBefore + refereeBonusAmount).toFixed(2));
+                await refereeWallet.update({
+                    balance: refereeMainAfter,
+                    bonus_balance: refereeBonusAfter
+                }, { transaction: t });
 
                 await Transaction.create({
                     id: crypto.randomUUID(),
@@ -693,8 +726,8 @@ class ReferralService {
                     walletId: refereeWallet.id,
                     type: 'credit',
                     amount: refereeBonusAmount,
-                    balance_before: refereeBalanceBefore,
-                    balance_after: refereeBalanceAfter,
+                    balance_before: refereeMainBefore,
+                    balance_after: refereeMainAfter,
                     source: 'bonus',
                     status: 'completed',
                     reference: `REF-WELCOME-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
@@ -704,6 +737,7 @@ class ReferralService {
                         referrerId: referrerUser.id,
                         qualifyingDepositAmount: amountNum,
                         kind: 'referee_qualifying_bonus',
+                        credited_to_main_balance: true
                     },
                     completed_at: now,
                 }, { transaction: t });
@@ -722,7 +756,26 @@ class ReferralService {
                 total_commissions_earned: parseFloat(referralRecord.total_commissions_earned || 0) + referrerBonusAmount,
             }, { transaction: t });
 
+            if (globalThis.__peacebundle_dashboard_stats_cache) {
+                globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${referrerUser.id}`);
+                if (refereeUser) {
+                    globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${refereeUser.id}`);
+                }
+            }
+
             logger.info(`[Referral] Qualifying deposit rewarded! Referrer ${referrerUser.id} credited ₦${referrerBonusAmount}, Referee ${refereeUser.id} credited ₦${refereeBonusAmount}`);
+
+            setImmediate(async () => {
+                try {
+                    const notificationRealtimeService = require('./notificationRealtimeService');
+                    notificationRealtimeService.emitToUser(referrerUser.id, 'wallet_balance_updated', {
+                        reference: `REF-BONUS-${referralRecord.id}`,
+                        amount: referrerBonusAmount,
+                        gateway: 'referral_bonus',
+                        balance: referrerMainAfter
+                    });
+                } catch (_) {}
+            });
 
             return {
                 rewarded: true,
@@ -892,6 +945,82 @@ class ReferralService {
         } catch (err) {
             logger.warn(`[Referral Sync] Failed during referral synchronization: ${err.message}`);
             return { synced: false, error: err.message };
+        }
+    }
+
+    /**
+     * Reconcile any historical or uncredited referral bonus transactions
+     * ensuring that bonus transactions (source: 'bonus') are credited into wallet.balance.
+     * @param {string} userId
+     */
+    async reconcileUncreditedBonusBalances(userId) {
+        if (!userId) return { reconciled: false };
+        try {
+            const uncreditedTransactions = await Transaction.findAll({
+                where: {
+                    userId,
+                    source: 'bonus',
+                    status: 'completed',
+                },
+                order: [['createdAt', 'ASC']],
+            });
+
+            if (!uncreditedTransactions || uncreditedTransactions.length === 0) {
+                return { reconciled: false, count: 0 };
+            }
+
+            const pendingCreditTxns = uncreditedTransactions.filter(tx => {
+                const meta = tx.metadata && typeof tx.metadata === 'object' ? tx.metadata : {};
+                return meta.credited_to_main_balance !== true;
+            });
+
+            if (pendingCreditTxns.length === 0) {
+                return { reconciled: false, count: 0 };
+            }
+
+            let totalMissingCredit = 0;
+            for (const tx of pendingCreditTxns) {
+                const amount = parseFloat(tx.amount || 0);
+                if (Number.isFinite(amount) && amount > 0) {
+                    totalMissingCredit += amount;
+                }
+            }
+
+            if (totalMissingCredit <= 0) {
+                return { reconciled: false, count: 0 };
+            }
+
+            await sequelize.transaction(async (t) => {
+                const wallet = await Wallet.findOne({
+                    where: { userId },
+                    transaction: t,
+                    lock: t.LOCK.UPDATE
+                });
+
+                if (wallet) {
+                    const currentBalance = parseFloat(wallet.balance || 0);
+                    const newBalance = parseFloat((currentBalance + totalMissingCredit).toFixed(2));
+                    await wallet.update({ balance: newBalance }, { transaction: t });
+
+                    for (const tx of pendingCreditTxns) {
+                        const meta = tx.metadata && typeof tx.metadata === 'object' ? { ...tx.metadata } : {};
+                        meta.credited_to_main_balance = true;
+                        meta.reconciled_at = new Date().toISOString();
+                        await tx.update({ metadata: meta }, { transaction: t });
+                    }
+
+                    if (globalThis.__peacebundle_dashboard_stats_cache) {
+                        globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${userId}`);
+                    }
+
+                    logger.info(`[ReferralReconciliation] Reconciled ₦${totalMissingCredit} bonus credit to main balance for user ${userId}`);
+                }
+            });
+
+            return { reconciled: true, amount: totalMissingCredit, count: pendingCreditTxns.length };
+        } catch (err) {
+            logger.warn(`[ReferralReconciliation] Failed to reconcile bonuses for user ${userId}: ${err.message}`);
+            return { reconciled: false, error: err.message };
         }
     }
 }

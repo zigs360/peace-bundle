@@ -1483,6 +1483,14 @@ const getDashboardStats = async (req, res) => {
                 throw err;
             }
 
+            try {
+                const referralService = require('../services/referralService');
+                const rec = await referralService.reconcileUncreditedBonusBalances(user.id);
+                if (rec && rec.reconciled) {
+                    await wallet.reload();
+                }
+            } catch (_) {}
+
             const walletId = wallet.id;
             const [transactionsCount, recentTransactions] = await Promise.all([
                 Transaction.count({ where: { walletId } }),

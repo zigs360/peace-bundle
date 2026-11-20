@@ -1159,9 +1159,18 @@ async function approveReferralBonus(referralId, adminUser, options = {}) {
         }
 
         const bonusAmount = parseFloat(options.bonusAmount) || parseFloat(referral.referrer_signup_bonus_amount) || 100;
+        const curMain = parseFloat(referrerWallet.balance || 0);
+        const newMain = parseFloat((curMain + bonusAmount).toFixed(2));
         const curBonus = parseFloat(referrerWallet.bonus_balance || 0);
-        const newBonus = curBonus + bonusAmount;
-        await referrerWallet.update({ bonus_balance: newBonus }, { transaction: t });
+        const newBonus = parseFloat((curBonus + bonusAmount).toFixed(2));
+        await referrerWallet.update({
+            balance: newMain,
+            bonus_balance: newBonus
+        }, { transaction: t });
+
+        if (globalThis.__peacebundle_dashboard_stats_cache) {
+            globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${referrer.id}`);
+        }
 
         const now = new Date();
         const refCode = `REF-ADM-APPR-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
@@ -1171,8 +1180,8 @@ async function approveReferralBonus(referralId, adminUser, options = {}) {
             walletId: referrerWallet.id,
             type: 'credit',
             amount: bonusAmount,
-            balance_before: curBonus,
-            balance_after: newBonus,
+            balance_before: curMain,
+            balance_after: newMain,
             source: 'bonus',
             status: 'completed',
             reference: refCode,
@@ -1355,9 +1364,24 @@ async function rewardTieredReferrers(adminUser, {
                 continue;
             }
 
+            const rewardAmount = parseFloat(matchingTier.rewardAmount || 0);
+            if (rewardAmount <= 0) {
+                await t.rollback();
+                continue;
+            }
+
+            const curMain = parseFloat(wallet.balance || 0);
+            const newMain = parseFloat((curMain + rewardAmount).toFixed(2));
             const curBonus = parseFloat(wallet.bonus_balance || 0);
-            const newBonus = curBonus + rewardAmount;
-            await wallet.update({ bonus_balance: newBonus }, { transaction: t });
+            const newBonus = parseFloat((curBonus + rewardAmount).toFixed(2));
+            await wallet.update({
+                balance: newMain,
+                bonus_balance: newBonus
+            }, { transaction: t });
+
+            if (globalThis.__peacebundle_dashboard_stats_cache) {
+                globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${recipientUser.id}`);
+            }
 
             const ref = `TIER-RWD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
             const desc = `Referral Leaderboard Reward: ${matchingTier.title || `Rank #${userRank}`} (${period})`;
@@ -1367,8 +1391,8 @@ async function rewardTieredReferrers(adminUser, {
                 walletId: wallet.id,
                 type: 'credit',
                 amount: rewardAmount,
-                balance_before: curBonus,
-                balance_after: newBonus,
+                balance_before: curMain,
+                balance_after: newMain,
                 source: 'bonus',
                 status: 'completed',
                 reference: ref,
