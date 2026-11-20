@@ -1264,14 +1264,8 @@ const getAllTransactions = async (req, res) => {
 // @access  Private
 const index = async (req, res) => {
     try {
-        const { status, provider, date_from, date_to, page = 1, limit = 20 } = req.query;
+        const { status, provider, type, source, date_from, date_to, page = 1, limit = 20 } = req.query;
         const offset = (page - 1) * limit;
-
-        const where = {
-            // Find wallet belonging to user and filter by that walletId
-            // OR if we associate Transaction directly to User (which we should for easier querying)
-            // Current model uses Wallet. Let's find User's Wallet first.
-        };
 
         const user = await User.findByPk(req.user.id, { include: [{ model: Wallet, as: 'wallet' }] });
         await ensureWalletOnUser(user);
@@ -1279,7 +1273,12 @@ const index = async (req, res) => {
             return res.json([]);
         }
 
-        where.walletId = user.wallet.id;
+        const where = {
+            [Op.or]: [
+                { walletId: user.wallet.id },
+                { userId: user.id }
+            ]
+        };
 
         // Apply filters
         if (status) {
@@ -1288,6 +1287,14 @@ const index = async (req, res) => {
 
         if (provider) {
             where.provider = provider;
+        }
+
+        if (type) {
+            where.type = type;
+        }
+
+        if (source) {
+            where.source = source;
         }
 
         if (date_from || date_to) {
@@ -1426,10 +1433,30 @@ const getTransactions = async (req, res) => {
             return res.status(404).json({ message: 'User or wallet not found' });
         }
 
-        const transactions = await Transaction.findAll(await withSafeTransactionReadAttributes({
-            where: { walletId: user.wallet.id },
+        const where = {
+            [Op.or]: [
+                { walletId: user.wallet.id },
+                { userId: user.id }
+            ]
+        };
+
+        const { status, type, source, provider, limit } = req.query;
+        if (status) where.status = status;
+        if (type) where.type = type;
+        if (source) where.source = source;
+        if (provider) where.provider = provider;
+
+        const findOptions = {
+            where,
+            include: [
+                { model: DataPlan, as: 'dataPlan' }, 
+                { model: Sim, as: 'sim' }
+            ],
             order: [['createdAt', 'DESC']]
-        }));
+        };
+        if (limit) findOptions.limit = parseInt(limit);
+
+        const transactions = await Transaction.findAll(await withSafeTransactionReadAttributes(findOptions));
         res.json(transactions.map(tx => sanitizeTransactionForClient(tx, { isAdmin })));
     } catch (error) {
         console.error(error);

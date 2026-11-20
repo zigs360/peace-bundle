@@ -26,6 +26,7 @@ const validate = require('../middleware/validationMiddleware');
 const { check } = require('express-validator');
 
 router.get('/', protect, index);
+router.get('/my', protect, getTransactions);
 router.get('/export', protect, exportTransactions);
 router.post('/fund/initialize', protect, requireTransactionPinSession('financial'), initializeFunding);
 router.post('/fund', protect, validate([

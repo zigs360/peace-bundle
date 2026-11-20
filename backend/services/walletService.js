@@ -640,6 +640,215 @@ class WalletService {
     if (t) return work(t);
     return sequelize.transaction(work);
   }
+
+  /**
+   * Atomically credit bonus to a user's wallet, record an immutable transaction row with full snapshots,
+   * log the structured [BonusCredit] line, and dispatch notifications post-commit.
+   *
+   * @param {Object} params
+   * @param {Object|string} params.user - User object or userId
+   * @param {Object} [params.wallet] - Optional pre-loaded Wallet
+   * @param {number|string} params.amount - Numeric bonus amount
+   * @param {string} params.reference - Reference (e.g. REF-BONUS-..., REF-WELCOME-..., TIER-RWD-..., REF-ADM-APPR-...)
+   * @param {string} params.description - Human-readable reason for credit
+   * @param {string} [params.kind] - Kind of bonus
+   * @param {string|number} [params.referralId] - Referral ID
+   * @param {string} [params.referredUserId] - Referred user ID
+   * @param {string} [params.qualifyingTransactionId] - Qualifying transaction ID
+   * @param {string} [params.adminId] - Admin ID
+   * @param {string} [params.target='bonus_balance'] - 'bonus_balance' or 'balance'
+   * @param {Object} [params.extraMetadata] - Extra metadata object
+   * @param {Object} [params.t] - Optional external Sequelize transaction
+   * @returns {Promise<{ transaction: Transaction, wallet: Wallet, mainBalanceBefore: number, mainBalanceAfter: number, bonusBalanceBefore: number, bonusBalanceAfter: number }>}
+   */
+  async creditBonus({
+    user,
+    wallet = null,
+    amount,
+    reference,
+    description,
+    kind = 'bonus_credit',
+    referralId = null,
+    referredUserId = null,
+    qualifyingTransactionId = null,
+    adminId = null,
+    target = 'both',
+    extraMetadata = {},
+    t = null,
+  }) {
+    const numericAmount = parseFloat(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      throw new Error(`Invalid bonus amount: ${amount}`);
+    }
+
+    const User = require('../models/User');
+
+    const work = async (transaction) => {
+      let resolvedUser = user;
+      if (!resolvedUser || typeof resolvedUser === 'string' || typeof resolvedUser === 'number') {
+        resolvedUser = await User.findByPk(resolvedUser, { transaction });
+      }
+      if (!resolvedUser) {
+        throw new Error('User not found for bonus credit');
+      }
+
+      let targetWallet = wallet;
+      if (!targetWallet) {
+        targetWallet = await this.ensureWallet(resolvedUser, transaction, { lock: true });
+      } else if (transaction) {
+        // Re-lock wallet if already passed
+        await targetWallet.reload({ transaction, lock: true });
+      }
+
+      const mainBalanceBefore = parseFloat(targetWallet.balance || 0);
+      const bonusBalanceBefore = parseFloat(targetWallet.bonus_balance || 0);
+
+      let mainBalanceAfter = mainBalanceBefore;
+      let bonusBalanceAfter = bonusBalanceBefore;
+      let movementBefore = bonusBalanceBefore;
+      let movementAfter = bonusBalanceAfter;
+
+      if (target === 'balance') {
+        mainBalanceAfter = parseFloat((mainBalanceBefore + numericAmount).toFixed(2));
+        movementBefore = mainBalanceBefore;
+        movementAfter = mainBalanceAfter;
+        await targetWallet.update({ balance: mainBalanceAfter }, { transaction });
+      } else if (target === 'bonus_balance') {
+        bonusBalanceAfter = parseFloat((bonusBalanceBefore + numericAmount).toFixed(2));
+        movementBefore = bonusBalanceBefore;
+        movementAfter = bonusBalanceAfter;
+        await targetWallet.update({ bonus_balance: bonusBalanceAfter }, { transaction });
+      } else {
+        // 'both' credits main balance and tracks in bonus_balance
+        mainBalanceAfter = parseFloat((mainBalanceBefore + numericAmount).toFixed(2));
+        bonusBalanceAfter = parseFloat((bonusBalanceBefore + numericAmount).toFixed(2));
+        movementBefore = mainBalanceBefore;
+        movementAfter = mainBalanceAfter;
+        await targetWallet.update({ balance: mainBalanceAfter, bonus_balance: bonusBalanceAfter }, { transaction });
+      }
+
+      const txRef = reference || `REF-BONUS-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+      const txDesc = description || `Bonus credit of ₦${numericAmount.toLocaleString()}`;
+
+      const metadata = {
+        kind,
+        reference: txRef,
+        referralId: referralId ? String(referralId) : null,
+        referredUserId: referredUserId ? String(referredUserId) : null,
+        qualifyingTransactionId: qualifyingTransactionId ? String(qualifyingTransactionId) : null,
+        adminId: adminId ? String(adminId) : null,
+        mainBalanceBefore,
+        mainBalanceAfter,
+        bonusBalanceBefore,
+        bonusBalanceAfter,
+        credited_to_main_balance: (target === 'both' || target === 'balance'),
+        ...(extraMetadata || {}),
+      };
+
+      const txRecord = await this.createTransactionRecord({
+        walletId: targetWallet.id,
+        userId: resolvedUser.id,
+        type: 'credit',
+        amount: numericAmount,
+        balance_before: movementBefore,
+        balance_after: movementAfter,
+        wallet_balance_before: movementBefore,
+        wallet_balance_after: movementAfter,
+        source: 'bonus',
+        status: 'completed',
+        reference: txRef,
+        description: txDesc,
+        metadata,
+        completed_at: new Date(),
+      }, { transaction, returning: false });
+
+      const postCommitWork = () => {
+        // Clear dashboard stats cache for user
+        if (globalThis.__peacebundle_dashboard_stats_cache) {
+          globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${resolvedUser.id}`);
+        }
+
+        // 1. Structured log line
+        logger.info('[BonusCredit] Credited bonus to wallet', {
+          userId: resolvedUser.id,
+          walletId: targetWallet.id,
+          reference: txRef,
+          amount: numericAmount,
+          mainBalanceBefore,
+          mainBalanceAfter,
+          bonusBalanceBefore,
+          bonusBalanceAfter,
+          description: txDesc,
+          kind,
+        });
+
+        // 2. Realtime socket notification & DB persistence
+        try {
+          const notificationRealtimeService = require('./notificationRealtimeService');
+          notificationRealtimeService.emitToUser(resolvedUser.id, 'wallet_balance_updated', {
+            reference: txRef,
+            amount: numericAmount,
+            gateway: 'bonus',
+            balance: mainBalanceAfter,
+            bonus_balance: bonusBalanceAfter,
+          });
+
+          notificationRealtimeService.sendToUser(resolvedUser.id, {
+            title: '🎁 Bonus Credited!',
+            message: txDesc,
+            type: 'success',
+            priority: 'high',
+            link: '/dashboard/transactions',
+            metadata: {
+              kind,
+              reference: txRef,
+              amount: numericAmount,
+              bonus_balance: bonusBalanceAfter,
+            },
+          }).catch((err) => {
+            logger.warn(`[BonusCredit] Realtime notification warning: ${err.message}`);
+          });
+        } catch (notifyErr) {
+          logger.warn(`[BonusCredit] Notification dispatch error: ${notifyErr.message}`);
+        }
+
+        // 3. Email notification (if user has email)
+        if (resolvedUser.email) {
+          try {
+            const { sendEmail } = require('./notificationService');
+            sendEmail(
+              resolvedUser.email,
+              '🎁 Bonus Credited! - Peace Bundle',
+              `Hello ${resolvedUser.name || 'Valued User'},\n\n` +
+              `Great news! ${txDesc}\n\n` +
+              `Amount: ₦${numericAmount.toLocaleString()}\n` +
+              `Reference: ${txRef}\n` +
+              `Your bonus balance is now: ₦${bonusBalanceAfter.toLocaleString()}\n\n` +
+              `Thank you for choosing Peace Bundle!`
+            ).catch(() => {});
+          } catch (_) {}
+        }
+      };
+
+      if (transaction && typeof transaction.afterCommit === 'function') {
+        transaction.afterCommit(postCommitWork);
+      } else {
+        setImmediate(postCommitWork);
+      }
+
+      return {
+        transaction: txRecord,
+        wallet: targetWallet,
+        mainBalanceBefore,
+        mainBalanceAfter,
+        bonusBalanceBefore,
+        bonusBalanceAfter,
+      };
+    };
+
+    if (t) return work(t);
+    return sequelize.transaction(work);
+  }
 }
 
 module.exports = new WalletService();

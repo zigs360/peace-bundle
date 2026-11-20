@@ -66,7 +66,31 @@ function sanitizePlanForClient(plan, { isAdmin = false } = {}) {
 
 function sanitizeTransactionForClient(transaction, { isAdmin = false } = {}) {
   const plain = toPlainObject(transaction);
-  if (!plain || isAdmin) return plain;
+  if (!plain) return plain;
+
+  // Ensure balance_before / balance_after and wallet_balance_before / wallet_balance_after consistency
+  if (plain.wallet_balance_before === undefined && plain.balance_before !== undefined) {
+    plain.wallet_balance_before = plain.balance_before;
+  }
+  if (plain.wallet_balance_after === undefined && plain.balance_after !== undefined) {
+    plain.wallet_balance_after = plain.balance_after;
+  }
+  if (plain.balance_before === undefined && plain.wallet_balance_before !== undefined) {
+    plain.balance_before = plain.wallet_balance_before;
+  }
+  if (plain.balance_after === undefined && plain.wallet_balance_after !== undefined) {
+    plain.balance_after = plain.wallet_balance_after;
+  }
+
+  // Ensure bonus transactions have clear badge, label, and category for feeds
+  if (String(plain.source || '').toLowerCase() === 'bonus') {
+    plain.badge = plain.badge || 'Bonus';
+    plain.source_label = plain.source_label || 'Bonus';
+    plain.category = plain.category || 'bonus';
+    plain.is_bonus = true;
+  }
+
+  if (isAdmin) return plain;
 
   if (plain.failure_reason) {
     plain.failure_reason = sanitizeUserFacingErrorMessage(

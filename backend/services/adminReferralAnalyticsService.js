@@ -3,6 +3,7 @@ const { User, Wallet, Transaction, Referral, ReferralClick, Commission } = requi
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const logger = require('../utils/logger');
+const walletService = require('./walletService');
 
 const QUALIFYING_SERVICE_SOURCES = [
     'data_purchase',
@@ -1159,42 +1160,26 @@ async function approveReferralBonus(referralId, adminUser, options = {}) {
         }
 
         const bonusAmount = parseFloat(options.bonusAmount) || parseFloat(referral.referrer_signup_bonus_amount) || 100;
-        const curMain = parseFloat(referrerWallet.balance || 0);
-        const newMain = parseFloat((curMain + bonusAmount).toFixed(2));
-        const curBonus = parseFloat(referrerWallet.bonus_balance || 0);
-        const newBonus = parseFloat((curBonus + bonusAmount).toFixed(2));
-        await referrerWallet.update({
-            balance: newMain,
-            bonus_balance: newBonus
-        }, { transaction: t });
-
-        if (globalThis.__peacebundle_dashboard_stats_cache) {
-            globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${referrer.id}`);
-        }
-
         const now = new Date();
         const refCode = `REF-ADM-APPR-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-        await Transaction.create({
-            id: crypto.randomUUID(),
-            userId: referrer.id,
-            walletId: referrerWallet.id,
-            type: 'credit',
+        const desc = `Admin approved referral bonus for referring ${referee?.name || 'User'} (#${referral.id})`;
+
+        await walletService.creditBonus({
+            user: referrer,
+            wallet: referrerWallet,
             amount: bonusAmount,
-            balance_before: curMain,
-            balance_after: newMain,
-            source: 'bonus',
-            status: 'completed',
             reference: refCode,
-            description: `Admin approved referral bonus for referring ${referee?.name || 'User'} (#${referral.id})`,
-            metadata: {
-                referralId: referral.id,
-                referredUserId: referral.referredUserId,
-                adminId: adminUser?.id || null,
+            description: desc,
+            kind: 'admin_manual_approval',
+            referralId: referral.id,
+            referredUserId: referral.referredUserId,
+            adminId: adminUser?.id || null,
+            extraMetadata: {
                 action: 'admin_manual_approval',
                 notes: options.notes || null
             },
-            completed_at: now
-        }, { transaction: t });
+            t
+        });
 
         await referral.update({
             status: 'credited',
@@ -1364,50 +1349,25 @@ async function rewardTieredReferrers(adminUser, {
                 continue;
             }
 
-            const rewardAmount = parseFloat(matchingTier.rewardAmount || 0);
-            if (rewardAmount <= 0) {
-                await t.rollback();
-                continue;
-            }
-
-            const curMain = parseFloat(wallet.balance || 0);
-            const newMain = parseFloat((curMain + rewardAmount).toFixed(2));
-            const curBonus = parseFloat(wallet.bonus_balance || 0);
-            const newBonus = parseFloat((curBonus + rewardAmount).toFixed(2));
-            await wallet.update({
-                balance: newMain,
-                bonus_balance: newBonus
-            }, { transaction: t });
-
-            if (globalThis.__peacebundle_dashboard_stats_cache) {
-                globalThis.__peacebundle_dashboard_stats_cache.delete(`dashboard:${recipientUser.id}`);
-            }
-
             const ref = `TIER-RWD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
             const desc = `Referral Leaderboard Reward: ${matchingTier.title || `Rank #${userRank}`} (${period})`;
-            await Transaction.create({
-                id: crypto.randomUUID(),
-                userId: recipientUser.id,
-                walletId: wallet.id,
-                type: 'credit',
+            await walletService.creditBonus({
+                user: recipientUser,
+                wallet,
                 amount: rewardAmount,
-                balance_before: curMain,
-                balance_after: newMain,
-                source: 'bonus',
-                status: 'completed',
                 reference: ref,
                 description: desc,
-                metadata: {
-                    kind: 'tiered_leaderboard_reward',
+                kind: 'tiered_leaderboard_reward',
+                adminId: adminUser?.id || null,
+                extraMetadata: {
                     rank: userRank,
                     tierTitle: matchingTier.title,
                     period,
-                    adminId: adminUser?.id || null,
                     activeReferrals: item.activeReferrals,
                     totalReferrals: item.totalReferrals
                 },
-                completed_at: new Date()
-            }, { transaction: t });
+                t
+            });
 
             await t.commit();
 

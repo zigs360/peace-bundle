@@ -71,6 +71,24 @@ const Transaction = sequelize.define('Transaction', {
     allowNull: false,
     field: 'wallet_balance_after' // Mapping to user schema requirement
   },
+  wallet_balance_before: {
+    type: DataTypes.VIRTUAL,
+    get() {
+      return this.getDataValue('balance_before');
+    },
+    set(value) {
+      this.setDataValue('balance_before', value);
+    }
+  },
+  wallet_balance_after: {
+    type: DataTypes.VIRTUAL,
+    get() {
+      return this.getDataValue('balance_after');
+    },
+    set(value) {
+      this.setDataValue('balance_after', value);
+    }
+  },
   
   source: {
     type: DataTypes.ENUM(
