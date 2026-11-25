@@ -702,7 +702,9 @@ const getTransactions = async (req, res) => {
             date_to 
         } = req.query;
 
-        const offset = (page - 1) * limit;
+        const pageNum = Math.max(1, parseInt(page, 10) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+        const offset = (pageNum - 1) * limitNum;
         const where = {};
 
         // Filters
@@ -746,20 +748,42 @@ const getTransactions = async (req, res) => {
         const { count, rows } = await Transaction.findAndCountAll(await withSafeTransactionReadOptions({
             where,
             include: [
-                { model: User, as: 'user', attributes: ['id', 'name', 'email'] },
+                { model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] },
+                {
+                    model: Wallet,
+                    as: 'wallet',
+                    attributes: ['id', 'userId'],
+                    include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email', 'phone'] }]
+                },
                 { model: DataPlan, as: 'dataPlan', attributes: ['id', 'name', 'provider'] },
                 { model: Sim, as: 'sim', attributes: ['id', 'phoneNumber', 'provider'] }
             ],
             order: [['createdAt', 'DESC']],
-            limit: parseInt(limit),
-            offset: parseInt(offset)
+            limit: limitNum,
+            offset,
+            distinct: true
         }));
 
+        const transactions = rows.map((row) => {
+            const tx = typeof row.toJSON === 'function' ? row.toJSON() : { ...row };
+            const resolvedUser = tx.user || tx.wallet?.user || null;
+            if (resolvedUser && !tx.user) {
+                tx.user = resolvedUser;
+            }
+            if (!tx.userId && resolvedUser?.id) {
+                tx.userId = resolvedUser.id;
+            }
+            if (tx.wallet) {
+                delete tx.wallet;
+            }
+            return tx;
+        });
+
         res.json({
-            transactions: rows,
+            transactions,
             total: count,
-            totalPages: Math.ceil(count / limit),
-            currentPage: parseInt(page)
+            totalPages: Math.max(1, Math.ceil(count / limitNum)),
+            currentPage: pageNum
         });
     } catch (error) {
         logger.error('Admin Get Transactions Error:', { error: error.message });

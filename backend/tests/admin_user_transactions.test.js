@@ -221,4 +221,64 @@ describe('Admin User Transactions and Reconciliation', () => {
     expect(res.body.message).toContain('3,000');
     expect(res.body.data.newlyCreditedCount).toBe(1);
   });
+
+  it('GET /api/admin/transactions returns paginated transactions with user name populated (including wallet fallback)', async () => {
+    // Create a transaction that only links walletId (simulating legacy tx where userId was null)
+    const walletOnlyTx = await Transaction.create({
+      userId: null,
+      walletId: targetWallet.id,
+      reference: `WALLET_ONLY_${Date.now()}`,
+      type: 'credit',
+      amount: 750,
+      fee: 0,
+      status: 'completed',
+      description: 'Wallet only legacy txn',
+      source: 'wallet',
+      balance_before: 10000,
+      balance_after: 10750,
+    });
+
+    const page1 = await request(app)
+      .get('/api/admin/transactions?page=1&limit=2')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(page1.statusCode).toBe(200);
+    expect(Array.isArray(page1.body.transactions)).toBe(true);
+    expect(page1.body.transactions.length).toBe(2);
+    expect(page1.body.currentPage).toBe(1);
+    expect(page1.body.totalPages).toBeGreaterThanOrEqual(2);
+    expect(page1.body.total).toBeGreaterThanOrEqual(5);
+
+    const resolvedWalletOnly = page1.body.transactions.find(t => t.id === walletOnlyTx.id);
+    if (resolvedWalletOnly) {
+      expect(resolvedWalletOnly.user).toBeDefined();
+      expect(resolvedWalletOnly.user.name).toBe(targetUser.name);
+      expect(resolvedWalletOnly.userId).toBe(targetUser.id);
+    }
+
+    const page2 = await request(app)
+      .get('/api/admin/transactions?page=2&limit=2')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(page2.statusCode).toBe(200);
+    expect(page2.body.currentPage).toBe(2);
+    expect(page2.body.transactions.length).toBeGreaterThanOrEqual(1);
+    for (const tx of page2.body.transactions) {
+      if (tx.userId) {
+        expect(tx.user).toBeDefined();
+        expect(tx.user.name).toBeTruthy();
+      }
+    }
+  });
+
+  it('GET /api/transactions/my supports limit and offset for bounded mobile payloads', async () => {
+    const tokenForTarget = jwt.sign({ id: targetUser.id }, process.env.JWT_SECRET);
+    const res = await request(app)
+      .get('/api/transactions/my?limit=2&offset=0')
+      .set('Authorization', `Bearer ${tokenForTarget}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBe(2);
+  });
 });

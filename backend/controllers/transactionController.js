@@ -1440,7 +1440,7 @@ const getTransactions = async (req, res) => {
             ]
         };
 
-        const { status, type, source, provider, limit } = req.query;
+        const { status, type, source, provider, limit, offset } = req.query;
         if (status) where.status = status;
         if (type) where.type = type;
         if (source) where.source = source;
@@ -1449,12 +1449,23 @@ const getTransactions = async (req, res) => {
         const findOptions = {
             where,
             include: [
-                { model: DataPlan, as: 'dataPlan' }, 
+                { model: DataPlan, as: 'dataPlan' },
                 { model: Sim, as: 'sim' }
             ],
             order: [['createdAt', 'DESC']]
         };
-        if (limit) findOptions.limit = parseInt(limit);
+        if (limit !== undefined) {
+            const parsedLimit = parseInt(limit, 10);
+            if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
+                findOptions.limit = Math.min(parsedLimit, 200);
+            }
+        }
+        if (offset !== undefined) {
+            const parsedOffset = parseInt(offset, 10);
+            if (Number.isFinite(parsedOffset) && parsedOffset >= 0) {
+                findOptions.offset = parsedOffset;
+            }
+        }
 
         const transactions = await Transaction.findAll(await withSafeTransactionReadAttributes(findOptions));
         res.json(transactions.map(tx => sanitizeTransactionForClient(tx, { isAdmin })));
